@@ -27,6 +27,11 @@
     },
     "web": {
       "bundler": "metro"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "8d4a58e3-03da-4a80-8df7-2d641bd7aaf5"
+      }
     }
   }
 }
