@@ -118,6 +118,15 @@ interface AppContextType {
   markAllNotificationsRead: () => void;
 
   // Member Management
+  registerMember: (data: {
+    name: string;
+    email: string;
+    unit: string;
+    region: string;
+    country: string;
+    group: string;
+    tenantId: string;
+  }) => string;
   approveMember: (memberId: string) => void;
 
   // Storage
@@ -1059,13 +1068,90 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
   };
 
-  // Member approve
-  const approveMember = (memberId: string) => {
-    setAllMembers((prev) =>
-      prev.map((m) => (m.id === memberId ? { ...m, status: 'verified' } : m))
-    );
+  // Member registration (PRD §6.1)
+  const registerMember = (data: {
+    name: string;
+    email: string;
+    unit: string;
+    region: string;
+    country: string;
+    group: string;
+    tenantId: string;
+  }): string => {
+    const newId = 'm-' + Date.now();
+    const memberNum = `${data.tenantId.toUpperCase()}-${Math.floor(100000 + Math.random() * 900000)}`;
+    const newMember: Member = {
+      id: newId,
+      name: data.name,
+      memberNumber: memberNum,
+      tenantId: data.tenantId,
+      email: data.email,
+      unit: data.unit,
+      region: data.region,
+      country: data.country,
+      groups: [data.group],
+      roles: ['member'],
+      status: 'pending',
+      since: 'Pending Verification',
+      notificationPrefs: {
+        announcements: true,
+        replies: true,
+        groupActivity: false,
+        caseUpdates: true,
+      },
+    };
+
+    setAllMembers((prev) => [newMember, ...prev]);
+
+    const audit: AuditEntry = {
+      id: 'aud-' + Date.now(),
+      timestamp: new Date().toLocaleString(),
+      tenantId: data.tenantId,
+      tenantName: currentTenant.name,
+      actorName: data.name,
+      actorRole: 'applicant',
+      action: 'Submit Member Application',
+      entityType: 'member',
+      entityId: newId,
+      details: `New member registration submitted for ${data.name} in ${data.unit}`,
+      isSuperAdminOverride: false,
+    };
+    setAuditLogs((prev) => [audit, ...prev]);
+
+    return newId;
   };
 
+  // Member approve
+  const approveMember = (memberId: string) => {
+    const target = allMembers.find((m) => m.id === memberId);
+    setAllMembers((prev) =>
+      prev.map((m) => (m.id === memberId ? { ...m, status: 'verified', since: new Date().toLocaleDateString() } : m))
+    );
+
+    if (target) {
+      const audit: AuditEntry = {
+        id: 'aud-' + Date.now(),
+        timestamp: new Date().toLocaleString(),
+        tenantId: currentTenantId,
+        tenantName: currentTenant.name,
+        actorName: currentMember.name,
+        actorRole: currentMember.roles[0],
+        action: 'Approve Member Registration',
+        entityType: 'member',
+        entityId: memberId,
+        details: `Approved membership for ${target.name} (${target.memberNumber})`,
+        isSuperAdminOverride: false,
+      };
+      setAuditLogs((prev) => [audit, ...prev]);
+
+      setPushBanner({
+        id: 'pb-' + Date.now(),
+        title: 'Membership approved',
+        subtitle: `${target.name} is now a verified member of ${currentTenant.name}.`,
+        time: 'now',
+      });
+    }
+  };
   // Reset to synthetic data
   const resetToSyntheticData = () => {
     localStorage.removeItem(STORAGE_KEY + '_tenants');
@@ -1128,6 +1214,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         dismissPushBanner,
         markNotificationRead,
         markAllNotificationsRead,
+        registerMember,
         approveMember,
         resetToSyntheticData,
       }}

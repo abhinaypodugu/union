@@ -1,0 +1,10 @@
+{
+  "name": "Commons — Organization & Issue Management",
+  "short_name": "Commons",
+  "description": "Multi-tenant membership, community and issue-management platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF8F5",
+  "theme_color": "#FAF8F5",
+  "orientation": "portrait"
+}

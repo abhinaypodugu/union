@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useApp } from '../context/AppContext';
+import { AuthScreen } from '../auth/AuthScreen';
 import {
   IconButton,
   Avatar,
@@ -7,6 +9,7 @@ import {
   Button,
   Select,
   Field,
+  Dialog,
 } from '../components';
 
 interface ProfileScreenProps {
@@ -22,6 +25,8 @@ export function ProfileScreen({ onBack }: ProfileScreenProps) {
     setAppMode,
     isPlatformSuperAdmin,
   } = useApp();
+
+  const [authModalOpen, setAuthModalOpen] = useState(false);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100%', paddingBottom: 32 }}>
@@ -162,11 +167,25 @@ export function ProfileScreen({ onBack }: ProfileScreenProps) {
         </div>
       </div>
 
-      <div style={{ padding: '0 12px' }}>
-        <Button variant="secondary" block icon="log-out" onClick={onBack}>
+      <div style={{ padding: '0 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <Button variant="secondary" block icon="log-out" onClick={() => setAuthModalOpen(true)}>
+          Sign in / Switch account
+        </Button>
+        <Button variant="ghost" block onClick={onBack}>
           Close profile
         </Button>
       </div>
+
+      <Dialog
+        open={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        width={480}
+      >
+        <AuthScreen
+          onClose={() => setAuthModalOpen(false)}
+          onSuccess={() => setAuthModalOpen(false)}
+        />
+      </Dialog>
     </div>
   );
 }

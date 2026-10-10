@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Commons",
+    "slug": "commons-union",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./src/assets/icons/shield.svg",
+    "scheme": "commons",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#FAF8F5",
+      "resizeMode": "contain"
+    },
+    "ios": {
+      "bundleIdentifier": "org.commons.union",
+      "supportsTablet": true,
+      "infoPlist": {
+        "UIBackgroundModes": ["remote-notification"]
+      }
+    },
+    "android": {
+      "package": "org.commons.union",
+      "permissions": ["POST_NOTIFICATIONS", "INTERNET"],
+      "adaptiveIcon": {
+        "backgroundColor": "#FAF8F5"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

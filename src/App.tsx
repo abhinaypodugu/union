@@ -2,8 +2,9 @@ import { useApp } from './context/AppContext';
 import { MemberApp } from './member/MemberApp';
 import { AdminDashboard } from './admin/AdminDashboard';
 import { IOSDevice } from './components/frame/IOSDevice';
-import { Icon, Toast } from './components';
-
+import { Icon, Toast, Dialog, Button } from './components';
+import { AuthScreen } from './auth/AuthScreen';
+import { useState } from 'react';
 export function App() {
   const {
     tenants,
@@ -20,6 +21,8 @@ export function App() {
     pushBanner,
     dismissPushBanner,
   } = useApp();
+
+  const [authDialogOpen, setAuthDialogOpen] = useState(false);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
@@ -178,6 +181,14 @@ export function App() {
               OVERRIDE PERM
             </span>
           )}
+          <Button
+            variant="secondary"
+            size="sm"
+            icon="user"
+            onClick={() => setAuthDialogOpen(true)}
+          >
+            Account
+          </Button>
         </div>
 
         {/* Mobile Frame Toggle */}
@@ -268,6 +279,18 @@ export function App() {
             />
           </div>
         )}
+
+        {/* Auth Dialog */}
+        <Dialog
+          open={authDialogOpen}
+          onClose={() => setAuthDialogOpen(false)}
+          width={480}
+        >
+          <AuthScreen
+            onClose={() => setAuthDialogOpen(false)}
+            onSuccess={() => setAuthDialogOpen(false)}
+          />
+        </Dialog>
       </div>
     </div>
   );
