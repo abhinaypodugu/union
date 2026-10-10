@@ -22,6 +22,7 @@ import {
   AuditEntry,
   INITIAL_AUDIT_LOG,
 } from '../data/mock';
+import { dbService } from '../services/db';
 
 interface Store {
   // Tenant & Terminology
@@ -69,8 +70,9 @@ interface Store {
   suspendCommitteeMember: (name: string, reason: string) => void;
   approveCommitteeMember: (name: string) => void;
 
-  // Audit
+  // Audit & DB Mode
   auditLogs: AuditEntry[];
+  isLiveDatabase: boolean;
 
   // Toast
   toast: (t: ToastData) => void;
@@ -102,6 +104,33 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const [toastData, setToastData] = React.useState<(ToastData & { key: number }) | null>(null);
 
   const insets = useSafeAreaInsets();
+
+  React.useEffect(() => {
+    if (!dbService.isLive()) return;
+    let mounted = true;
+    async function loadData() {
+      const [liveIssues, livePosts, liveMembers] = await Promise.all([
+        dbService.getIssues(currentTenantId),
+        dbService.getPosts(currentTenantId),
+        dbService.getMembers(currentTenantId),
+      ]);
+      if (!mounted) return;
+      if (liveIssues.length > 0) setIssues(liveIssues);
+      if (livePosts.length > 0) setPosts(livePosts);
+      if (liveMembers.length > 0) setPersonas(liveMembers);
+    }
+    loadData();
+
+    const unsub = dbService.subscribeToChanges('issues', currentTenantId, () => {
+      dbService.getIssues(currentTenantId).then((res) => {
+        if (mounted && res.length > 0) setIssues(res);
+      });
+    });
+    return () => {
+      mounted = false;
+      unsub();
+    };
+  }, [currentTenantId]);
 
   React.useEffect(() => {
     if (!toastData) return;
@@ -277,6 +306,20 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       },
       ...prev,
     ]);
+    if (dbService.isLive()) {
+      dbService.insertIssue(newIssue);
+      dbService.insertAudit(
+        {
+          id: 'aud-' + Date.now(),
+          time: 'Just now',
+          actor: activeMember.name,
+          action: 'Create Issue',
+          entityId: newId,
+          details: `Created grievance "${v.title}" [${v.category}] routed to ${committeeName}`,
+        },
+        currentTenantId
+      );
+    }
 
     toast({ title: `${terminology.caseLabel} submitted`, description: `Routed to ${committeeName}` });
     return newIssue;
@@ -514,6 +557,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     suspendCommitteeMember,
     approveCommitteeMember,
     auditLogs,
+    isLiveDatabase: dbService.isLive(),
     toast,
   };
 
