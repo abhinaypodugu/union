@@ -10,11 +10,17 @@
     },
     "preview": {
       "distribution": "internal",
+      "ios": {
+        "scheme": "App"
+      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
+      "ios": {
+        "scheme": "App"
+      },
       "android": {
         "buildType": "app-bundle"
       }
