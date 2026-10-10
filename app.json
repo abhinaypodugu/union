@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Commons",
-    "slug": "commons-union",
+    "slug": "union",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./src/assets/icons/shield.svg",
