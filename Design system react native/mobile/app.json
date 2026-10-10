@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "Commons",
+    "slug": "commons",
+    "scheme": "commons",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "com.example.commons",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.example.commons",
+      "edgeToEdgeEnabled": true
+    },
+    "splash": {
+      "backgroundColor": "#fbf9f5"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#fbf9f5"
+        }
+      ]
+    ]
+  }
+}

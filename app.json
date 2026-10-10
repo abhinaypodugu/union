@@ -2,32 +2,25 @@
   "expo": {
     "name": "Commons",
     "slug": "union",
+    "scheme": "commons",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./src/assets/icons/shield.svg",
-    "scheme": "commons",
     "userInterfaceStyle": "light",
-    "splash": {
-      "backgroundColor": "#FAF8F5",
-      "resizeMode": "contain"
-    },
     "ios": {
       "bundleIdentifier": "org.commons.union",
-      "supportsTablet": true,
-      "infoPlist": {
-        "UIBackgroundModes": ["remote-notification"]
-      }
+      "supportsTablet": true
     },
     "android": {
       "package": "org.commons.union",
-      "permissions": ["POST_NOTIFICATIONS", "INTERNET"],
-      "adaptiveIcon": {
-        "backgroundColor": "#FAF8F5"
-      }
+      "edgeToEdgeEnabled": true
     },
-    "web": {
-      "bundler": "metro"
+    "splash": {
+      "backgroundColor": "#FAF8F5"
     },
+    "plugins": [
+      "expo-router",
+      "expo-font"
+    ],
     "extra": {
       "eas": {
         "projectId": "8d4a58e3-03da-4a80-8df7-2d641bd7aaf5"
