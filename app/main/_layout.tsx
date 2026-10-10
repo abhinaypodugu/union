@@ -1,12 +1,15 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
+import type { ColorValue } from 'react-native';
 import { Icon } from '../../src/components';
 import { colors, fonts, palette } from '../../src/theme';
 import { useStore } from '../../src/store/AppStore';
 
 const tab = (title: string, icon: string) => ({
   title,
-  tabBarIcon: ({ color, focused }: { color: string; focused: boolean }) => <Icon name={icon} size={24} color={color} strokeWidth={focused ? 2.1 : 1.6} />,
+  tabBarIcon: ({ color, focused }: { color: ColorValue; focused: boolean }) => (
+    <Icon name={icon} size={24} color={color as string} strokeWidth={focused ? 2.1 : 1.6} />
+  ),
 });
 
 export default function TabsLayout() {
