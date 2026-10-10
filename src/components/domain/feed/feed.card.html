@@ -1,0 +1,27 @@
+<!-- @dsCard group="Components" viewport="700x900" name="Feed" subtitle="PostCard (member · official · committee), AudienceLabel, AudienceSummary" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../../styles.css">
+<style>body{padding:20px;background:var(--paper-50)}.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.col{display:flex;flex-direction:column;gap:14px}.lbl{font:500 11px/1 var(--font-mono);color:var(--ink-500);width:72px;flex:none}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script src="../../../guidelines/ds-loader.js"></script>
+</head><body><div id="root"></div>
+<script type="text/babel">
+DS.ready.then((NS) => {
+const { PostCard, AudienceSummary } = NS;
+function Demo() {
+const [liked, setLiked] = React.useState(false); const [n, setN] = React.useState(true);
+return <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,alignItems:'start'}}>
+ <div className="col">
+  <PostCard kind="official" pinned author={{name:'Telangana State Committee'}} source="Telangana · All members" time="2h" title="Statewide meeting on revised shift rules" body="All members are invited to the open session on 18 October. Bring questions about the new overtime policy." audience={{scope:'region',label:'Telangana'}} likes={214} comments={38} />
+  <AudienceSummary segments={['Telangana · IT Workers','Hyderabad · All']} count={12480} notify={n} onNotifyChange={setN} />
+ </div>
+ <div className="col">
+  <PostCard author={{name:'Ravi Kumar'}} source="Hyderabad · IT Workers" time="35m" body="Great turnout at today’s Hitech City meet-up. Notes are in the group files." media="photo · member meet-up" audience={{scope:'group',label:'IT Workers'}} likes={liked?49:48} liked={liked} onLike={() => setLiked(!liked)} comments={6} />
+  <PostCard kind="committee" author={{name:'Anita Desai',role:'Secretary'}} source="Hyderabad IT Workers Committee" time="1d" body="Draft agenda for Thursday is in the channel — please review by Wednesday." audience={{scope:'committee',label:'5 members'}} comments={4} />
+ </div>
+</div>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+});
+</script></body></html>

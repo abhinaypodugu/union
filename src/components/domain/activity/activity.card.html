@@ -1,0 +1,30 @@
+<!-- @dsCard group="Components" viewport="700x340" name="Activity" subtitle="NotificationItem, MetricTile" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../../styles.css">
+<style>body{padding:20px;background:var(--paper-50)}.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.col{display:flex;flex-direction:column;gap:14px}.lbl{font:500 11px/1 var(--font-mono);color:var(--ink-500);width:72px;flex:none}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script src="../../../guidelines/ds-loader.js"></script>
+</head><body><div id="root"></div>
+<script type="text/babel">
+DS.ready.then((NS) => {
+const { NotificationItem, MetricTile } = NS;
+function Demo() {
+return <div style={{display:'grid',gridTemplateColumns:'1.2fr 1fr',gap:16,alignItems:'start'}}>
+ <div className="cm-card" style={{padding:0,overflow:'hidden'}}>
+  <NotificationItem kind="escalation" unread title={<>Your case <b>CASE-2041</b> moved to the state committee</>} context="Issues" time="12m" />
+  <NotificationItem kind="announcement" unread title={<><b>Telangana State Committee</b> posted an announcement</>} context="Telangana · All members" time="2h" />
+  <NotificationItem kind="deadline" mandatory title={<>Response due on <b>CASE-2077</b> in 6 hours</>} context="Assigned to you" time="3h" />
+  <NotificationItem kind="appointment" title={<>You were appointed <b>Secretary</b>, Hyderabad IT Workers Committee</>} time="2d" />
+ </div>
+ <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+  <MetricTile label="Open cases" value={142} delta="+8 this week" icon="inbox" />
+  <MetricTile label="Overdue" value={7} danger delta="3 escalate today" icon="triangle-alert" />
+  <MetricTile label="Median first response" value="1.4d" delta="0.3d faster" trend="up" icon="timer" />
+  <MetricTile label="Reopened" value="4%" delta="+1.2 pts" trend="down" icon="refresh-cw" />
+ </div>
+</div>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+});
+</script></body></html>

@@ -1,0 +1,25 @@
+<!-- @dsCard group="Components" viewport="700x380" name="Core" subtitle="Button, IconButton, Badge, Tag, Avatar, Card" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>body{padding:20px;background:var(--paper-50)}.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.col{display:flex;flex-direction:column;gap:14px}.lbl{font:500 11px/1 var(--font-mono);color:var(--ink-500);width:72px;flex:none}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script src="../../guidelines/ds-loader.js"></script>
+</head><body><div id="root"></div>
+<script type="text/babel">
+DS.ready.then((NS) => {
+const { Button, IconButton, Badge, Count, Tag, Avatar, AvatarStack, Card } = NS;
+function Demo() {
+const [sel, setSel] = React.useState('Overdue');
+return <div className="col">
+ <div className="row"><span className="lbl">button</span><Button icon="plus">Raise an issue</Button><Button variant="secondary">Cancel</Button><Button variant="ghost" icon="list-filter">Filter</Button><Button variant="danger" icon="user-minus">Revoke</Button><Button disabled>Disabled</Button></div>
+ <div className="row"><span className="lbl">sizes</span><Button size="sm">Small</Button><Button>Medium</Button><Button size="lg" iconRight="arrow-right">Large</Button><Button variant="inverse" size="sm" icon="shield">Override</Button></div>
+ <div className="row"><span className="lbl">icon btn</span><IconButton icon="bell" label="Notifications" dot /><IconButton icon="search" label="Search" variant="secondary" /><IconButton icon="plus" label="New" variant="primary" /><IconButton icon="ellipsis" label="More" size="sm" /></div>
+ <div className="row"><span className="lbl">badge</span><Badge dot>Submitted</Badge><Badge tone="info" dot>In progress</Badge><Badge tone="success" dot>Resolved</Badge><Badge tone="warning" dot>Due soon</Badge><Badge tone="danger" dot>Overdue</Badge><Badge tone="escalated" icon="chevrons-up">Escalated · L2</Badge><Badge tone="info" variant="solid">Official</Badge><Count>3</Count></div>
+ <div className="row"><span className="lbl">tag</span>{['All','Overdue','Escalated','Confidential'].map(t => <Tag key={t} selected={sel===t} onClick={() => setSel(t)}>{t}</Tag>)}<Tag icon="briefcase">IT Workers</Tag><Tag onRemove={() => {}}>Hyderabad</Tag></div>
+ <div className="row"><span className="lbl">avatar</span><Avatar name="Lakshmi Rao" size={24} /><Avatar name="Ravi Kumar" size={32} /><Avatar name="Anita Desai" size={40} ring /><Avatar name="Telangana State Committee" size={48} official /><AvatarStack names={['Anita Desai','Ravi Kumar','Imran Sheikh','Priya Nair','Joseph M','S K']} /></div>
+</div>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+});
+</script></body></html>

@@ -1,0 +1,21 @@
+:root {
+  --space-0-5: 2px; --space-1: 4px; --space-1-5: 6px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px; --space-16: 64px;
+
+  --radius-xs: 3px; --radius-s: 6px; --radius-m: 8px; --radius-l: 12px; --radius-xl: 16px; --radius-2xl: 24px; --radius-pill: 999px;
+
+  --shadow-card: 0 1px 0 oklch(0.3 0.02 80 / 0.04);
+  --shadow-raised: 0 1px 2px oklch(0.3 0.02 80 / 0.06), 0 4px 12px -4px oklch(0.3 0.02 80 / 0.10);
+  --shadow-popover: 0 2px 6px oklch(0.3 0.02 80 / 0.06), 0 12px 32px -8px oklch(0.3 0.02 80 / 0.20);
+  --shadow-sheet: 0 -8px 40px -12px oklch(0.3 0.02 80 / 0.25);
+
+  --control-h-sm: 32px; --control-h-md: 40px; --control-h-lg: 48px;
+  --tap-target: 44px;
+  --sidebar-w: 248px;
+  --content-max: 1200px;
+  --feed-max: 600px;
+
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.6, 0, 0.3, 1);
+  --dur-fast: 120ms; --dur-base: 200ms; --dur-slow: 320ms;
+}

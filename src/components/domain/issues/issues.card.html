@@ -1,0 +1,29 @@
+<!-- @dsCard group="Components" viewport="700x500" name="Issues" subtitle="StatusBadge, IssueCard, EscalationTimeline" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../../styles.css">
+<style>body{padding:20px;background:var(--paper-50)}.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.col{display:flex;flex-direction:column;gap:14px}.lbl{font:500 11px/1 var(--font-mono);color:var(--ink-500);width:72px;flex:none}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script src="../../../guidelines/ds-loader.js"></script>
+</head><body><div id="root"></div>
+<script type="text/babel">
+DS.ready.then((NS) => {
+const { StatusBadge, IssueCard, EscalationTimeline } = NS;
+function Demo() {
+return <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,alignItems:'start'}}>
+ <div className="col">
+  <div className="row" style={{gap:6}}>{['submitted','triage','assigned','in_progress','awaiting_member','resolved','closed','reopened','rejected'].map(s => <StatusBadge key={s} status={s} size="sm" />)}<StatusBadge status="escalated" level={2} size="sm" /></div>
+  <IssueCard id="CASE-2041" title="Unpaid overtime for night-shift support staff" status="escalated" level={2} category="Wages" location="Hyderabad" group="IT Workers" due="4d left" assignee="Imran Sheikh" nextAction="State review" onClick={() => {}} />
+  <IssueCard id="CASE-2077" title="No safety equipment on loading bay" status="in_progress" priority="high" category="Safety" location="Secunderabad" due="Overdue 6h" dueState="overdue" assignee="Anita Desai" nextAction="Acknowledge" onClick={() => {}} />
+ </div>
+ <div className="cm-card" style={{padding:16}}>
+  <EscalationTimeline stages={[
+   {name:'Hyderabad IT Workers Committee', state:'done', sub:'City · 7-day resolution', events:[{time:'12 Sep', text:'Assigned to Anita Desai'},{time:'15 Sep', text:'Employer HR contacted'}]},
+   {name:'Telangana IT Workers Committee', state:'current', escalatedHere:true, levelShort:'L2', sub:'State · 10-day resolution', reason:'Resolution deadline missed at city level.', due:'4d left', dueState:'soon'},
+   {name:'National IT Workers Committee', state:'upcoming', levelShort:'L3', sub:'National'}]} />
+ </div>
+</div>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+});
+</script></body></html>

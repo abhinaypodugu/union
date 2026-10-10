@@ -1,0 +1,26 @@
+<!-- @dsCard group="Components" viewport="700x400" name="Organization" subtitle="OrgTree, CommitteeBadge" -->
+<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../../styles.css">
+<style>body{padding:20px;background:var(--paper-50)}.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.col{display:flex;flex-direction:column;gap:14px}.lbl{font:500 11px/1 var(--font-mono);color:var(--ink-500);width:72px;flex:none}</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+<script src="../../../guidelines/ds-loader.js"></script>
+</head><body><div id="root"></div>
+<script type="text/babel">
+DS.ready.then((NS) => {
+const { OrgTree, CommitteeBadge } = NS;
+function Demo() {
+const [sel, setSel] = React.useState('hyd-it-c');
+return <div style={{display:'grid',gridTemplateColumns:'1.3fr 1fr',gap:20,alignItems:'start'}}>
+ <div className="cm-card" style={{padding:8}}><OrgTree selected={sel} onSelect={n => setSel(n.id)} defaultExpanded={['in','tg','hyd','hyd-it']} nodes={[{id:'in',name:'India',type:'country',kind:'Country',children:[{id:'nat-it',name:'National IT Workers Committee',type:'committee',kind:'Committee',meta:'5 members'},{id:'tg',name:'Telangana',type:'state',kind:'State',children:[{id:'hyd',name:'Hyderabad',type:'city',kind:'City',you:true,children:[{id:'hyd-gen',name:'Hyderabad General Committee',type:'committee',kind:'Committee',meta:'4'},{id:'hyd-it',name:'IT Workers',type:'group',kind:'Functional group',meta:'1,284',children:[{id:'hyd-it-c',name:'Hyderabad IT Workers Committee',type:'committee',kind:'Committee',meta:'5'}]},{id:'hyd-tr',name:'Transport Workers',type:'group',kind:'Functional group',meta:'932'}]}]}]}]} /></div>
+ <div className="col">
+  <CommitteeBadge name="Hyderabad IT Workers" level={1} role="Secretary" />
+  <CommitteeBadge name="Telangana IT Workers" level={2} />
+  <CommitteeBadge name="National Welfare" level={3} role="Chair" />
+  <CommitteeBadge name="Hyderabad General" level={1} size="sm" />
+ </div>
+</div>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<Demo />);
+});
+</script></body></html>
