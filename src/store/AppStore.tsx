@@ -29,9 +29,9 @@ interface Store {
   tenant: Tenant;
   tenants: Tenant[];
   switchTenant: (id: string) => void;
+  createTenant: (data: { name: string; short: string; code: string; description: string; terminology?: Partial<TerminologyConfig> }) => Tenant;
   terminology: TerminologyConfig;
   updateTerminology: (patch: Partial<TerminologyConfig>) => void;
-
   // Personas & Roles
   activeMember: Persona;
   personas: Persona[];
@@ -87,7 +87,7 @@ export function useStore() {
 }
 
 export function AppStoreProvider({ children }: { children: React.ReactNode }) {
-  const [tenants] = React.useState<Tenant[]>(TENANTS);
+  const [tenants, setTenants] = React.useState<Tenant[]>(TENANTS);
   const [currentTenantId, setCurrentTenantId] = React.useState<string>('dwf');
   const [terminology, setTerminology] = React.useState<TerminologyConfig>(TENANTS[0].terminology);
 
@@ -173,6 +173,53 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const updateTerminology = (patch: Partial<TerminologyConfig>) => {
     setTerminology((prev) => ({ ...prev, ...patch }));
     toast({ title: 'Terminology updated', description: 'Domain nouns applied across screens.' });
+  };
+
+  const createTenant = (data: {
+    name: string;
+    short: string;
+    code: string;
+    description: string;
+    terminology?: Partial<TerminologyConfig>;
+  }): Tenant => {
+    const id = data.code.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    const newTerminology: TerminologyConfig = {
+      orgLabel: 'Organization',
+      level1Label: 'City',
+      level2Label: 'State',
+      level3Label: 'National',
+      groupLabel: 'Functional Group',
+      caseLabel: 'Issue',
+      ...data.terminology,
+    };
+    const newTenant: Tenant = {
+      id,
+      name: data.name,
+      short: data.short,
+      code: data.code,
+      description: data.description,
+      terminology: newTerminology,
+    };
+
+    setTenants((prev) => [...prev, newTenant]);
+    setCurrentTenantId(id);
+    setTerminology(newTerminology);
+
+    setAuditLogs((prev) => [
+      {
+        id: 'aud-' + Date.now(),
+        time: 'Just now',
+        actor: activeMember.name,
+        action: 'Create Organization',
+        entityId: id,
+        details: `Created new organization "${data.name}" (${data.code}) with custom terminology`,
+        isOverride: isPlatformSuperAdmin,
+      },
+      ...prev,
+    ]);
+
+    toast({ title: 'Organization created', description: `${data.name} is now active.` });
+    return newTenant;
   };
 
   const registerMember = (data: { name: string; email: string; unit: string; region: string; group: string; tenantId: string }): Persona => {
@@ -519,6 +566,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     tenant: activeTenant,
     tenants,
     switchTenant,
+    createTenant,
     terminology,
     updateTerminology,
     activeMember,

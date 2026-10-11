@@ -42,13 +42,22 @@ export default function Profile() {
     allMembers,
     approveMember,
     registerMember,
+    createTenant,
   } = useStore();
 
   const [prefs, setPrefs] = React.useState(PREFS.map((p) => p[1]));
   const [tenantSheetOpen, setTenantSheetOpen] = React.useState(false);
   const [personaSheetOpen, setPersonaSheetOpen] = React.useState(false);
   const [registerSheetOpen, setRegisterSheetOpen] = React.useState(false);
+  const [createOrgOpen, setCreateOrgOpen] = React.useState(false);
 
+  // New organization state (PRD §5.11)
+  const [newOrgName, setNewOrgName] = React.useState('');
+  const [newOrgShort, setNewOrgShort] = React.useState('');
+  const [newOrgCode, setNewOrgCode] = React.useState('');
+  const [newOrgDesc, setNewOrgDesc] = React.useState('');
+  const [newOrgCaseLabel, setNewOrgCaseLabel] = React.useState('Grievance');
+  const [newOrgGroupLabel, setNewOrgGroupLabel] = React.useState('Sector');
   // New registration form state
   const [regName, setRegName] = React.useState('');
   const [regEmail, setRegEmail] = React.useState('');
@@ -70,6 +79,27 @@ export default function Profile() {
     setRegName('');
     setRegEmail('');
     setRegisterSheetOpen(false);
+  };
+
+  const handleCreateOrg = () => {
+    if (!newOrgName.trim() || !newOrgCode.trim()) return;
+    createTenant({
+      name: newOrgName.trim(),
+      short: newOrgShort.trim() || newOrgCode.trim().slice(0, 3).toUpperCase(),
+      code: newOrgCode.trim().toUpperCase(),
+      description: newOrgDesc.trim(),
+      terminology: {
+        orgLabel: 'Organization',
+        caseLabel: newOrgCaseLabel.trim() || 'Grievance',
+        groupLabel: newOrgGroupLabel.trim() || 'Sector',
+      },
+    });
+    setNewOrgName('');
+    setNewOrgShort('');
+    setNewOrgCode('');
+    setNewOrgDesc('');
+    setCreateOrgOpen(false);
+    setTenantSheetOpen(false);
   };
 
   return (
@@ -226,8 +256,62 @@ export default function Profile() {
             {tenant.id === t.id && <Badge tone="info">Active</Badge>}
           </Pressable>
         ))}
+        <View style={{ padding: 16 }}>
+          <Button
+            variant="secondary"
+            block
+            icon="plus"
+            onPress={() => {
+              setTenantSheetOpen(false);
+              setCreateOrgOpen(true);
+            }}
+          >
+            Create new organization (PRD §5.11)
+          </Button>
+        </View>
       </Sheet>
 
+      {/* Create Organization Sheet (PRD §4.1, §5.11) */}
+      <Sheet visible={createOrgOpen} onClose={() => setCreateOrgOpen(false)} title="Create new organization">
+        <View style={{ paddingHorizontal: 16, gap: 12, paddingBottom: 28 }}>
+          <Notice tone="info" title="Independent organization boundary">
+            Creates an isolated tenant with independent members, functional groups, and case queues.
+          </Notice>
+          <Field label="Organization name" required>
+            <Input value={newOrgName} onChangeText={setNewOrgName} placeholder="e.g. National Workers Union" />
+          </Field>
+          <Field label="Organization code / acronym" required>
+            <Input value={newOrgCode} onChangeText={setNewOrgCode} placeholder="e.g. NWU" />
+          </Field>
+          <Field label="Short label / monogram">
+            <Input value={newOrgShort} onChangeText={setNewOrgShort} placeholder="e.g. NWU" />
+          </Field>
+          <Field label="Description">
+            <Input value={newOrgDesc} onChangeText={setNewOrgDesc} placeholder="Official platform for workers..." />
+          </Field>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={{ flex: 1 }}>
+              <Field label="Case noun">
+                <Input value={newOrgCaseLabel} onChangeText={setNewOrgCaseLabel} placeholder="Grievance / Issue" />
+              </Field>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="Group noun">
+                <Input value={newOrgGroupLabel} onChangeText={setNewOrgGroupLabel} placeholder="Sector / Trade" />
+              </Field>
+            </View>
+          </View>
+          <Button
+            block
+            size="lg"
+            icon="plus"
+            disabled={!newOrgName.trim() || !newOrgCode.trim()}
+            onPress={handleCreateOrg}
+          >
+            Establish organization
+          </Button>
+        </View>
+      </Sheet>
       {/* Persona Switcher Sheet */}
       <Sheet visible={personaSheetOpen} onClose={() => setPersonaSheetOpen(false)} title="Switch test persona">
         <Txt variant="bodyS" color={colors.textMuted} style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
