@@ -103,7 +103,13 @@ export default function Profile() {
     setTenantSheetOpen(false);
   };
   if (!activeMember || !tenant) {
-    return <Redirect href="/" />;
+    return (
+      <Screen>
+        <View style={{ padding: 32, alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+          <Txt variant="body" color={colors.textSecondary}>Signed out.</Txt>
+        </View>
+      </Screen>
+    );
   }
 
   return (
