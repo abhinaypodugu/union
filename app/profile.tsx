@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Pressable } from 'react-native';
-import { router } from 'expo-router';
+import { router, Redirect } from 'expo-router';
 import {
   Avatar,
   Badge,
@@ -102,6 +102,9 @@ export default function Profile() {
     setCreateOrgOpen(false);
     setTenantSheetOpen(false);
   };
+  if (!activeMember || !tenant) {
+    return <Redirect href="/" />;
+  }
 
   return (
     <Screen>
@@ -109,16 +112,16 @@ export default function Profile() {
 
       {/* Member Hero */}
       <View style={{ alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 8 }}>
-        <Avatar name={activeMember.name} size={80} />
+        <Avatar name={activeMember?.name || 'User'} size={80} />
         <Txt variant="displayM" style={{ marginTop: 6 }}>
-          {activeMember.name}
+          {activeMember?.name || 'User'}
         </Txt>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Badge tone={activeMember.status === 'verified' ? 'success' : 'warning'} dot>
-            {activeMember.status === 'verified' ? 'Verified member' : 'Pending verification'}
+          <Badge tone={activeMember?.status === 'verified' ? 'success' : 'warning'} dot>
+            {activeMember?.status === 'verified' ? 'Verified member' : 'Pending verification'}
           </Badge>
           <Txt variant="mono" color={colors.textSecondary}>
-            {activeMember.memberId}
+            {activeMember?.memberId || ''}
           </Txt>
           {isPlatformSuperAdmin && (
             <Badge tone="danger" variant="outline" icon="shield">
@@ -132,10 +135,10 @@ export default function Profile() {
       <SectionLabel>Organization context (PRD §4.1)</SectionLabel>
       <ListCard style={{ marginHorizontal: 12 }}>
         <ListRow
-          title={tenant.name}
-          subtitle={`Tap to switch tenant · Isolated boundary (${tenant.code})`}
+          title={tenant?.name || 'Organization'}
+          subtitle={`Tap to switch tenant · Isolated boundary (${tenant?.code || 'ORG'})`}
           left={<IconTile icon="building-2" tone="geo" />}
-          right={<Badge size="sm" tone="info">{tenant.short}</Badge>}
+          right={<Badge size="sm" tone="info">{tenant?.short || 'ORG'}</Badge>}
           onPress={() => setTenantSheetOpen(true)}
         />
       </ListCard>
@@ -144,65 +147,66 @@ export default function Profile() {
       <SectionLabel>Switch account / test persona</SectionLabel>
       <ListCard style={{ marginHorizontal: 12 }}>
         <ListRow
-          title={activeMember.name}
-          subtitle={`${activeMember.roles[0].replace('_', ' ')} · ${activeMember.unit || 'National'}`}
-          left={<Avatar name={activeMember.name} size={34} />}
+          title={activeMember?.name || 'User'}
+          subtitle={`${(activeMember?.roles?.[0] || 'member').replace('_', ' ')} · ${activeMember?.unit || 'National'}`}
+          left={<Avatar name={activeMember?.name || 'User'} size={34} />}
           onPress={() => setPersonaSheetOpen(true)}
         />
       </ListCard>
 
       {/* Leadership Tools Shortcut */}
-      {(activeMember.isLeader || isPlatformSuperAdmin) && (
+      {(activeMember?.isLeader || isPlatformSuperAdmin) && (
         <>
           <SectionLabel>Management (PRD §7.1)</SectionLabel>
           <ListCard style={{ marginHorizontal: 12 }}>
             <ListRow
               title="Leadership tools"
-              subtitle={activeMember.leaderScope || 'Executive Administration'}
+              subtitle={activeMember?.leaderScope || 'Executive Administration'}
               left={<IconTile icon="shield" tone="committee" />}
               onPress={() => router.push('/manage')}
             />
           </ListCard>
         </>
       )}
-
       {/* Pending Member Applications Review (PRD §6.1, §6.2) */}
-      {pendingMembers.length > 0 && (
-        <>
-          <SectionLabel>{`Pending member approvals · ${pendingMembers.length}`}</SectionLabel>
-          <Card padding={14} style={{ marginHorizontal: 12, gap: 10 }}>
-            {pendingMembers.map((pm) => (
-              <View
-                key={pm.id}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingVertical: 6,
-                }}
-              >
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Txt variant="titleS">{pm.name}</Txt>
-                  <Txt variant="bodyS" color={colors.textMuted}>
-                    {pm.unit} · {pm.groups.join(', ') || 'General'}
-                  </Txt>
+      {
+        pendingMembers.length > 0 && (
+          <>
+            <SectionLabel>{`Pending member approvals · ${pendingMembers.length}`}</SectionLabel>
+            <Card padding={14} style={{ marginHorizontal: 12, gap: 10 }}>
+              {pendingMembers.map((pm) => (
+                <View
+                  key={pm.id}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    paddingVertical: 6,
+                  }}
+                >
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Txt variant="titleS">{pm.name}</Txt>
+                    <Txt variant="bodyS" color={colors.textMuted}>
+                      {pm.unit} · {pm.groups.join(', ') || 'General'}
+                    </Txt>
+                  </View>
+                  <Button size="sm" variant="secondary" onPress={() => approveMember(pm.id)}>
+                    Approve
+                  </Button>
                 </View>
-                <Button size="sm" variant="secondary" onPress={() => approveMember(pm.id)}>
-                  Approve
-                </Button>
-              </View>
-            ))}
-          </Card>
-        </>
-      )}
+              ))}
+            </Card>
+          </>
+        )
+      }
 
       {/* Membership Info */}
       <SectionLabel>Membership jurisdiction</SectionLabel>
       <Card padding={14} style={{ marginHorizontal: 12, paddingVertical: 2 }}>
-        <KeyValue first k="Location" v={`${activeMember.unit || 'Hyderabad'} · ${activeMember.region || 'Telangana'}`} />
-        <KeyValue k="Functional groups" v={activeMember.groups.length > 0 ? activeMember.groups.join(', ') : 'General Membership'} />
-        <KeyValue k="Roles" v={activeMember.roles.join(', ')} />
-        <KeyValue k="Member since" v={activeMember.since} />
+        <KeyValue first k="Location" v={`${activeMember?.unit || 'Headquarters'} · ${activeMember?.region || 'Central'}`} />
+        <KeyValue k="Functional groups" v={(activeMember?.groups?.length ?? 0) > 0 ? activeMember!.groups.join(', ') : 'General Membership'} />
+        <KeyValue k="Roles" v={activeMember?.roles?.join(', ') || 'Member'} />
+        <KeyValue k="Member since" v={activeMember?.since || 'Today'} />
       </Card>
 
       {/* Notification Preferences */}
@@ -230,8 +234,8 @@ export default function Profile() {
           block
           icon="log-out"
           onPress={() => {
-            logout();
             router.replace('/');
+            logout();
           }}
         >
           Sign out
@@ -384,6 +388,6 @@ export default function Profile() {
           </Button>
         </View>
       </Sheet>
-    </Screen>
+    </Screen >
   );
 }
