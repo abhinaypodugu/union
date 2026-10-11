@@ -26,3 +26,4 @@ web_backup/
 *.njsproj
 *.sln
 *.sw?
+*.apk
