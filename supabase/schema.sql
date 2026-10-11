@@ -398,42 +398,85 @@ ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 
+-- Helper functions to prevent RLS recursion and cleanly check roles
+CREATE OR REPLACE FUNCTION get_auth_tenant_id() RETURNS TEXT AS $$
+  SELECT tenant_id FROM public.profiles WHERE id = auth.uid();
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION auth_has_any_role(VARIADIC p_roles TEXT[]) RETURNS BOOLEAN AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid()
+      AND roles && p_roles
+  );
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
+
 -- 1. Tenants policy
+DROP POLICY IF EXISTS "Public read tenants" ON tenants;
 CREATE POLICY "Public read tenants" ON tenants FOR SELECT USING (active = true);
 
--- 2. Profiles policy (User can view their tenant's directory, update own profile)
+-- 2. Profiles policy (Users can view profiles in their tenant, update own profile)
+DROP POLICY IF EXISTS "View tenant profiles" ON profiles;
 CREATE POLICY "View tenant profiles" ON profiles FOR SELECT
-  USING (tenant_id = (SELECT tenant_id FROM profiles WHERE id = auth.uid()));
+  USING (id = auth.uid() OR tenant_id = get_auth_tenant_id());
 
+DROP POLICY IF EXISTS "Update own profile" ON profiles;
 CREATE POLICY "Update own profile" ON profiles FOR UPDATE
   USING (id = auth.uid());
 
--- 3. Issues policy (Complainant can view own cases; Handlers can view committee cases)
+-- 3. Issues policy (Complainant views own cases; Officers view committee cases)
+DROP POLICY IF EXISTS "View permitted issues" ON issues;
 CREATE POLICY "View permitted issues" ON issues FOR SELECT
   USING (
-    tenant_id = (SELECT tenant_id FROM profiles WHERE id = auth.uid()) AND (
+    tenant_id = get_auth_tenant_id() AND (
       complainant_id = auth.uid()::text OR
-      'handler' = ANY((SELECT roles FROM profiles WHERE id = auth.uid())) OR
-      'chair' = ANY((SELECT roles FROM profiles WHERE id = auth.uid())) OR
-      'org_admin' = ANY((SELECT roles FROM profiles WHERE id = auth.uid())) OR
-      'super_admin' = ANY((SELECT roles FROM profiles WHERE id = auth.uid()))
+      auth_has_any_role('handler', 'chair', 'org_admin', 'super_admin')
     )
   );
 
 -- 4. Internal notes policy: STRICT PRIVACY (Complainants CANNOT read internal notes!)
+DROP POLICY IF EXISTS "Committee members only read internal notes" ON internal_notes;
 CREATE POLICY "Committee members only read internal notes" ON internal_notes FOR SELECT
   USING (
-    tenant_id = (SELECT tenant_id FROM profiles WHERE id = auth.uid()) AND (
-      'handler' = ANY((SELECT roles FROM profiles WHERE id = auth.uid())) OR
-      'chair' = ANY((SELECT roles FROM profiles WHERE id = auth.uid())) OR
-      'org_admin' = ANY((SELECT roles FROM profiles WHERE id = auth.uid())) OR
-      'super_admin' = ANY((SELECT roles FROM profiles WHERE id = auth.uid()))
-    )
+    tenant_id = get_auth_tenant_id() AND
+    auth_has_any_role('handler', 'chair', 'org_admin', 'super_admin')
   );
 
 -- 5. Audit logs policy (Auditors and admins only)
+DROP POLICY IF EXISTS "Admins view audit logs" ON audit_logs;
 CREATE POLICY "Admins view audit logs" ON audit_logs FOR SELECT
   USING (
-    tenant_id = (SELECT tenant_id FROM profiles WHERE id = auth.uid()) OR
-    'super_admin' = ANY((SELECT roles FROM profiles WHERE id = auth.uid()))
+    tenant_id = get_auth_tenant_id() OR
+    auth_has_any_role('super_admin')
   );
+
+-- 6. Geographic units and functional groups policies
+DROP POLICY IF EXISTS "View tenant geo_units" ON geo_units;
+CREATE POLICY "View tenant geo_units" ON geo_units FOR SELECT
+  USING (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
+
+DROP POLICY IF EXISTS "View tenant functional_groups" ON functional_groups;
+CREATE POLICY "View tenant functional_groups" ON functional_groups FOR SELECT
+  USING (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
+
+-- 7. Committees and appointments
+DROP POLICY IF EXISTS "View tenant committees" ON committees;
+CREATE POLICY "View tenant committees" ON committees FOR SELECT
+  USING (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
+
+DROP POLICY IF EXISTS "View tenant committee_members" ON committee_members;
+CREATE POLICY "View tenant committee_members" ON committee_members FOR SELECT
+  USING (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
+
+-- 8. Social feed posts & comments
+DROP POLICY IF EXISTS "View tenant posts" ON posts;
+CREATE POLICY "View tenant posts" ON posts FOR SELECT
+  USING (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
+
+DROP POLICY IF EXISTS "Public comments read" ON comments;
+CREATE POLICY "Public comments read" ON comments FOR SELECT USING (true);
+
+-- 9. Notifications
+DROP POLICY IF EXISTS "View own notifications" ON notifications;
+CREATE POLICY "View own notifications" ON notifications FOR SELECT
+  USING (recipient_id IS NULL OR recipient_id = auth.uid()::text);
