@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Commons Platform — User & Testing Guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --font-display: 'Source Serif 4', Georgia, serif;
+      --font-sans: 'Public Sans', -apple-system, system-ui, sans-serif;
+      --font-mono: 'IBM Plex Mono', monospace;
+      --paper-0: #ffffff;
+      --paper-50: #faf8f5;
+      --paper-100: #f4f0ea;
+      --paper-200: #e8e2d8;
+      --paper-300: #d8d0c2;
+      --ink-900: #1a1917;
+      --ink-800: #2d2b27;
+      --ink-700: #4a463f;
+      --ink-500: #787267;
+      --accent: #1e56a0;
+      --accent-bg: #ebf3fc;
+      --green: #237844;
+      --amber: #ad6800;
+      --red: #cf1322;
+      --violet: #531dab;
+    }
+    body {
+      margin: 0;
+      padding: 40px 24px;
+      background: var(--paper-50);
+      color: var(--ink-800);
+      font-family: var(--font-sans);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+      background: var(--paper-0);
+      border: 1px solid var(--paper-200);
+      border-radius: 16px;
+      padding: 48px 56px;
+      box-shadow: 0 4px 20px -4px rgba(0,0,0,0.06);
+    }
+    h1, h2, h3, h4 {
+      font-family: var(--font-display);
+      color: var(--ink-900);
+      letter-spacing: -0.015em;
+    }
+    h1 { font-size: 34px; margin-top: 0; border-bottom: 2px solid var(--paper-100); padding-bottom: 16px; }
+    h2 { font-size: 24px; margin-top: 36px; border-bottom: 1px solid var(--paper-200); padding-bottom: 8px; color: var(--accent); }
+    h3 { font-size: 19px; margin-top: 24px; }
+    p, li { color: var(--ink-800); }
+    code, pre { font-family: var(--font-mono); }
+    pre {
+      background: var(--paper-50);
+      border: 1px solid var(--paper-200);
+      border-radius: 8px;
+      padding: 14px 18px;
+      overflow-x: auto;
+      font-size: 13.5px;
+    }
+    code {
+      background: var(--paper-100);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    pre code { background: none; padding: 0; }
+    blockquote {
+      margin: 20px 0;
+      padding: 12px 20px;
+      background: var(--accent-bg);
+      border-left: 4px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      font-style: italic;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      font-size: 14px;
+    }
+    th, td {
+      padding: 10px 14px;
+      border: 1px solid var(--paper-200);
+      text-align: left;
+    }
+    th {
+      background: var(--paper-100);
+      font-weight: 600;
+      color: var(--ink-900);
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .badge-blue { background: #e6f4ff; color: var(--accent); }
+    .badge-green { background: #f6ffed; color: var(--green); }
+    .badge-purple { background: #f9f0ff; color: var(--violet); }
+    .print-btn {
+      float: right;
+      background: var(--accent);
+      color: #fff;
+      border: 0;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    @media print {
+      body { padding: 0; background: #fff; }
+      .container { border: 0; box-shadow: none; padding: 0; }
+      .print-btn { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
+    <h1>Commons Platform — User & Testing Guide</h1>
+    <p>Complete navigation flows, persona testing guide, and feature specifications for everyday members and leadership.</p>
+
+    <blockquote>
+      "Geography determines jurisdiction. Functional groups determine membership. Committees determine responsibility. Permissions determine access. Issues follow a configured resolution workflow." — PRD §1.3
+    </blockquote>
+
+    <h2>1. Quick Start & Access Methods</h2>
+    <ul>
+      <li><b>Option A (Android .apk):</b> Download from GitHub Actions artifacts and install directly on Android.</li>
+      <li><b>Option B (Expo Go on iPhone):</b> Run <code>npx expo start</code>, scan QR code with Camera app.</li>
+      <li><b>Option C (PWA on iPhone):</b> Open in Safari &rarr; Tap Share &rarr; <b>Add to Home Screen</b>.</li>
+    </ul>
+
+    <h2>2. User Personas for Testing</h2>
+    <table>
+      <thead>
+        <tr><th>Persona</th><th>Organization</th><th>Role & Remit</th><th>Key Capabilities</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>Priya Nair</b></td><td>Deccan Workers' Federation</td><td>Member & Issue Handler (IT Workers, Hyderabad)</td><td>Feed, raises issues, views local cases, accesses management tools.</td></tr>
+        <tr><td><b>Anita Desai</b></td><td>Deccan Workers' Federation</td><td>Secretary & Handler (Hyderabad IT Workers)</td><td>Assigns handlers, claims L1 complaints, updates timelines.</td></tr>
+        <tr><td><b>Imran Sheikh</b></td><td>Deccan Workers' Federation</td><td>Committee Chair (Level 2 · Telangana IT Workers)</td><td>Reviews statewide escalations, oversees caseload, receives SLA alerts.</td></tr>
+        <tr><td><b>Lakshmi Rao</b></td><td>Deccan Workers' Federation</td><td>State Admin (Telangana State Committee)</td><td>Executive oversight, statewide metrics, manages appointments, broadcasts.</td></tr>
+        <tr><td><b>Dr. Vikram Patel</b></td><td>Commons Platform</td><td><b>Platform Super Admin</b></td><td>Unrestricted cross-tenant oversight, privileged committee overrides, audit trail.</td></tr>
+        <tr><td><b>Maya Sen</b></td><td>National Educators Alliance</td><td>Member (Higher Ed, Bangalore Branch)</td><td><b>Tenant isolation proof:</b> Sees NEA faculty grievances, zero DWF data.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>3. Member Application Flows</h2>
+    <h3>Flow 1: Home Feed & Official Announcements</h3>
+    <p>Explore the Instagram-inspired feed. View circular group stories for Hyderabad, Telangana, and IT Workers. Switch between <b>For You</b>, <b>My groups</b>, and <b>Announcements</b> filters. Official announcements feature verified check-seals, serif display titles, and blue flag headers.</p>
+
+    <h3>Flow 2: Groups & Communities</h3>
+    <p>Displays enrolled geographic places (City, State, National) and trade functional groups with real-time unread counts. Notice the privacy notice card confirming private committee channels are separated by governance.</p>
+
+    <h3>Flow 3: Raising an Issue (Automated Routing)</h3>
+    <p>Tap <code>+ Raise</code> on the Issues tab. Fill in Category, Title, Description, and the "Affects other members" checkbox. The routing engine assigns it to the accountable committee based on category rules:</p>
+    <ul>
+      <li><i>Harassment / Retaliation:</i> Directly routed to Confidential Handlers at Tier 2 (State).</li>
+      <li><i>Facilities:</i> Routed to General Committee.</li>
+      <li><i>Wages / Health & Safety:</i> Routed to City Sector Committee (L1).</li>
+    </ul>
+
+    <h3>Flow 4: Tracking Grievances & Escalation Timeline</h3>
+    <p>Tap any case card to view the status badge, deadline timer, and three-stage progress timeline (City L1 &rarr; State L2 &rarr; National L3). When the committee requests info, an amber alert appears allowing direct replies.</p>
+
+    <h2>4. Leadership & Administration Flows</h2>
+    <h3>Flow 8: Accessing Management Tools</h3>
+    <p>Tap the <b>Shield icon (🛡️)</b> in the top-right header on the Home screen or go to Profile &rarr; Leadership tools.</p>
+
+    <h3>Flow 9: Issue Queue & Case Management</h3>
+    <p>In <code>/manage/queue</code>, filter by All open, Unassigned, Overdue, and Escalated. Tap any case to claim it, assign an officer, or escalate.</p>
+
+    <h3>Flow 10: Tiered Escalation with Mandatory Reason</h3>
+    <p>Tap <b>Escalate</b>. Enter the mandatory reason (e.g. <i>"Local employer refused to engage in 14-day SLA window"</i>). Tier increments L1 &rarr; L2 with an audit log record and complainant notification.</p>
+
+    <h3>Flow 11: Platform Super Admin Override</h3>
+    <p>Switch persona to Dr. Vikram Patel. In Committees & appointments, tap <code>+ Add</code>. Toggle <b>Platform Super Admin override</b>, provide justification reason, and save. The member receives a distinct red <code>Platform-admin override</code> badge.</p>
+
+    <h3>Flow 12: Organization Creation via UI</h3>
+    <p>In Profile &rarr; Organization context &rarr; tap <code>+ Create new organization (PRD §5.11)</code>. Establish a new isolated organization boundary with custom terminology mapping directly from the app.</p>
+
+    <h2>5. Database & Supabase Mode</h2>
+    <p>When <code>EXPO_PUBLIC_SUPABASE_URL</code> is configured in <code>.env</code>, the app runs in 100% Live Database Mode using PostgreSQL tables defined in <code>supabase/schema.sql</code> with real-time subscriptions and Row Level Security.</p>
+  </div>
+</body>
+</html>
