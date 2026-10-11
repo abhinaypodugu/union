@@ -9,17 +9,39 @@ import { useStore } from '../../src/store/AppStore';
 const STATUS: Record<MemberStatus, ['success' | 'warning' | 'neutral', string]> = { active: ['success', 'Active'], suspended: ['warning', 'Suspended'], pending: ['neutral', 'Pending approval'] };
 
 export default function Committee() {
-  const { members, setMembers, toast } = useStore();
+  const { members, setMembers, toast, committee } = useStore();
   const [open, setOpen] = React.useState(false);
+  const [memberName, setMemberName] = React.useState('');
   const [method, setMethod] = React.useState<'appoint' | 'nominate'>('appoint');
   const [position, setPosition] = React.useState('Member');
   const [override, setOverride] = React.useState(false);
-  const C = COMMITTEE;
+  const C = committee || {
+    name: 'Executive Committee',
+    scope: 'Organization-wide',
+    level: 1 as const,
+    method: 'Executive Appointment',
+    term: '2026 – 2028',
+    members: [],
+    responsibilities: [
+      ['Handles', 'Grievances and internal affairs'],
+      ['Escalates to', 'General Executive Council'],
+    ] as [string, string][],
+    audit: [] as { time: string; text: string }[],
+  };
 
   const add = () => {
+    const name = memberName.trim() || 'Committee Member';
     const active = method === 'appoint' || override;
-    const added: CommitteeMember = { name: 'Sameera Khan', role: position, since: active ? '11 Oct 2026' : 'Pending', method: override ? 'Platform admin assignment' : method === 'appoint' ? 'Appointed by you' : 'Nominated · awaiting approval', status: active ? 'active' : 'pending', override };
+    const added: CommitteeMember = {
+      name,
+      role: position,
+      since: active ? 'Today' : 'Pending',
+      method: override ? 'Platform admin assignment' : method === 'appoint' ? 'Appointed by you' : 'Nominated · awaiting approval',
+      status: active ? 'active' : 'pending',
+      override,
+    };
     setMembers([...members, added]);
+    setMemberName('');
     setOpen(false);
     toast({ title: override ? 'Assigned as platform admin' : active ? 'Member appointed' : 'Nomination sent', description: 'Recorded in the appointment history' });
   };
@@ -72,7 +94,7 @@ export default function Committee() {
 
       <Sheet visible={open} onClose={() => setOpen(false)} title="Add committee member">
         <View style={{ gap: 14, paddingHorizontal: 16, paddingBottom: 8 }}>
-          <Field label="Member"><Input icon="search" defaultValue="Sameera Khan" /></Field>
+          <Field label="Member name" required><Input value={memberName} onChangeText={setMemberName} placeholder="Enter member name" /></Field>
           <Field label="Position"><Select label="Position" value={position} onChange={setPosition} options={['Member', 'Issue handler', 'Secretary', 'Chair']} /></Field>
           <View style={{ gap: 10 }}>
             <Txt variant="label">Formation method</Txt>

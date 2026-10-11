@@ -3,12 +3,11 @@ import { Pressable, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { AudienceLabel, Avatar, Button, Card, Dialog, DueLabel, EscalationStage, EscalationTimeline, Fact, Field, Icon, KeyValue, Notice, Screen, SectionLabel, Sheet, StackHeader, StatusBadge, TextArea, Txt } from '../../src/components';
 import { colors, palette } from '../../src/theme';
-import { HANDLERS } from '../../src/data/mock';
 import { useStore } from '../../src/store/AppStore';
 
 export default function CaseDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { cases, assignCase, escalateCase, resolveCase } = useStore();
+  const { cases, assignCase, escalateCase, resolveCase, members, activeMember } = useStore();
   const c = cases.find((x) => x.id === id);
   const [assignOpen, setAssignOpen] = React.useState(false);
   const [escOpen, setEscOpen] = React.useState(false);
@@ -56,8 +55,8 @@ export default function CaseDetail() {
       </View>
 
       <Sheet visible={assignOpen} onClose={() => setAssignOpen(false)} title="Assign handler">
-        <Txt variant="bodyS" color={colors.textMuted} style={{ paddingHorizontal: 16, paddingBottom: 8 }}>Only committee members with the Issue handler permission are listed.</Txt>
-        {HANDLERS.map((h) => (
+        <Txt variant="bodyS" color={colors.textMuted} style={{ paddingHorizontal: 16, paddingBottom: 8 }}>Only active committee members are listed.</Txt>
+        {(members.length > 0 ? members.map((m) => ({ name: m.name, note: `${m.role} · Committee officer` })) : [{ name: activeMember?.name || 'Officer', note: 'Appointed handler' }]).map((h) => (
           <Pressable key={h.name} onPress={() => { assignCase(c.id, h.name); setAssignOpen(false); }}
             style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 56, paddingHorizontal: 16, backgroundColor: pressed ? colors.surfaceHover : 'transparent' })}>
             <Avatar name={h.name} size={34} />

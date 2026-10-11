@@ -1,7 +1,7 @@
 import React from 'react';
 import { Alert, Pressable, ScrollView, Share, View } from 'react-native';
 import { router } from 'expo-router';
-import { Avatar, IconButton, PostCard, Screen, ScreenHeader, SegmentedControl, Txt } from '../../src/components';
+import { Avatar, IconButton, PostCard, Screen, ScreenHeader, SegmentedControl, Txt, Card, IconTile, Button } from '../../src/components';
 import { colors, fonts, palette } from '../../src/theme';
 import { STORY_GROUPS } from '../../src/data/mock';
 import { useStore } from '../../src/store/AppStore';
@@ -38,18 +38,35 @@ export default function Home() {
       </View>
 
       <View style={{ gap: 14, paddingHorizontal: 12, paddingTop: 2 }}>
-        {posts.map((p) => (
-          <PostCard
-            key={p.id}
-            {...p}
-            liked={!!liked[p.id]}
-            likes={(p.likes ?? 0) + (liked[p.id] ? 1 : 0)}
-            onLike={() => toggleLike(p.id)}
-            onShare={() => Share.share({ message: (p.title ? p.title + ' — ' : '') + (p.body ?? '') })}
-            onMore={() => Alert.alert('Post options', undefined, [{ text: 'Report post' }, { text: 'Mute ' + (p.source ?? 'group') }, { text: 'Cancel', style: 'cancel' }])}
-          />
-        ))}
-        <Txt variant="bodyS" color={colors.textMuted} align="center" style={{ paddingVertical: 8 }}>You’re all caught up · newest first</Txt>
+        {posts.length === 0 ? (
+          <Card style={{ padding: 24, marginHorizontal: 4, alignItems: 'center', gap: 10 }}>
+            <IconTile icon="megaphone" tone="committee" />
+            <Txt variant="titleM" align="center">No announcements yet</Txt>
+            <Txt variant="bodyS" color={colors.textSecondary} align="center">
+              Official notices broadcast by committee leadership will appear here for verified members.
+            </Txt>
+            {(activeMember?.isLeader || isPlatformSuperAdmin) && (
+              <Button size="sm" icon="megaphone" onPress={() => router.push('/manage/announce')}>
+                Broadcast first announcement
+              </Button>
+            )}
+          </Card>
+        ) : (
+          <>
+            {posts.map((p) => (
+              <PostCard
+                key={p.id}
+                {...p}
+                liked={!!liked[p.id]}
+                likes={(p.likes ?? 0) + (liked[p.id] ? 1 : 0)}
+                onLike={() => toggleLike(p.id)}
+                onShare={() => Share.share({ message: (p.title ? p.title + ' — ' : '') + (p.body ?? '') })}
+                onMore={() => Alert.alert('Post options', undefined, [{ text: 'Report post' }, { text: 'Mute ' + (p.source ?? 'group') }, { text: 'Cancel', style: 'cancel' }])}
+              />
+            ))}
+            <Txt variant="bodyS" color={colors.textMuted} align="center" style={{ paddingVertical: 8 }}>You’re all caught up · newest first</Txt>
+          </>
+        )}
       </View>
     </Screen>
   );

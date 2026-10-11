@@ -10,7 +10,7 @@ const CATEGORIES = ['Wages', 'Working hours', 'Health & safety', 'Facilities', '
 
 export default function Raise() {
   const insets = useSafeAreaInsets();
-  const { addIssue, toast } = useStore();
+  const { addIssue, toast, activeMember } = useStore();
   const [v, setV] = React.useState({ title: '', category: '', desc: '', others: false });
   const [tried, setTried] = React.useState(false);
   const ok = !!v.title.trim() && !!v.category;
@@ -42,9 +42,9 @@ export default function Raise() {
           <TextArea value={v.desc} onChangeText={(desc) => setV({ ...v, desc })} placeholder="Dates, places, who was involved…" />
         </Field>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          <Tag icon="map-pin">Hyderabad</Tag>
-          <Tag icon="briefcase">IT Workers</Tag>
-          <Tag icon="paperclip" onPress={() => {}}>Add evidence</Tag>
+          <Tag icon="map-pin">{activeMember?.unit || 'Your Location'}</Tag>
+          <Tag icon="briefcase">{activeMember?.groups?.[0] || 'General'}</Tag>
+          <Tag icon="paperclip" onPress={() => { }}>Add evidence</Tag>
         </View>
         <Checkbox checked={v.others} onChange={(others) => setV({ ...v, others })} label="This affects other members too" description="Names stay private — related cases can be linked." />
         <Button size="lg" block icon="send" onPress={submit}>Submit issue</Button>

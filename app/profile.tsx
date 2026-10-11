@@ -43,6 +43,7 @@ export default function Profile() {
     approveMember,
     registerMember,
     createTenant,
+    logout,
   } = useStore();
 
   const [prefs, setPrefs] = React.useState(PREFS.map((p) => p[1]));
@@ -74,7 +75,7 @@ export default function Profile() {
       unit: regUnit.trim(),
       region: 'Telangana',
       group: regGroup.trim(),
-      tenantId: tenant.id,
+      orgCode: tenant?.code || 'ORG',
     });
     setRegName('');
     setRegEmail('');
@@ -220,9 +221,20 @@ export default function Profile() {
         ))}
       </Card>
 
-      <View style={{ padding: 12, paddingTop: 16, gap: 8 }}>
+      <View style={{ padding: 12, paddingTop: 16, gap: 10 }}>
         <Button variant="secondary" block icon="user-plus" onPress={() => setRegisterSheetOpen(true)}>
           Apply for new membership (PRD §6.1)
+        </Button>
+        <Button
+          variant="ghost"
+          block
+          icon="log-out"
+          onPress={() => {
+            logout();
+            router.replace('/');
+          }}
+        >
+          Sign out
         </Button>
       </View>
 

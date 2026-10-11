@@ -7,21 +7,29 @@ import { AUDIENCES } from '../../src/data/mock';
 import { useStore } from '../../src/store/AppStore';
 
 export default function Announce() {
-  const { toast } = useStore();
-  const [segs, setSegs] = React.useState<string[]>(['Telangana · IT Workers']);
+  const { toast, addPost, tenant } = useStore();
+  const [segs, setSegs] = React.useState<string[]>([`${tenant?.name || 'Organization'} · All members`]);
   const [notify, setNotify] = React.useState(true);
   const [pin, setPin] = React.useState(true);
-  const [title, setTitle] = React.useState('Statewide open session on revised shift rules');
-  const [body, setBody] = React.useState('All members are invited on Saturday 18 October, 10:00 at Ravindra Bharathi. Bring your questions about the new overtime policy.');
-  // Server resolves and de-duplicates recipients; this is a local approximation.
-  const count = segs.includes('Telangana · All members') ? 96500 : segs.reduce((s, x) => s + (AUDIENCES.find((a) => a[0] === x)?.[1] ?? 0), 0);
+  const [title, setTitle] = React.useState('');
+  const [body, setBody] = React.useState('');
+  const count = 1200;
   const toggle = (s: string) => setSegs(segs.includes(s) ? segs.filter((x) => x !== s) : [...segs, s]);
-  const publish = () => { router.back(); toast({ title: 'Published to ' + count.toLocaleString() + ' members', description: notify ? 'Push notifications are sending in batches' : 'In feeds now · no push sent' }); };
-
+  const publish = () => {
+    if (!title.trim() || !body.trim()) return;
+    addPost({
+      title: title.trim(),
+      body: body.trim(),
+      pinned: pin,
+      audienceScope: 'org',
+      audienceLabel: segs[0] || 'All members',
+    });
+    router.back();
+  };
   return (
     <Screen>
       <StackHeader onBack={() => router.back()} title="New announcement" />
-      <Txt variant="bodyS" color={colors.textSecondary} style={{ paddingHorizontal: 16 }}>Publishing as Telangana State Committee</Txt>
+      <Txt variant="bodyS" color={colors.textSecondary} style={{ paddingHorizontal: 16 }}>Publishing as {tenant?.name || 'Executive Leadership'}</Txt>
       <Card style={{ margin: 12, gap: 14 }}>
         <Field label="Headline" required><Input value={title} onChangeText={setTitle} /></Field>
         <Field label="Message"><TextArea value={body} onChangeText={setBody} /></Field>

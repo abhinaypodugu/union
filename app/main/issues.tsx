@@ -1,7 +1,8 @@
 import React from 'react';
 import { View } from 'react-native';
 import { router } from 'expo-router';
-import { Button, IssueCard, Notice, Screen, ScreenHeader, Tabs } from '../../src/components';
+import { Button, IssueCard, Notice, Screen, ScreenHeader, Tabs, Card, IconTile, Txt } from '../../src/components';
+import { colors } from '../../src/theme';
 import { useStore } from '../../src/store/AppStore';
 
 export default function Issues() {
@@ -31,22 +32,35 @@ export default function Issues() {
         />
       </View>
       <View style={{ gap: 10, padding: 12, paddingTop: 14 }}>
-        {list.map((i) => (
-          <IssueCard
-            key={i.id}
-            id={i.id}
-            title={i.title}
-            status={i.status}
-            statusLabel={i.statusLabel}
-            level={i.level}
-            category={i.category}
-            location={i.location}
-            due={i.due}
-            dueState={i.dueState}
-            nextAction={i.nextAction}
-            onPress={() => router.push('/issue?id=' + i.id)}
-          />
-        ))}
+        {list.length === 0 ? (
+          <Card style={{ padding: 24, marginHorizontal: 4, alignItems: 'center', gap: 10 }}>
+            <IconTile icon="circle-alert" tone="group" />
+            <Txt variant="titleM" align="center">No {tab} {terminology.caseLabel.toLowerCase()}s</Txt>
+            <Txt variant="bodyS" color={colors.textSecondary} align="center">
+              Workplace grievances submitted by you will be tracked here through investigation and resolution.
+            </Txt>
+            <Button size="sm" icon="plus" onPress={() => router.push('/raise')}>
+              {'Raise a ' + terminology.caseLabel.toLowerCase()}
+            </Button>
+          </Card>
+        ) : (
+          list.map((i) => (
+            <IssueCard
+              key={i.id}
+              id={i.id}
+              title={i.title}
+              status={i.status}
+              statusLabel={i.statusLabel}
+              level={i.level}
+              category={i.category}
+              location={i.location}
+              due={i.due}
+              dueState={i.dueState}
+              nextAction={i.nextAction}
+              onPress={() => router.push('/issue?id=' + i.id)}
+            />
+          ))
+        )}
       </View>
       <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
         <Notice tone="private" title={`${terminology.caseLabel}s are private`}>
