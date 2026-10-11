@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabase';
-import type { Issue, Post, Case, CommitteeMember, AuditEntry, Persona } from '../data/mock';
+import type { Issue, Post, Case, CommitteeMember, AuditEntry, Persona } from '../store/AppStore';
 
 export const dbService = {
   isLive: () => isSupabaseConfigured,

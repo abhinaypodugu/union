@@ -3,12 +3,16 @@ import { View } from 'react-native';
 import { router } from 'expo-router';
 import { AudienceSummary, Button, Card, Field, Input, PostCard, Screen, SectionLabel, StackHeader, Switch, Tag, TextArea, Txt } from '../../src/components';
 import { colors } from '../../src/theme';
-import { AUDIENCES } from '../../src/data/mock';
 import { useStore } from '../../src/store/AppStore';
 
 export default function Announce() {
-  const { toast, addPost, tenant } = useStore();
-  const [segs, setSegs] = React.useState<string[]>([`${tenant?.name || 'Organization'} · All members`]);
+  const { toast, addPost, tenant, activeMember } = useStore();
+  const audiences = [
+    `${tenant?.name || 'Organization'} · All members`,
+    ...(activeMember?.groups || []).map((g) => `${g} · Sector`),
+    ...(activeMember?.unit ? [`${activeMember.unit} · Unit`] : []),
+  ];
+  const [segs, setSegs] = React.useState<string[]>([audiences[0] || 'All members']);
   const [notify, setNotify] = React.useState(true);
   const [pin, setPin] = React.useState(true);
   const [title, setTitle] = React.useState('');
@@ -38,8 +42,7 @@ export default function Announce() {
       <SectionLabel>Audience</SectionLabel>
       <View style={{ paddingHorizontal: 12, gap: 12 }}>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          {AUDIENCES.map(([s]) => <Tag key={s} selected={segs.includes(s)} onPress={() => toggle(s)}>{s}</Tag>)}
-          <Tag icon="lock" disabled>National · All members</Tag>
+          {audiences.map((s) => <Tag key={s} selected={segs.includes(s)} onPress={() => toggle(s)}>{s}</Tag>)}
         </View>
         <Txt variant="bodyS" color={colors.textMuted}>Only audiences within your authority are selectable.</Txt>
         <AudienceSummary segments={segs} count={count} notify={notify} onNotifyChange={setNotify} onRemove={(s) => setSegs(segs.filter((x) => x !== s))} />

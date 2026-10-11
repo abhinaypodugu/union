@@ -3,7 +3,7 @@ import { View } from 'react-native';
 import { router } from 'expo-router';
 import { Avatar, Badge, Button, Card, Checkbox, CommitteeBadge, Field, IconButton, Input, ListCard, Notice, Radio, Screen, SectionLabel, Select, Sheet, StackHeader, Txt } from '../../src/components';
 import { colors, fonts } from '../../src/theme';
-import { COMMITTEE, CommitteeMember, MemberStatus } from '../../src/data/mock';
+import type { CommitteeMember, MemberStatus } from '../../src/store/AppStore';
 import { useStore } from '../../src/store/AppStore';
 
 const STATUS: Record<MemberStatus, ['success' | 'warning' | 'neutral', string]> = { active: ['success', 'Active'], suspended: ['warning', 'Suspended'], pending: ['neutral', 'Pending approval'] };
