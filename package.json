@@ -9,19 +9,23 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "build": "expo export",
-    "test": "node --test",
+    "test": "node --experimental-strip-types --test test/*.test.mjs",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@expo-google-fonts/ibm-plex-mono": "^0.2.3",
     "@expo-google-fonts/public-sans": "^0.2.3",
     "@expo-google-fonts/source-serif-4": "^0.2.3",
+    "@react-native-async-storage/async-storage": "2.2.0",
     "@supabase/supabase-js": "^2.117.3",
     "expo": "~57.0.0",
     "expo-asset": "~57.0.19",
     "expo-constants": "~57.0.21",
+    "expo-device": "~57.0.2",
+    "expo-document-picker": "~57.0.3",
     "expo-font": "~57.0.4",
     "expo-linking": "~57.0.12",
+    "expo-notifications": "~57.0.22",
     "expo-router": "~57.0.25",
     "expo-splash-screen": "~57.0.9",
     "expo-status-bar": "~57.0.1",
@@ -37,6 +41,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
+    "@electric-sql/pglite": "^0.5.9",
     "@types/node": "^26.6.5",
     "@types/react": "~19.2.4",
     "typescript": "~5.9.3"

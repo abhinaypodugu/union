@@ -29,8 +29,11 @@ type OnboardingStep =
 
 export default function Index() {
   const {
-    tenant,
+    authReady,
+    signedIn,
+    memberships,
     activeMember,
+    isPlatformSuperAdmin,
     requestOtp,
     verifyOtp,
     lookupOrgByCode,
@@ -47,11 +50,6 @@ export default function Index() {
   const [phoneInput, setPhoneInput] = useState('');
   const [normalizedPhone, setNormalizedPhone] = useState('');
   const [otpInput, setOtpInput] = useState('');
-  const [generatedOtp, setGeneratedOtp] = useState('');
-  const [authUserId, setAuthUserId] = useState('');
-  const [showAdminKeyInput, setShowAdminKeyInput] = useState(false);
-  const [adminKeyInput, setAdminKeyInput] = useState('');
-  const [isAdminVerified, setIsAdminVerified] = useState(false);
 
   // Admin Wizard State (1–2 questions per screen)
   const [orgName, setOrgName] = useState('');
@@ -61,7 +59,8 @@ export default function Index() {
   const [groupLabel, setGroupLabel] = useState('Trade Sector');
   const [adminName, setAdminName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
-  const [adminUnit, setAdminUnit] = useState('Headquarters');
+  const [adminUnit, setAdminUnit] = useState('');
+  const [adminRegion, setAdminRegion] = useState('');
   const [createdTenant, setCreatedTenant] = useState<Tenant | null>(null);
 
   // Member Wizard State (1–2 questions per screen)
@@ -73,8 +72,25 @@ export default function Index() {
   const [memberRegion, setMemberRegion] = useState('');
   const [memberGroup, setMemberGroup] = useState('');
 
-  // Redirect to main if already signed in and not on the post-creation share code screen
-  if (activeMember && tenant && step !== 'admin_share') {
+  // A restored session with no membership yet continues onboarding where it left off.
+  React.useEffect(() => {
+    if (authReady && signedIn && memberships.length === 0 && (step === 'phone' || step === 'otp')) {
+      setStep(isPlatformSuperAdmin ? 'admin_q1' : 'member_q1');
+    }
+  }, [authReady, signedIn, memberships.length, isPlatformSuperAdmin, step]);
+
+  if (!authReady) {
+    return (
+      <Screen>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+          <Txt variant="body" color={colors.textSecondary}>Loading…</Txt>
+        </View>
+      </Screen>
+    );
+  }
+
+  // Signed in with a membership: the main layout decides (pending / verified).
+  if (signedIn && activeMember && step !== 'admin_share') {
     return <Redirect href="/main" />;
   }
 
@@ -82,12 +98,10 @@ export default function Index() {
     if (!phoneInput.trim() || busy) return;
     setBusy(true);
     try {
-      const res = await requestOtp(phoneInput.trim(), adminKeyInput.trim());
+      const res = await requestOtp(phoneInput.trim());
       if (res.ok) {
         setNormalizedPhone(res.phone);
-        setGeneratedOtp(res.otpCode);
         setOtpInput('');
-        setIsAdminVerified(res.isAdmin);
         setStep('otp');
       }
     } finally {
@@ -99,29 +113,15 @@ export default function Index() {
     if (!otpInput.trim() || busy) return;
     setBusy(true);
     try {
-      const res = await verifyOtp(
-        normalizedPhone || phoneInput.trim(),
-        otpInput.trim(),
-        generatedOtp,
-        adminKeyInput.trim()
-      );
+      // Supabase Auth verifies the SMS code server-side; admin status comes from the
+      // server (platform_admins), never from anything typed into the app.
+      const res = await verifyOtp(normalizedPhone || phoneInput.trim(), otpInput.trim());
       if (!res.ok) return;
-
-      setAuthUserId(res.authUserId);
-      setIsAdminVerified(res.isAdmin);
-
-      // If existing user profile was found in Supabase, verifyOtp already set activeMember & tenant
-      if (res.existingProfile) {
+      if (res.memberships.length > 0) {
         router.replace('/main');
         return;
       }
-
-      // Route to Admin Setup Wizard ONLY if authenticated with Admin Phone or Admin Setup Key
-      if (res.isAdmin) {
-        setStep('admin_q1');
-      } else {
-        setStep('member_q1');
-      }
+      setStep(res.isPlatformAdmin ? 'admin_q1' : 'member_q1');
     } finally {
       setBusy(false);
     }
@@ -147,7 +147,7 @@ export default function Index() {
   };
 
   const handleCompleteAdminSetup = async () => {
-    if (!orgName.trim() || !orgCode.trim() || !adminName.trim() || busy) return;
+    if (!orgName.trim() || !orgCode.trim() || !adminName.trim() || !adminUnit.trim() || busy) return;
     setBusy(true);
     try {
       const cleanCode = orgCode.trim().toUpperCase();
@@ -164,13 +164,13 @@ export default function Index() {
           },
         },
         {
-          id: authUserId || undefined,
           name: adminName.trim(),
-          email: adminEmail.trim() || normalizedPhone,
-          phone: normalizedPhone,
-          unit: adminUnit.trim() || 'Headquarters',
+          email: adminEmail.trim(),
+          unit: adminUnit.trim(),
+          region: adminRegion.trim() || 'Central',
         }
       );
+      if (!created) return;
       setCreatedTenant(created);
       setStep('admin_share');
     } finally {
@@ -185,19 +185,15 @@ export default function Index() {
     setBusy(true);
     try {
       const saved = await registerMember({
-        id: authUserId || undefined,
         name: memberName.trim(),
-        email: memberEmail.trim() || normalizedPhone,
-        phone: normalizedPhone,
+        email: memberEmail.trim(),
         unit: memberUnit.trim(),
-        region: memberRegion.trim() || 'Central',
+        region: memberRegion.trim(),
         group: memberGroup.trim(),
         orgCode: matchedOrg.code,
-        autoSignIn: true,
       });
-      if (saved) {
-        router.replace('/main');
-      }
+      // Pending applicants land on the "awaiting approval" screen via the main layout gate.
+      if (saved) router.replace('/main');
     } finally {
       setBusy(false);
     }
@@ -274,15 +270,10 @@ export default function Index() {
                 />
               </Field>
 
-              {showAdminKeyInput && (
-                <Field label="Admin setup key">
-                  <Input
-                    value={adminKeyInput}
-                    onChangeText={setAdminKeyInput}
-                    placeholder="Enter admin setup key"
-                    autoCapitalize="characters"
-                  />
-                </Field>
+              {!isLiveDatabase && (
+                <Notice tone="warning" title="Backend not configured">
+                  Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY to sign in.
+                </Notice>
               )}
 
               <Button
@@ -295,16 +286,9 @@ export default function Index() {
                 {busy ? 'Sending code…' : 'Send verification code'}
               </Button>
 
-              <Pressable
-                onPress={() => setShowAdminKeyInput((v) => !v)}
-                style={{ alignItems: 'center', paddingTop: 4 }}
-              >
-                <Txt variant="bodyS" color={colors.textMuted}>
-                  {showAdminKeyInput
-                    ? 'Hide administrator key'
-                    : 'Founding administrator? Enter admin key'}
-                </Txt>
-              </Pressable>
+              <Txt variant="bodyS" color={colors.textMuted} align="center">
+                Platform administrators are recognised automatically after verification.
+              </Txt>
             </Card>
           )}
 
@@ -509,7 +493,19 @@ export default function Index() {
                   </Field>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Field label="2b. Work email">
+                  <Field label="2b. Headquarters state / region">
+                    <Input
+                      value={adminRegion}
+                      onChangeText={setAdminRegion}
+                      placeholder="e.g. Telangana"
+                    />
+                  </Field>
+                </View>
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Field label="3. Work email">
                     <Input
                       value={adminEmail}
                       onChangeText={setAdminEmail}
@@ -629,7 +625,7 @@ export default function Index() {
                 {busy ? 'Checking code…' : 'Verify code & continue'}
               </Button>
 
-              {isAdminVerified && (
+              {isPlatformSuperAdmin && (
                 <Pressable
                   onPress={() => setStep('admin_q1')}
                   style={{ alignItems: 'center', paddingTop: 4 }}

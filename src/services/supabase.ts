@@ -1,51 +1,36 @@
+import { AppState, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const getEnv = (key: string): string => {
-  if (typeof process !== 'undefined' && process.env && process.env[key]) {
-    return (process.env[key] as string).trim();
-  }
-  return '';
-};
+// EXPO_PUBLIC_* values are inlined at build time only when referenced statically
+// (process.env.EXPO_PUBLIC_X), so they are read one by one here.
+// The publishable (anon) key is designed to be public; all access control is
+// enforced by Row Level Security and server-side functions. The service-role key
+// must NEVER be given to the app — it is only used by Edge Functions and tests.
+const envUrl = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').trim();
+const envKey = (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '').trim();
 
-export const supabaseUrl =
-  getEnv('EXPO_PUBLIC_SUPABASE_URL') ||
-  getEnv('VITE_SUPABASE_URL') ||
-  'https://zxwzmmbvhwrptycocssy.supabase.co';
-
-export const supabaseAnonKey =
-  getEnv('EXPO_PUBLIC_SUPABASE_ANON_KEY') ||
-  getEnv('VITE_SUPABASE_ANON_KEY') ||
-  'sb_publishable_s9_l2TlUqGX9_oyb986hYg_qkqlEJwz';
-
-export const supabaseServiceKey = getEnv('EXPO_PUBLIC_SUPABASE_SERVICE_KEY');
-
-export const adminSetupKey = getEnv('EXPO_PUBLIC_ADMIN_SETUP_KEY') || 'UNION-ADMIN';
-
-export const adminPhonesList = (
-  getEnv('EXPO_PUBLIC_ADMIN_PHONES') || '7995731200,9999999999,+917995731200,+919999999999'
-)
-  .split(',')
-  .map((p) => p.replace(/[^0-9]/g, ''))
-  .filter(Boolean);
-
-export const activeSupabaseKey = supabaseServiceKey || supabaseAnonKey;
+export const supabaseUrl = envUrl || 'https://zxwzmmbvhwrptycocssy.supabase.co';
+export const supabaseAnonKey = envKey || 'sb_publishable_s9_l2TlUqGX9_oyb986hYg_qkqlEJwz';
 
 export const isSupabaseConfigured = Boolean(
-  supabaseUrl &&
-  activeSupabaseKey &&
-  supabaseUrl.startsWith('https://') &&
-  !supabaseUrl.includes('placeholder')
+  supabaseUrl && supabaseAnonKey && supabaseUrl.startsWith('https://') && !supabaseUrl.includes('placeholder')
 );
 
-export const supabase: SupabaseClient = isSupabaseConfigured
-  ? createClient(supabaseUrl, activeSupabaseKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  })
-  : createClient(
-    'https://placeholder-union.supabase.co',
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.placeholder',
-    { auth: { persistSession: false } }
-  );
+export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    // Sessions survive app restarts (PRD §12.3 secure sessions); web uses localStorage.
+    storage: Platform.OS === 'web' ? undefined : AsyncStorage,
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+  },
+});
+
+// Refresh tokens only while the app is in the foreground (Supabase RN guidance).
+if (Platform.OS !== 'web') {
+  AppState.addEventListener('change', (state) => {
+    if (state === 'active') supabase.auth.startAutoRefresh();
+    else supabase.auth.stopAutoRefresh();
+  });
+}

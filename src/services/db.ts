@@ -1,888 +1,432 @@
-import {
-  supabase,
-  isSupabaseConfigured,
-  supabaseUrl,
-  activeSupabaseKey,
-  adminSetupKey,
-  adminPhonesList,
-} from './supabase';
+// Data access layer. Reads go through RLS with explicit column lists; every
+// privileged write is a server-side RPC that re-checks the caller (supabase/schema.sql).
+// No admin APIs, no service keys, no client-side authorization decisions.
+import { supabase, isSupabaseConfigured } from './supabase';
+import { dueInfo, errorMessage, normalizePhoneNumber, relativeTime } from '../lib/format';
 import type {
-  Issue,
-  Post,
-  CommitteeInfo,
-  CommitteeMember,
-  AuditEntry,
-  Persona,
-  Tenant,
-  TerminologyConfig,
-} from '../store/AppStore';
+  AppNotification, Attachment, AuditEntry, ChatMessage, Comment, CommitteeInfo, CommitteeMember, FunctionalGroup,
+  GeoUnit, InternalNote, Issue, IssueAction, MemberReply, Persona, Post, RoutingRule, Tenant, TerminologyConfig,
+  TenantSettings, NotificationPrefs, AudienceOption, AudienceScope,
+} from '../store/types';
 
-export function normalizePhoneNumber(raw: string): { normalized: string; digits: string } {
-  const trimmed = raw.trim();
-  const digitsOnly = trimmed.replace(/[^0-9]/g, '');
-  if (!digitsOnly) {
-    return { normalized: '', digits: '' };
-  }
-  if (trimmed.startsWith('+')) {
-    return { normalized: `+${digitsOnly}`, digits: digitsOnly };
-  }
-  if (digitsOnly.length === 10) {
-    return { normalized: `+91${digitsOnly}`, digits: `91${digitsOnly}` };
-  }
-  return { normalized: `+${digitsOnly}`, digits: digitsOnly };
+export { normalizePhoneNumber };
+
+const DEFAULT_TERMINOLOGY: TerminologyConfig = {
+  orgLabel: 'Organization',
+  level1Label: 'City',
+  level2Label: 'State',
+  level3Label: 'National',
+  groupLabel: 'Functional Group',
+  caseLabel: 'Issue',
+};
+
+const PROFILE_COLS = 'id, user_id, tenant_id, member_number, name, unit, region, country, groups, roles, status, created_at';
+
+async function must<T>(p: PromiseLike<{ data: T | null; error: unknown }>): Promise<T> {
+  const { data, error } = await p;
+  if (error) throw new Error(errorMessage(error));
+  return data as T;
 }
 
-export function isPhoneAdminWhitelisted(rawPhone: string, providedAdminKey?: string): boolean {
-  if (providedAdminKey && providedAdminKey.trim().toUpperCase() === adminSetupKey.toUpperCase()) {
-    return true;
-  }
-  const { digits } = normalizePhoneNumber(rawPhone);
-  if (!digits) return false;
-  const last10 = digits.slice(-10);
-  return adminPhonesList.some((p) => p === digits || p.slice(-10) === last10);
-}
-
-interface AuthAdminUser {
-  id: string;
-  email?: string;
-  phone?: string;
-  user_metadata?: Record<string, unknown>;
-}
-
-async function ensureSupabaseAuthUser(
-  rawPhone: string,
-  metaPatch: Record<string, unknown> = {}
-): Promise<{ userId: string; userMeta: Record<string, unknown> } | null> {
-  const { normalized, digits } = normalizePhoneNumber(rawPhone);
-  if (!digits || !isSupabaseConfigured) return null;
-
-  const syntheticEmail = `u_${digits}@union.app`;
-  const headers = {
-    apikey: activeSupabaseKey,
-    Authorization: `Bearer ${activeSupabaseKey}`,
-    'Content-Type': 'application/json',
-  };
-
-  try {
-    const listRes = await fetch(`${supabaseUrl}/auth/v1/admin/users?per_page=200`, { headers });
-    if (listRes.ok) {
-      const listJson = (await listRes.json()) as { users?: AuthAdminUser[] };
-      const users = listJson.users || [];
-      const existing = users.find(
-        (u) =>
-          u.phone === digits ||
-          u.phone === normalized ||
-          u.email?.toLowerCase() === syntheticEmail.toLowerCase() ||
-          u.user_metadata?.phone === normalized ||
-          u.user_metadata?.digits === digits
-      );
-
-      if (existing) {
-        const mergedMeta = {
-          ...(existing.user_metadata || {}),
-          phone: normalized,
-          digits,
-          ...metaPatch,
-        };
-        const updRes = await fetch(`${supabaseUrl}/auth/v1/admin/users/${existing.id}`, {
-          method: 'PUT',
-          headers,
-          body: JSON.stringify({
-            email_confirm: true,
-            user_metadata: mergedMeta,
-          }),
-        });
-        if (updRes.ok) {
-          const updUser = (await updRes.json()) as AuthAdminUser;
-          return { userId: updUser.id, userMeta: updUser.user_metadata || mergedMeta };
-        }
-        return { userId: existing.id, userMeta: mergedMeta };
-      }
-
-      const createRes = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          email: syntheticEmail,
-          password: `UnionAuth!${digits}`,
-          email_confirm: true,
-          user_metadata: {
-            phone: normalized,
-            digits,
-            ...metaPatch,
-          },
-        }),
-      });
-
-      if (createRes.ok) {
-        const created = (await createRes.json()) as AuthAdminUser;
-        return { userId: created.id, userMeta: created.user_metadata || metaPatch };
-      }
-    }
-  } catch {
-    // Fallback below if Auth Admin endpoint is unreachable
-  }
-
-  return null;
-}
-
-function mapProfileRowToPersona(r: Record<string, any>): Persona {
-  const prefs = (r.notification_prefs || {}) as Record<string, any>;
-  const roles: string[] = Array.isArray(r.roles) && r.roles.length > 0 ? r.roles : ['member'];
-  const phone =
-    (typeof r.phone === 'string' && r.phone) ||
-    (typeof prefs.phone === 'string' && prefs.phone) ||
-    (typeof r.email === 'string' && r.email.startsWith('+') ? r.email : '');
-
+function mapProfile(r: Record<string, any>): Persona {
   return {
     id: r.id,
+    userId: r.user_id,
     name: r.name,
     memberId: r.member_number,
     tenantId: r.tenant_id,
-    email: r.email,
-    phone,
-    unit: r.unit || 'Headquarters',
-    region: r.region || 'Central',
-    country: r.country || 'India',
+    email: r.email ?? undefined,
+    phone: r.phone ?? undefined,
+    unit: r.unit,
+    region: r.region,
+    country: r.country,
     groups: Array.isArray(r.groups) ? r.groups : [],
-    roles,
-    status: r.status || 'verified',
-    since: r.created_at ? new Date(r.created_at).toLocaleDateString() : 'Today',
-    isLeader: roles.some((role: string) =>
-      ['chair', 'handler', 'org_admin', 'super_admin'].includes(role)
-    ),
-    leaderScope: prefs.leaderScope || undefined,
+    roles: Array.isArray(r.roles) ? r.roles : ['member'],
+    status: r.status,
+    statusReason: r.status_reason ?? undefined,
+    since: r.created_at ? new Date(r.created_at).toLocaleDateString() : '',
+    prefs: r.notification_prefs ?? undefined,
+  };
+}
+
+function mapTenant(r: Record<string, any>): Tenant {
+  return {
+    id: r.id,
+    name: r.name,
+    short: r.short_name,
+    code: r.code,
+    description: r.description || '',
+    terminology: { ...DEFAULT_TERMINOLOGY, ...(r.terminology || {}) },
+    settings: r.settings || {},
+  };
+}
+
+function mapIssue(r: Record<string, any>): Issue {
+  const d = dueInfo(r.due_at);
+  return {
+    id: r.id,
+    tenantId: r.tenant_id,
+    complainantId: r.complainant_id,
+    complainantName: r.complainant_name,
+    title: r.title,
+    description: r.description ?? undefined,
+    status: r.status,
+    statusLabel: r.status_label ?? undefined,
+    level: r.level,
+    category: r.category,
+    location: r.location,
+    group: r.functional_group ?? undefined,
+    committeeId: r.committee_id,
+    committee: r.committee_name,
+    assigneeId: r.assignee_profile_id,
+    assignee: r.assignee_name,
+    priority: r.priority,
+    confidential: Boolean(r.confidential),
+    affectsOthers: Boolean(r.affects_others),
+    due: d.due,
+    dueState: d.dueState,
+    dueAt: r.due_at,
+    nextAction: r.next_action,
+    resolutionSummary: r.resolution_summary ?? undefined,
+    lastReason: r.last_reason ?? undefined,
+    opened: r.created_at ? new Date(r.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : r.opened_date,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+    firstResponseAt: r.first_response_at,
+    stages: Array.isArray(r.stages) ? r.stages : [],
+  };
+}
+
+function mapPost(r: Record<string, any>): Post {
+  return {
+    id: r.id,
+    tenantId: r.tenant_id,
+    kind: r.kind,
+    pinned: Boolean(r.pinned),
+    authorId: r.author_profile_id,
+    author: { name: r.author_name, role: r.author_role ?? undefined, official: r.kind === 'official' },
+    source: r.source,
+    time: relativeTime(r.created_at),
+    createdAt: r.created_at,
+    title: r.title ?? undefined,
+    body: r.body,
+    audience: { scope: r.audience_scope, value: r.audience_value, label: r.audience_label },
+    likes: r.likes || 0,
+    comments: Array.isArray(r.comments) && r.comments[0] ? r.comments[0].count : 0,
+    removed: Boolean(r.removed),
+    expiresAt: r.expires_at,
+  };
+}
+
+function mapAppointment(m: Record<string, any>): CommitteeMember {
+  return {
+    id: m.id,
+    committeeId: m.committee_id,
+    profileId: m.profile_id,
+    name: m.name,
+    role: m.role,
+    since: m.since,
+    method: m.method,
+    formation: m.formation_type,
+    status: m.status,
+    override: Boolean(m.is_override),
+    overrideReason: m.override_reason ?? undefined,
+    statusReason: m.status_reason ?? undefined,
+    startDate: m.start_date,
+    endDate: m.end_date,
   };
 }
 
 export const dbService = {
   isLive: isSupabaseConfigured,
 
-  // 0. Mobile OTP Generation & Verification (Persisted in Supabase Auth + DB)
-  async requestPhoneOtp(
-    rawPhone: string,
-    adminKeyInput?: string
-  ): Promise<{ ok: boolean; otpCode: string; phone: string; isAdmin: boolean; error?: string }> {
+  // ---------------------------------------------------------------- Auth (Supabase phone OTP)
+  async requestPhoneOtp(rawPhone: string): Promise<{ ok: boolean; phone: string; error?: string }> {
     const { normalized, digits } = normalizePhoneNumber(rawPhone);
-    if (digits.length < 10) {
-      return {
-        ok: false,
-        otpCode: '',
-        phone: normalized,
-        isAdmin: false,
-        error: 'Enter a valid 10-digit mobile number.',
-      };
-    }
-
-    const isAdmin = isPhoneAdminWhitelisted(normalized, adminKeyInput);
-
-    if (isSupabaseConfigured) {
-      const { error: smsError } = await supabase.auth.signInWithOtp({
-        phone: normalized,
-      });
-      if (smsError) {
-        return {
-          ok: false,
-          otpCode: '',
-          phone: normalized,
-          isAdmin,
-          error: smsError.message,
-        };
-      }
-    }
-
-    return {
-      ok: true,
-      otpCode: '',
-      phone: normalized,
-      isAdmin,
-    };
+    if (digits.length < 10) return { ok: false, phone: normalized, error: 'Enter a valid 10-digit mobile number.' };
+    const { error } = await supabase.auth.signInWithOtp({ phone: normalized });
+    return error ? { ok: false, phone: normalized, error: errorMessage(error) } : { ok: true, phone: normalized };
   },
 
-  async verifyPhoneOtp(
-    rawPhone: string,
-    enteredCode: string,
-    expectedCode: string,
-    adminKeyInput?: string
-  ): Promise<{
-    ok: boolean;
-    error?: string;
-    authUserId: string;
-    phone: string;
-    isAdmin: boolean;
-    existingProfile: Persona | null;
-  }> {
-    const { normalized, digits } = normalizePhoneNumber(rawPhone);
-    const cleanCode = enteredCode.trim();
-    const isAdmin = isPhoneAdminWhitelisted(normalized, adminKeyInput);
-
-    if (!cleanCode || cleanCode.length !== 6) {
-      return {
-        ok: false,
-        error: 'Enter the 6-digit verification code.',
-        authUserId: '',
-        phone: normalized,
-        isAdmin,
-        existingProfile: null,
-      };
-    }
-
-    let authUserId = `user-${digits}`;
-
-    if (isSupabaseConfigured) {
-      const { data: smsAuthData, error: smsAuthErr } = await supabase.auth.verifyOtp({
-        phone: normalized,
-        token: cleanCode,
-        type: 'sms',
-      });
-
-      if (smsAuthErr || !smsAuthData?.user) {
-        return {
-          ok: false,
-          error: smsAuthErr?.message || 'Invalid or expired verification code.',
-          authUserId: '',
-          phone: normalized,
-          isAdmin,
-          existingProfile: null,
-        };
-      }
-
-      authUserId = smsAuthData.user.id;
-      // Lookup existing profile in Supabase DB by UUID or phone
-      const { data: profilesData } = await supabase.from('profiles').select('*');
-      if (profilesData && profilesData.length > 0) {
-        const matchedRow = profilesData.find((r) => {
-          const prefs = (r.notification_prefs || {}) as Record<string, any>;
-          const rowPhone = r.phone || prefs.phone || '';
-          const rowDigits = String(rowPhone).replace(/[^0-9]/g, '');
-          const emailDigits = String(r.email || '').replace(/[^0-9]/g, '');
-          return (
-            r.id === authUserId ||
-            (rowDigits && rowDigits.slice(-10) === digits.slice(-10)) ||
-            (emailDigits.length >= 10 && emailDigits.slice(-10) === digits.slice(-10))
-          );
-        });
-
-        if (matchedRow) {
-          return {
-            ok: true,
-            authUserId: matchedRow.id,
-            phone: normalized,
-            isAdmin:
-              isAdmin ||
-              (Array.isArray(matchedRow.roles) &&
-                matchedRow.roles.some((role: string) =>
-                  ['super_admin', 'org_admin'].includes(role)
-                )),
-            existingProfile: mapProfileRowToPersona(matchedRow),
-          };
-        }
-      }
-    } else if (cleanCode !== expectedCode) {
-      return {
-        ok: false,
-        error: 'Invalid verification code.',
-        authUserId,
-        phone: normalized,
-        isAdmin,
-        existingProfile: null,
-      };
-    }
-
-    return {
-      ok: true,
-      authUserId,
-      phone: normalized,
-      isAdmin,
-      existingProfile: null,
-    };
+  async verifyPhoneOtp(rawPhone: string, code: string): Promise<{ ok: boolean; error?: string }> {
+    const { normalized } = normalizePhoneNumber(rawPhone);
+    if (!/^\d{6}$/.test(code.trim())) return { ok: false, error: 'Enter the 6-digit verification code.' };
+    const { data, error } = await supabase.auth.verifyOtp({ phone: normalized, token: code.trim(), type: 'sms' });
+    if (error || !data?.session) return { ok: false, error: errorMessage(error) || 'Invalid or expired verification code.' };
+    return { ok: true };
   },
 
-  // 1. Tenants (Organizations)
-  async getTenants(): Promise<Tenant[]> {
-    if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase
-      .from('tenants')
-      .select('*')
-      .eq('active', true)
-      .order('created_at', { ascending: false });
+  async signOut(): Promise<void> {
+    await supabase.auth.signOut();
+  },
 
-    if (error || !data) return [];
-    return data.map((r) => ({
-      id: r.id,
-      name: r.name,
-      short: r.short_name,
-      code: r.code,
-      description: r.description || '',
-      terminology: r.terminology || {
-        orgLabel: 'Organization',
-        level1Label: 'City',
-        level2Label: 'State',
-        level3Label: 'National',
-        groupLabel: 'Functional Group',
-        caseLabel: 'Issue',
-      },
-    }));
+  // ---------------------------------------------------------------- Identity & memberships
+  async isPlatformAdmin(): Promise<boolean> {
+    const { data, error } = await supabase.rpc('is_platform_admin');
+    return !error && Boolean(data);
+  },
+
+  async getMyMemberships(): Promise<Persona[]> {
+    const rows = await must(supabase.rpc('get_my_memberships'));
+    return ((rows as any[]) || []).map(mapProfile);
+  },
+
+  async getMyTenants(): Promise<Tenant[]> {
+    const rows = await must(supabase.from('tenants').select('id, name, short_name, code, description, terminology, settings').eq('active', true));
+    return ((rows as any[]) || []).map(mapTenant);
   },
 
   async findTenantByCode(code: string): Promise<Tenant | null> {
-    if (!isSupabaseConfigured) return null;
-    const clean = code.trim().toUpperCase();
-    const { data, error } = await supabase
-      .from('tenants')
-      .select('*')
-      .ilike('code', clean)
-      .limit(1);
-
-    if (error || !data || data.length === 0) return null;
-    const r = data[0];
-    return {
-      id: r.id,
-      name: r.name,
-      short: r.short_name,
-      code: r.code,
-      description: r.description || '',
-      terminology: r.terminology || {
-        orgLabel: 'Organization',
-        level1Label: 'City',
-        level2Label: 'State',
-        level3Label: 'National',
-        groupLabel: 'Functional Group',
-        caseLabel: 'Issue',
-      },
-    };
+    const rows = (await must(supabase.rpc('find_org_by_code', { p_code: code.trim() }))) as any[];
+    return rows && rows[0] ? mapTenant(rows[0]) : null;
   },
 
-  async upsertTenant(tenant: Tenant): Promise<boolean> {
-    if (!isSupabaseConfigured) return false;
-    const { error } = await supabase.from('tenants').upsert({
-      id: tenant.id,
-      name: tenant.name,
-      short_name: tenant.short,
-      code: tenant.code.toUpperCase(),
-      description: tenant.description,
-      terminology: tenant.terminology,
-      active: true,
-    });
-    return !error;
+  async createOrganization(org: {
+    name: string; code: string; short: string; description: string; terminology?: Partial<TerminologyConfig>;
+    adminName: string; adminEmail: string; hqCity: string; hqRegion: string;
+  }): Promise<string> {
+    return (await must(supabase.rpc('create_organization', {
+      p_name: org.name, p_code: org.code, p_short: org.short, p_description: org.description,
+      p_terminology: org.terminology || {}, p_admin_name: org.adminName, p_admin_email: org.adminEmail,
+      p_hq_city: org.hqCity, p_hq_region: org.hqRegion,
+    }))) as string;
   },
 
-  async updateTenantTerminology(tenantId: string, terminology: TerminologyConfig): Promise<boolean> {
-    if (!isSupabaseConfigured) return false;
-    const { error } = await supabase
-      .from('tenants')
-      .update({ terminology })
-      .eq('id', tenantId);
-    return !error;
+  async registerMember(d: { orgCode: string; name: string; email: string; city: string; region: string; group: string }): Promise<string> {
+    return (await must(supabase.rpc('register_member', {
+      p_org_code: d.orgCode, p_name: d.name, p_email: d.email, p_city: d.city, p_region: d.region, p_group: d.group,
+    }))) as string;
   },
 
-  // 2. Members & Profiles
-  async getAllMembers(): Promise<Persona[]> {
-    if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (error || !data) return [];
-    return data.map(mapProfileRowToPersona);
-  },
-
+  // ---------------------------------------------------------------- Directory & membership admin
   async getMembers(tenantId: string): Promise<Persona[]> {
-    if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
-
-    if (error || !data) return [];
-    return data.map(mapProfileRowToPersona);
+    const rows = await must(supabase.from('profiles').select(PROFILE_COLS).eq('tenant_id', tenantId).order('name'));
+    return ((rows as any[]) || []).map(mapProfile);
   },
 
-  async upsertMember(persona: Persona): Promise<Persona> {
-    if (!isSupabaseConfigured) return persona;
-
-    let profileUuid = persona.id;
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      profileUuid
-    );
-
-    if (!isUuid) {
-      const phoneKey = persona.phone || persona.email || '9999999999';
-      const ensured = await ensureSupabaseAuthUser(phoneKey, {
-        name: persona.name,
-        tenant_id: persona.tenantId,
-      });
-      if (ensured?.userId) {
-        profileUuid = ensured.userId;
-      }
-    }
-
-    const updatedPersona: Persona = { ...persona, id: profileUuid };
-
-    await supabase.from('profiles').upsert({
-      id: profileUuid,
-      tenant_id: updatedPersona.tenantId,
-      member_number: updatedPersona.memberId,
-      name: updatedPersona.name,
-      email: updatedPersona.email || updatedPersona.phone || 'member@union.app',
-      unit: updatedPersona.unit || 'Headquarters',
-      region: updatedPersona.region || 'Central',
-      country: updatedPersona.country || 'India',
-      groups: updatedPersona.groups || ['General'],
-      roles: updatedPersona.roles || ['member'],
-      status: updatedPersona.status || 'verified',
-      notification_prefs: {
-        announcements: true,
-        replies: true,
-        groupActivity: false,
-        caseUpdates: true,
-        phone: updatedPersona.phone || '',
-        leaderScope: updatedPersona.leaderScope || '',
-      },
-    });
-
-    // Ensure geographic unit & functional group exist in Supabase
-    if (updatedPersona.unit) {
-      const unitId = `${updatedPersona.tenantId}-unit-${updatedPersona.unit
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '-')}`;
-      await supabase.from('geo_units').upsert({
-        id: unitId,
-        tenant_id: updatedPersona.tenantId,
-        name: updatedPersona.unit,
-        type: 'city',
-        kind: 'City',
-        member_count: 1,
-        active: true,
-      });
-    }
-
-    for (const grp of updatedPersona.groups || []) {
-      const grpId = `${updatedPersona.tenantId}-grp-${grp
-        .toLowerCase()
-        .replace(/[^a-z0-9]/g, '-')}`;
-      await supabase.from('functional_groups').upsert({
-        id: grpId,
-        tenant_id: updatedPersona.tenantId,
-        name: grp,
-        category: 'Sector',
-        icon: 'briefcase',
-        geographic_scope: updatedPersona.unit || 'Organization-wide',
-        member_count: 1,
-      });
-    }
-
-    return updatedPersona;
+  async adminListMembers(tenantId: string): Promise<Persona[]> {
+    const rows = await must(supabase.rpc('admin_list_members', { p_tenant: tenantId }));
+    return ((rows as any[]) || []).map(mapProfile);
   },
 
-  async approveMember(id: string): Promise<boolean> {
-    if (!isSupabaseConfigured) return false;
-    const { error } = await supabase.from('profiles').update({ status: 'verified' }).eq('id', id);
-    return !error;
+  setMemberStatus: (id: string, status: string, reason?: string) =>
+    must(supabase.rpc('set_member_status', { p_profile: id, p_status: status, p_reason: reason ?? null })),
+
+  setMemberRoles: (id: string, roles: string[]) => must(supabase.rpc('set_member_roles', { p_profile: id, p_roles: roles })),
+
+  updateMyPrefs: (tenantId: string, prefs: NotificationPrefs) =>
+    must(supabase.rpc('update_my_prefs', { p_tenant: tenantId, p_prefs: prefs })),
+
+  updateTenantConfig: (tenantId: string, terminology: Partial<TerminologyConfig>, settings: TenantSettings) =>
+    must(supabase.rpc('update_tenant_config', { p_tenant: tenantId, p_terminology: terminology, p_settings: settings })),
+
+  // ---------------------------------------------------------------- Structure
+  async getGeoUnits(tenantId: string): Promise<GeoUnit[]> {
+    const rows = await must(supabase.from('geo_units').select('id, name, type, kind, parent_id, member_count').eq('tenant_id', tenantId).eq('active', true));
+    return ((rows as any[]) || []).map((g) => ({ id: g.id, name: g.name, type: g.type, kind: g.kind, parentId: g.parent_id, memberCount: g.member_count }));
   },
 
-  // 3. Committees & Governance
-  async getCommittee(tenantId: string): Promise<CommitteeInfo | null> {
-    if (!isSupabaseConfigured) return null;
-    const { data: comms } = await supabase
-      .from('committees')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('level', { ascending: false })
-      .limit(1);
+  async getFunctionalGroups(tenantId: string): Promise<FunctionalGroup[]> {
+    const rows = await must(supabase.from('functional_groups').select('id, name, member_count').eq('tenant_id', tenantId).order('name'));
+    return ((rows as any[]) || []).map((g) => ({ id: g.id, name: g.name, memberCount: g.member_count }));
+  },
 
-    if (!comms || comms.length === 0) return null;
-    const c = comms[0];
-
-    const { data: membersData } = await supabase
-      .from('committee_members')
-      .select('*')
-      .eq('committee_id', c.id)
-      .order('created_at', { ascending: true });
-
-    const members: CommitteeMember[] = (membersData || []).map((m) => ({
-      name: m.name,
-      role: m.role,
-      since: m.since || 'Today',
-      method: m.method || m.formation_type || 'Appointment',
-      status: m.status || 'active',
-      override: Boolean(m.is_override),
-      overrideReason: m.override_reason || undefined,
-    }));
-
-    return {
+  async getCommittees(tenantId: string): Promise<CommitteeInfo[]> {
+    const [comms, members] = await Promise.all([
+      must(supabase.from('committees').select('*').eq('tenant_id', tenantId).eq('active', true).order('level', { ascending: false })),
+      must(supabase.from('committee_members').select('*').eq('tenant_id', tenantId).order('created_at')),
+    ]);
+    const byCommittee = new Map<string, CommitteeMember[]>();
+    ((members as any[]) || []).forEach((m) => byCommittee.set(m.committee_id, [...(byCommittee.get(m.committee_id) || []), mapAppointment(m)]));
+    return ((comms as any[]) || []).map((c) => ({
+      id: c.id,
       name: c.name,
       scope: c.scope,
-      level: (c.level as 1 | 2 | 3) || 3,
+      level: c.level,
+      functionalGroup: c.functional_group,
+      geoUnitId: c.geo_unit_id,
+      escalatesToId: c.escalates_to_id,
       method: c.method,
       term: c.term,
-      members,
+      responseHours: c.response_hours,
+      resolutionHours: c.resolution_hours,
       responsibilities: [
-        ['Governance', `Executive authority over ${c.scope}`],
-        ['Appeals', 'Final escalation destination for grievances'],
-      ],
-      audit: [{ time: 'Active', text: `${c.name} synced from Supabase` }],
-    };
+        ['Handles', c.responsibilities?.handles || '—'],
+        ['Escalates to', c.responsibilities?.escalatesTo || '—'],
+        ['Publishes to', c.responsibilities?.publishScope || '—'],
+      ] as [string, string][],
+      members: byCommittee.get(c.id) || [],
+    }));
   },
 
-  async upsertCommittee(
-    tenantId: string,
-    committee: CommitteeInfo,
-    founderProfileId?: string
-  ): Promise<void> {
-    if (!isSupabaseConfigured) return;
-    const committeeId = `${tenantId}-exec`;
-    await supabase.from('committees').upsert({
-      id: committeeId,
-      tenant_id: tenantId,
-      name: committee.name,
-      scope: committee.scope,
-      level: committee.level || 3,
-      method: committee.method,
-      term: committee.term,
-      responsibilities: {
-        handles: 'Executive governance',
-        escalatesTo: 'National board',
-        publishScope: 'Authorized membership',
-      },
-    });
+  saveCommittee: (tenantId: string, c: {
+    id?: string; name: string; scope: string; level: number; functionalGroup: string | null; geoUnitId: string | null;
+    escalatesToId: string | null; method: string; term: string; responseHours: number; resolutionHours: number;
+  }) => must(supabase.rpc('upsert_committee', {
+    p_tenant: tenantId, p_id: c.id || null, p_name: c.name, p_scope: c.scope, p_level: c.level,
+    p_functional_group: c.functionalGroup, p_geo_unit: c.geoUnitId, p_escalates_to: c.escalatesToId,
+    p_method: c.method, p_term: c.term, p_response_hours: c.responseHours, p_resolution_hours: c.resolutionHours,
+  })),
 
-    for (const m of committee.members) {
-      const validRole = ['Chair', 'Secretary', 'Issue handler', 'Member'].includes(m.role)
-        ? m.role
-        : 'Chair';
-      await supabase.from('committee_members').upsert({
-        id: `${committeeId}-${m.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-        committee_id: committeeId,
-        tenant_id: tenantId,
-        profile_id: founderProfileId || null,
-        name: m.name,
-        role: validRole,
-        formation_type: 'Appointment',
-        method: m.method || 'Founding Admin',
-        since: m.since || 'Today',
-        status: m.status === 'pending' ? 'pending' : 'active',
-        is_override: Boolean(m.override),
-        override_reason: m.overrideReason || null,
-      });
-    }
+  appointCommitteeMember: (a: { committeeId: string; profileId: string; role: string; method: string; override?: boolean; reason?: string; endDate?: string | null }) =>
+    must(supabase.rpc('appoint_committee_member', {
+      p_committee: a.committeeId, p_profile: a.profileId, p_role: a.role, p_method: a.method,
+      p_override: Boolean(a.override), p_reason: a.reason ?? null, p_end_date: a.endDate ?? null,
+    })),
+
+  setAppointmentStatus: (id: string, action: string, reason?: string) =>
+    must(supabase.rpc('set_appointment_status', { p_appointment: id, p_action: action, p_reason: reason ?? null })),
+
+  async getRoutingRules(tenantId: string): Promise<RoutingRule[]> {
+    const rows = await must(supabase.from('routing_rules').select('*').eq('tenant_id', tenantId).order('sort_order'));
+    return ((rows as any[]) || []).map((r) => ({
+      id: r.id, category: r.category, targetKind: r.target_kind, targetCommitteeId: r.target_committee_id,
+      startLevel: r.start_level, confidential: r.confidential, sortOrder: r.sort_order, active: r.active,
+    }));
   },
 
-  async insertCommitteeMember(
-    tenantId: string,
-    member: CommitteeMember
-  ): Promise<void> {
-    if (!isSupabaseConfigured) return;
-    const committeeId = `${tenantId}-exec`;
-    const validRole = ['Chair', 'Secretary', 'Issue handler', 'Member'].includes(member.role)
-      ? member.role
-      : 'Member';
-    const validFormation = [
-      'Appointment',
-      'Nomination & approval',
-      'Election',
-      'Eligibility-based selection',
-    ].includes(member.method)
-      ? member.method
-      : 'Appointment';
+  saveRoutingRule: (tenantId: string, r: Omit<RoutingRule, 'id'>) =>
+    must(supabase.rpc('upsert_routing_rule', {
+      p_tenant: tenantId, p_category: r.category, p_target_kind: r.targetKind, p_target_committee: r.targetCommitteeId,
+      p_start_level: r.startLevel, p_confidential: r.confidential, p_sort: r.sortOrder, p_active: r.active,
+    })),
 
-    await supabase.from('committee_members').upsert({
-      id: `${committeeId}-${member.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Date.now()}`,
-      committee_id: committeeId,
-      tenant_id: tenantId,
-      name: member.name,
-      role: validRole,
-      formation_type: validFormation,
-      method: member.method,
-      since: member.since || 'Today',
-      status: member.status === 'pending' ? 'pending' : 'active',
-      is_override: Boolean(member.override),
-      override_reason: member.overrideReason || null,
-    });
-  },
-
-  // 4. Issues & Cases
+  // ---------------------------------------------------------------- Issues
   async getIssues(tenantId: string): Promise<Issue[]> {
-    if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase
-      .from('issues')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
+    const rows = await must(supabase.from('issues').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false }));
+    return ((rows as any[]) || []).map(mapIssue);
+  },
 
-    if (error || !data) return [];
-    return data.map((r) => ({
-      id: r.id,
-      tenantId: r.tenant_id,
-      title: r.title,
-      status: r.status,
-      statusLabel: r.status_label,
-      level: r.level,
-      category: r.category,
-      location: r.location,
-      group: r.functional_group,
-      committee: r.committee_name,
-      due: r.due,
-      dueState: r.due_state,
-      nextAction: r.next_action,
-      opened: r.opened_date || 'Today',
-      stages: r.stages || [],
+  async getIssue(id: string): Promise<Issue | null> {
+    const rows = (await must(supabase.from('issues').select('*').eq('id', id).limit(1))) as any[];
+    return rows && rows[0] ? mapIssue(rows[0]) : null;
+  },
+
+  createIssue: async (tenantId: string, v: { title: string; description: string; category: string; priority: string; affectsOthers: boolean; confidential: boolean }) =>
+    (await must(supabase.rpc('create_issue', {
+      p_tenant: tenantId, p_title: v.title, p_description: v.description, p_category: v.category,
+      p_priority: v.priority, p_affects_others: v.affectsOthers, p_confidential: v.confidential,
+    }))) as string,
+
+  issueAction: (id: string, action: IssueAction, payload: Record<string, unknown> = {}) =>
+    must(supabase.rpc('issue_action', { p_issue: id, p_action: action, p_payload: payload })),
+
+  escalateIssue: (id: string, reason: string, expectedLevel: number) =>
+    must(supabase.rpc('escalate_issue', { p_issue: id, p_reason: reason, p_expected_level: expectedLevel })),
+
+  logCaseView: (id: string) => supabase.rpc('log_case_view', { p_issue: id }),
+
+  async getInternalNotes(issueId: string): Promise<InternalNote[]> {
+    const rows = await must(supabase.from('internal_notes').select('*').eq('issue_id', issueId).order('created_at'));
+    return ((rows as any[]) || []).map((n) => ({ id: n.id, authorName: n.author_name, authorRole: n.author_role, text: n.text, time: relativeTime(n.created_at) }));
+  },
+
+  async getReplies(issueId: string): Promise<MemberReply[]> {
+    const rows = await must(supabase.from('member_replies').select('*').eq('issue_id', issueId).order('created_at'));
+    return ((rows as any[]) || []).map((n) => ({ id: n.id, authorName: n.author_name, text: n.text, time: relativeTime(n.created_at) }));
+  },
+
+  async getAttachments(issueId: string): Promise<Attachment[]> {
+    const rows = await must(supabase.from('issue_attachments').select('*').eq('issue_id', issueId).order('created_at'));
+    return ((rows as any[]) || []).map((a) => ({ id: a.id, fileName: a.file_name, path: a.storage_path, internal: a.internal, time: relativeTime(a.created_at) }));
+  },
+
+  /** Upload to the private evidence bucket, then register it (server checks access + path). */
+  async uploadAttachment(tenantId: string, issueId: string, file: { uri: string; name: string; mimeType?: string; size?: number }, internal = false) {
+    const safeName = file.name.replace(/[^A-Za-z0-9._-]/g, '_').slice(-80);
+    const path = `${tenantId}/${issueId}/${Date.now()}-${safeName}`;
+    const blob = await (await fetch(file.uri)).blob();
+    const { error } = await supabase.storage.from('evidence').upload(path, blob, { contentType: file.mimeType || 'application/octet-stream', upsert: false });
+    if (error) throw new Error(errorMessage(error));
+    await must(supabase.rpc('add_issue_attachment', {
+      p_issue: issueId, p_path: path, p_file_name: file.name, p_mime: file.mimeType || null, p_size: file.size || blob.size, p_internal: internal,
     }));
   },
 
-  async insertIssue(
-    issue: Issue,
-    complainant?: { id?: string; name?: string },
-    priority: 'normal' | 'high' | 'urgent' = 'normal',
-    description?: string,
-    confidential = false,
-    affectsOthers = false
-  ): Promise<boolean> {
-    if (!isSupabaseConfigured || !issue.tenantId) return false;
-    const { error } = await supabase.from('issues').upsert({
-      id: issue.id,
-      tenant_id: issue.tenantId,
-      complainant_id: complainant?.id || 'member',
-      complainant_name: complainant?.name || 'Member',
-      title: issue.title,
-      description: description || issue.title,
-      category: issue.category,
-      location: issue.location,
-      functional_group: issue.group,
-      committee_name: issue.committee,
-      status: issue.status,
-      priority,
-      confidential,
-      affects_others: affectsOthers,
-      level: issue.level || 1,
-      next_action: issue.nextAction || 'Committee acknowledges issue',
-      due: issue.due || 'Within 2 days',
-      due_state: issue.dueState || 'ok',
-      opened_date: issue.opened || 'Today',
-      stages: issue.stages || [],
-    });
-    return !error;
+  /** Short-lived signed URL (60s) for confidential evidence (PRD §15.1). */
+  async attachmentUrl(path: string): Promise<string> {
+    const { data, error } = await supabase.storage.from('evidence').createSignedUrl(path, 60);
+    if (error || !data) throw new Error(errorMessage(error));
+    return data.signedUrl;
   },
 
-  async insertMemberReply(
-    issueId: string,
-    text: string,
-    authorName: string,
-    tenantId: string
-  ): Promise<boolean> {
-    if (!isSupabaseConfigured) return false;
-    const { error } = await supabase.from('member_replies').insert({
-      issue_id: issueId,
-      tenant_id: tenantId,
-      author_name: authorName,
-      text,
-    });
-    return !error;
-  },
-
-  async updateIssue(
-    id: string,
-    patch: Partial<Issue> & { assignee?: string | null; reason?: string }
-  ): Promise<boolean> {
-    if (!isSupabaseConfigured) return false;
-    const updateObj: Record<string, unknown> = { updated_at: new Date().toISOString() };
-    if (patch.status) updateObj.status = patch.status;
-    if (patch.statusLabel !== undefined) updateObj.status_label = patch.statusLabel;
-    if (patch.level) updateObj.level = patch.level;
-    if (patch.nextAction) updateObj.next_action = patch.nextAction;
-    if (patch.due) updateObj.due = patch.due;
-    if (patch.dueState) updateObj.due_state = patch.dueState;
-    if (patch.committee) updateObj.committee_name = patch.committee;
-    if (patch.assignee !== undefined) updateObj.assignee_name = patch.assignee;
-
-    const { error } = await supabase.from('issues').update(updateObj).eq('id', id);
-    return !error;
-  },
-
-  // 5. Posts & Announcements
+  // ---------------------------------------------------------------- Feed
   async getPosts(tenantId: string): Promise<Post[]> {
-    if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase
-      .from('posts')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
-
-    if (error || !data) return [];
-    return data.map((r) => ({
-      id: r.id,
-      tenantId: r.tenant_id,
-      kind: r.kind,
-      pinned: r.pinned,
-      author: { name: r.author_name, role: r.author_role, official: r.kind === 'official' },
-      source: r.source,
-      time: r.time_ago,
-      title: r.title,
-      body: r.body,
-      audience: { scope: r.audience_scope, label: r.audience_label },
-      likes: r.likes || 0,
-    }));
+    const rows = await must(supabase.from('posts').select('*, comments(count)').eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(200));
+    return ((rows as any[]) || []).map(mapPost);
   },
 
-  async insertPost(post: Post): Promise<boolean> {
-    if (!isSupabaseConfigured || !post.tenantId) return false;
-    const validScope = ['local', 'group', 'region', 'org', 'private'].includes(
-      post.audience?.scope || ''
-    )
-      ? post.audience!.scope
-      : 'org';
-
-    const { error } = await supabase.from('posts').upsert({
-      id: post.id,
-      tenant_id: post.tenantId,
-      kind: post.kind || 'official',
-      pinned: post.pinned || false,
-      author_name: post.author.name,
-      author_role: post.author.role || 'Official announcement',
-      source: post.source || 'Organization',
-      time_ago: post.time || 'Just now',
-      title: post.title || null,
-      body: post.body || '',
-      audience_scope: validScope,
-      audience_label: post.audience?.label || 'All members',
-      likes: post.likes || 0,
-    });
-    return !error;
+  async getPost(id: string): Promise<Post | null> {
+    const rows = (await must(supabase.from('posts').select('*, comments(count)').eq('id', id).limit(1))) as any[];
+    return rows && rows[0] ? mapPost(rows[0]) : null;
   },
-  // 6. Audit Log
+
+  async getMyLikes(profileId: string): Promise<string[]> {
+    const rows = await must(supabase.from('post_likes').select('post_id').eq('profile_id', profileId));
+    return ((rows as any[]) || []).map((r) => r.post_id);
+  },
+
+  publishPost: async (tenantId: string, p: { kind: string; title?: string; body: string; pinned: boolean; audiences: AudienceOption[]; notify: boolean; expiresAt?: string | null }) =>
+    (await must(supabase.rpc('publish_post', {
+      p_tenant: tenantId, p_kind: p.kind, p_title: p.title || null, p_body: p.body, p_pinned: p.pinned,
+      p_audiences: p.audiences, p_notify: p.notify, p_expires_at: p.expiresAt || null,
+    }))) as string[],
+
+  audienceCount: async (tenantId: string, scope: AudienceScope, value: string | null) =>
+    (await must(supabase.rpc('audience_count', { p_tenant: tenantId, p_scope: scope, p_value: value }))) as number,
+
+  toggleLike: async (postId: string) => (await must(supabase.rpc('toggle_like', { p_post: postId }))) as boolean,
+
+  async getComments(postId: string): Promise<Comment[]> {
+    const rows = await must(supabase.from('comments').select('*').eq('post_id', postId).eq('removed', false).order('created_at'));
+    return ((rows as any[]) || []).map((c) => ({ id: c.id, postId: c.post_id, authorId: c.author_id, authorName: c.author_name, text: c.text, time: relativeTime(c.created_at) }));
+  },
+
+  addComment: (postId: string, text: string) => must(supabase.rpc('add_comment', { p_post: postId, p_text: text })),
+  reportPost: (postId: string, reason: string) => must(supabase.rpc('report_post', { p_post: postId, p_reason: reason })),
+  moderatePost: (postId: string, action: string, reason?: string) =>
+    must(supabase.rpc('moderate_post', { p_post: postId, p_action: action, p_reason: reason ?? null })),
+
+  // ---------------------------------------------------------------- Chat
+  async getMessages(tenantId: string, scope: AudienceScope, value: string | null): Promise<ChatMessage[]> {
+    let q = supabase.from('group_messages').select('*').eq('tenant_id', tenantId).eq('channel_scope', scope);
+    q = value === null ? q.is('channel_value', null) : q.eq('channel_value', value);
+    const rows = await must(q.order('created_at', { ascending: true }).limit(200));
+    return ((rows as any[]) || []).map((m) => ({ id: m.id, authorId: m.author_profile_id, authorName: m.author_name, body: m.body, time: relativeTime(m.created_at) }));
+  },
+
+  sendMessage: (tenantId: string, scope: AudienceScope, value: string | null, me: Persona, body: string) =>
+    must(supabase.from('group_messages').insert({
+      tenant_id: tenantId, channel_scope: scope, channel_value: value, author_profile_id: me.id, author_name: me.name, body,
+    })),
+
+  // ---------------------------------------------------------------- Audit & notifications
   async getAuditLogs(tenantId: string): Promise<AuditEntry[]> {
-    if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase
-      .from('audit_logs')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('timestamp', { ascending: false })
-      .limit(50);
-
-    if (error || !data) return [];
-    return data.map((r) => ({
-      id: r.id,
-      time: r.timestamp ? new Date(r.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recent',
-      actor: r.actor_name,
-      action: r.action,
-      entityId: r.entity_id,
-      details: r.details,
-      isOverride: Boolean(r.is_super_admin_override),
+    const rows = await must(supabase.from('audit_logs').select('*').eq('tenant_id', tenantId).order('timestamp', { ascending: false }).limit(200));
+    return ((rows as any[]) || []).map((r) => ({
+      id: r.id, time: relativeTime(r.timestamp), actor: r.actor_name, actorRole: r.actor_role, action: r.action,
+      entityId: r.entity_id, details: r.details, reason: r.reason ?? undefined, isOverride: Boolean(r.is_super_admin_override),
     }));
   },
 
-  async insertAudit(entry: AuditEntry, tenantId: string, tenantName = 'Organization'): Promise<void> {
-    if (!isSupabaseConfigured || !tenantId) return;
-    await supabase.from('audit_logs').upsert({
-      id: entry.id,
-      tenant_id: tenantId,
-      tenant_name: tenantName,
-      actor_name: entry.actor,
-      actor_role: 'Officer',
-      action: entry.action,
-      entity_type: 'record',
-      entity_id: entry.entityId,
-      details: entry.details,
-      is_super_admin_override: entry.isOverride || false,
-    });
+  async getNotifications(tenantId: string): Promise<AppNotification[]> {
+    const rows = await must(supabase.from('notifications').select('*').eq('tenant_id', tenantId).order('created_at', { ascending: false }).limit(100));
+    return ((rows as any[]) || []).map((n) => ({
+      id: n.id, kind: n.kind, title: n.title, context: n.context, time: relativeTime(n.created_at), createdAt: n.created_at,
+      unread: Boolean(n.unread), mandatory: Boolean(n.mandatory), goTarget: n.go_target,
+    }));
   },
 
-  // 7. Notifications & Alerts
-  async getNotifications(tenantId: string, recipientId?: string): Promise<any[]> {
-    if (!isSupabaseConfigured) return [];
-    const query = supabase
-      .from('notifications')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
+  markNotificationsRead: (ids: string[] | null) => must(supabase.rpc('mark_notifications_read', { p_ids: ids })),
+  registerDeviceToken: (token: string, platform: string) => must(supabase.rpc('register_device_token', { p_token: token, p_platform: platform })),
+  unregisterDeviceToken: (token: string) => supabase.rpc('unregister_device_token', { p_token: token }),
 
-    const { data, error } = await query;
-    if (error || !data) return [];
-    return data.filter((n) => !n.recipient_id || n.recipient_id === recipientId);
-  },
-
-  async insertNotification(notif: {
-    tenantId: string;
-    recipientId?: string | null;
-    groupName?: string;
-    kind: string;
-    title: string;
-    context: string;
-    goTarget?: string;
-  }): Promise<boolean> {
-    if (!isSupabaseConfigured) return false;
-    const { error } = await supabase.from('notifications').insert({
-      tenant_id: notif.tenantId,
-      recipient_id: notif.recipientId || null,
-      group_name: notif.groupName || 'Today',
-      kind: notif.kind,
-      unread: true,
-      mandatory: false,
-      title: notif.title,
-      context: notif.context,
-      go_target: notif.goTarget || null,
-    });
-    return !error;
-  },
-
-  async markNotificationRead(id: string): Promise<void> {
-    if (!isSupabaseConfigured) return;
-    await supabase.from('notifications').update({ unread: false }).eq('id', id);
-  },
-
-  async markAllNotificationsRead(tenantId: string, recipientId?: string): Promise<void> {
-    if (!isSupabaseConfigured) return;
-    let q = supabase.from('notifications').update({ unread: false }).eq('tenant_id', tenantId);
-    if (recipientId) {
-      q = q.or(`recipient_id.eq.${recipientId},recipient_id.is.null`);
-    }
-    await q;
-  },
-
-  // 8. Comments on Posts
-  async getComments(postId: string): Promise<any[]> {
-    if (!isSupabaseConfigured) return [];
-    const { data, error } = await supabase
-      .from('comments')
-      .select('*')
-      .eq('post_id', postId)
-      .order('created_at', { ascending: true });
-    if (error || !data) return [];
-    return data;
-  },
-
-  async insertComment(c: {
-    tenantId: string;
-    postId: string;
-    authorId?: string;
-    authorName: string;
-    text: string;
-  }): Promise<boolean> {
-    if (!isSupabaseConfigured) return false;
-    const { error } = await supabase.from('comments').insert({
-      tenant_id: c.tenantId,
-      post_id: c.postId,
-      author_id: c.authorId || null,
-      author_name: c.authorName,
-      text: c.text,
-    });
-    return !error;
-  },
-  // 7. Realtime Subscriptions
+  // ---------------------------------------------------------------- Realtime (RLS-filtered)
   subscribeToChanges(table: string, tenantId: string, onUpdate: () => void) {
-    if (!isSupabaseConfigured) return () => { };
     const channel = supabase
-      .channel(`realtime:${table}:${tenantId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table, filter: `tenant_id=eq.${tenantId}` },
-        () => {
-          onUpdate();
-        }
-      )
+      .channel(`realtime:${table}:${tenantId}:${Math.random().toString(36).slice(2)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table, filter: `tenant_id=eq.${tenantId}` }, () => onUpdate())
       .subscribe();
-
     return () => {
       supabase.removeChannel(channel);
     };
