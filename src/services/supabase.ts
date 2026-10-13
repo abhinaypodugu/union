@@ -1,10 +1,22 @@
 import { AppState, Platform, NativeModules } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Safe storage adapter that checks for native AsyncStorage module availability
-// before accessing it, falling back cleanly to an in-memory store so native shells
-// without the RNCAsyncStorage module never crash on startup.
+// Safe, durable storage adapter for mobile and web.
+// Sessions and active tenant selection survive app minimizes, closes, and reboots.
+// Writes to the app's private sandboxed document directory (FileSystem.documentDirectory)
+// on mobile, and uses localStorage on web.
 const memoryStore = new Map<string, string>();
+
+function getStorageFileUri(key: string): string | null {
+  try {
+    if (!FileSystem || !FileSystem.documentDirectory) return null;
+    const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '_');
+    return `${FileSystem.documentDirectory}union_store_${safeKey}.json`;
+  } catch {
+    return null;
+  }
+}
 
 export const safeStorage = {
   getItem: async (key: string): Promise<string | null> => {
@@ -15,40 +27,54 @@ export const safeStorage = {
       }
       if (NativeModules && (NativeModules.RNCAsyncStorage || NativeModules.PlatformLocalStorage)) {
         const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-        return await AsyncStorage.getItem(key);
+        const val = await AsyncStorage.getItem(key);
+        if (val !== null && val !== undefined) return val;
+      }
+      const fileUri = getStorageFileUri(key);
+      if (fileUri) {
+        const info = await FileSystem.getInfoAsync(fileUri);
+        if (info.exists) {
+          const content = await FileSystem.readAsStringAsync(fileUri);
+          memoryStore.set(key, content);
+          return content;
+        }
       }
     } catch { }
     return memoryStore.get(key) ?? null;
   },
   setItem: async (key: string, value: string): Promise<void> => {
+    memoryStore.set(key, value);
     try {
       if (Platform.OS === 'web') {
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem(key, value);
-          return;
-        }
-      } else if (NativeModules && (NativeModules.RNCAsyncStorage || NativeModules.PlatformLocalStorage)) {
+        if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
+        return;
+      }
+      if (NativeModules && (NativeModules.RNCAsyncStorage || NativeModules.PlatformLocalStorage)) {
         const AsyncStorage = require('@react-native-async-storage/async-storage').default;
         await AsyncStorage.setItem(key, value);
-        return;
+      }
+      const fileUri = getStorageFileUri(key);
+      if (fileUri) {
+        await FileSystem.writeAsStringAsync(fileUri, value);
       }
     } catch { }
-    memoryStore.set(key, value);
   },
   removeItem: async (key: string): Promise<void> => {
+    memoryStore.delete(key);
     try {
       if (Platform.OS === 'web') {
-        if (typeof localStorage !== 'undefined') {
-          localStorage.removeItem(key);
-          return;
-        }
-      } else if (NativeModules && (NativeModules.RNCAsyncStorage || NativeModules.PlatformLocalStorage)) {
-        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-        await AsyncStorage.removeItem(key);
+        if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
         return;
       }
+      if (NativeModules && (NativeModules.RNCAsyncStorage || NativeModules.PlatformLocalStorage)) {
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        await AsyncStorage.removeItem(key);
+      }
+      const fileUri = getStorageFileUri(key);
+      if (fileUri) {
+        await FileSystem.deleteAsync(fileUri, { idempotent: true });
+      }
     } catch { }
-    memoryStore.delete(key);
   },
 };
 
