@@ -74,25 +74,27 @@ You can access and test the app using any of the following methods:
 
 ## 3. Mobile + OTP Authentication & Onboarding Flows
 
-The Welcome screen (`app/index.tsx`) asks **only** for a **Mobile Number** followed by **6-digit OTP verification** persisted in Supabase.
+The Welcome screen (`app/index.tsx`) asks **only** for a **Mobile Number** followed by **6-digit OTP verification**. The code is sent and verified by Supabase Auth (SMS via your configured provider, e.g. Twilio); the app never sees or checks codes itself, and the session is kept securely on the device.
 
-### Path A: Founding Administrator (Create Organization & Share Code)
-*Regular members cannot see or access the organization creation path. Only a whitelisted admin phone number (e.g. `9999999999`) or an account entering the Admin Setup Key (`UNION-ADMIN`) can create an organization.*
+### Path A: Platform Super Admin (Create Organization & Share Code)
+*Only Platform Super Admins can create organizations. A platform operator adds their phone number to the `platform_admins` table in the Supabase SQL editor (see `docs/OPERATIONS.md`). There is no setup key and no phone list inside the app.*
 
-1. **Mobile + Admin Verification:** Enter an admin mobile number (or tap *"Founding administrator? Enter admin key"* and enter `UNION-ADMIN`), then verify the 6-digit OTP code.
+1. **Mobile verification:** Enter your mobile number and the 6-digit code. If your number is a registered Platform Super Admin, the organization wizard opens.
 2. **Step 1 of 3 (2 Questions):** Enter the **Organization Name** and choose a unique **Organization Code** (e.g. `NHWU`).
 3. **Step 2 of 3 (2 Questions):** Enter the **Organization Description** and configure governance nouns (**Case label** & **Group label**).
-4. **Step 3 of 3 (2 Questions):** Enter the **Founding Administrator Name**, **Headquarters City**, and **Email**.
+4. **Step 3 of 3:** Enter the **Founding Administrator Name**, **Headquarters City**, **State / Region** and **Email**. You become the organization's admin and Chair of its Executive Committee (recorded in the audit trail as a platform-admin appointment).
 5. **Share Invite Code Screen:** Once created and persisted to Supabase, Union displays the **Organization Invite Code** with a **Share organization code** button so the admin can share it with members.
 
 ### Path B: Member Onboarding (Join via Shared Organization Code)
 1. **Mobile + OTP Verification:** Enter your 10-digit mobile number and verify the 6-digit OTP code.
 2. **Step 1 of 3 (1 Question):** Enter the **Organization Code** shared by your administrator (verified live against Supabase).
 3. **Step 2 of 3 (2 Questions):** Enter your **Full Name** and **Email Address**.
-4. **Step 3 of 3 (2 Questions):** Enter your **City / Branch** (`level1Label`) and **Trade Sector / Group** (`groupLabel`), then tap **Complete Setup** to save your profile to Supabase and launch the Home screen.
+4. **Step 3 of 3:** Enter your **City / Branch** (`level1Label`), **State / Region** (`level2Label`) and **Functional Group** (`groupLabel`), then tap **Complete Setup**.
+5. **Awaiting approval:** Your membership is created as **Pending**. You see an *Application under review* screen until a membership administrator approves you (unless the organization turned on automatic approval in Settings). Approval sends you a notification.
 
-### Returning Users (Admin or Member)
-- Verifying your mobile number via OTP automatically detects your existing profile in Supabase and signs you directly into your organization's Home screen.
+### Returning Users
+- Your session is remembered. Verifying your mobile number again signs you into your memberships; if you belong to several organizations, switch between them from **Profile → Organization**.
+- You can apply to another organization from **Profile → Organization → Join another organization**. Each membership is separate.
 
 ---
 
@@ -133,10 +135,10 @@ Members do not need to guess which committee handles their complaint—the platf
    - **What happened?:** Detailed description of the event, times, and parties involved.
    - **Affects others checkbox:** Check *"This affects other members too"* if the issue is collective (complainant identity remains protected).
 4. Tap **Submit issue**.
-5. **Automated Routing Behavior:**
-   - If *Harassment* or *Retaliation* $\rightarrow$ Automatically routed to **Confidential Handlers** directly at Level 2 (State).
-   - If *Facilities* $\rightarrow$ Routed to **Hyderabad General Committee**.
-   - If *Wages* or *Health & safety* $\rightarrow$ Routed to **Hyderabad IT Workers Committee** (Level 1).
+5. **Automated Routing Behavior (configurable in Management → Settings):**
+   - Each category has a routing rule: the member's functional-group committee, a general committee, or a specific committee, starting at a chosen level, optionally **confidential**.
+   - Defaults for a new organization: *Wages / Working hours / Health & safety* → your group's Level 1 committee; *Facilities* → the general Level 1 committee; *Harassment (confidential)* → general Level 2, visible only to Chairs and Issue handlers.
+   - If no committee exists for that route, the case enters the **triage queue** for organization admins — it is never lost.
 6. A confirmation toast appears, and the new case opens directly in the case progress view.
 
 ---
@@ -175,9 +177,7 @@ Members do not need to guess which committee handles their complaint—the platf
    - *Anita Desai* (Secretary · Level 1 City)
    - *Imran Sheikh* (Chair · Level 2 State)
    - *Joseph Mathew* (Chair · Facilities)
-   - Tap **Message** on any representative to initiate direct officer communications.
-3. **Your Escalation Route:** Visual badge chain showing your path of accountability:
-   `[Hyderabad L1] ──► [Telangana L2] ──► [National L3]`
+3. **Your Escalation Route:** Badge chain computed from the committees your organization configured (each committee's *Escalates to* setting, otherwise the next level for your functional group).
 4. **Structure:** Interactive, expandable tree. Tap nodes (*India*, *Telangana*, *Hyderabad*, *Committees*) to explore units and member counts.
 
 ---
@@ -297,26 +297,27 @@ To resolve deadlocks or make emergency governance adjustments (**PRD §5.11, §1
 
 ---
 
-### Flow 17: Multi-Tenant Switching & Organization Creation (Admin Only)
-1. Open **Profile** as an Administrator $\rightarrow$ tap the **Organization** card.
-2. **Switch or Create Organizations:**
-   - Switch between active organizations in Supabase, or tap **`+ Create new organization`** to establish a new isolated tenant boundary and generate its shareable member invite code.
+### Flow 17: Switching Organizations & Creating New Ones
+1. Open **Profile** $\rightarrow$ tap the **Organization** card.
+2. The sheet lists **only the organizations you are a member of** (with each membership's status). Tap one to switch.
+3. **Join another organization** applies for a separate membership with its code.
+4. **Create new organization** appears only for Platform Super Admins.
 
 ---
 
 ## 6. Live Database & Supabase Integration
 
-All data in **Union** is persisted directly to your live Supabase PostgreSQL database (`supabase/schema.sql`):
+All data is stored in Supabase PostgreSQL (`supabase/schema.sql`). The app only needs the **public** project URL and publishable (anon) key:
 ```env
 EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
-EXPO_PUBLIC_SUPABASE_SERVICE_KEY=sb_secret_...
-EXPO_PUBLIC_ADMIN_SETUP_KEY=UNION-ADMIN
-EXPO_PUBLIC_ADMIN_PHONES=9999999999,+919999999999
 ```
-- **Mobile OTP Verification:** Generates and persists 6-digit OTP codes in Supabase (`auth.users` metadata and `otp_verifications`).
-- **Organizations & Profiles:** Every organization (`tenants`), member/admin (`profiles`), committee (`committees`, `committee_members`), geographic unit (`geo_units`), trade group (`functional_groups`), grievance (`issues`), announcement (`posts`), and audit event (`audit_logs`) is stored in Supabase and hydrated automatically on launch.
-- **Realtime Sync:** Changes to issues and announcements stream live across connected devices.
+> ⚠️ Never put the service-role / secret key in any `EXPO_PUBLIC_*` variable — those values are compiled into the app and anyone can extract them. The service key is only used by the `dispatch-push` Edge Function (set as a Supabase function secret) and by tests.
+
+- **Sign-in:** Supabase Auth phone OTP (enable the Phone provider and an SMS provider such as Twilio in the Supabase dashboard).
+- **Security:** Row Level Security restricts every read to your own organizations and permitted scope; every privileged action is a database function that re-checks who you are.
+- **Realtime:** Issues, posts, notifications and group chat update live.
+- **Operations:** see `docs/OPERATIONS.md` for first-time setup, adding Platform Super Admins, scheduling deadlines, and push delivery.
 
 ---
 

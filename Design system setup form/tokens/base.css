@@ -1,7 +1,0 @@
-*, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
-body { margin: 0; background: var(--bg-app); color: var(--text-primary); font: var(--text-body); -webkit-font-smoothing: antialiased; }
-a { color: var(--text-link); text-decoration: none; }
-a:hover { color: var(--accent-hover); text-decoration: underline; text-underline-offset: 2px; }
-button { font: inherit; color: inherit; }
-::selection { background: var(--blue-100); }

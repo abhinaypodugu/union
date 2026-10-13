@@ -1,160 +1,93 @@
 import React from 'react';
 import { View, Share } from 'react-native';
 import { router } from 'expo-router';
-import {
-  Button,
-  Card,
-  IconTile,
-  IssueCard,
-  ListCard,
-  ListRow,
-  MetricTile,
-  Screen,
-  SectionLabel,
-  StackHeader,
-  Txt,
-} from '../../src/components';
+import { Button, Card, IconTile, IssueCard, ListCard, ListRow, MetricTile, Screen, SectionLabel, StackHeader, Txt } from '../../src/components';
 import { colors } from '../../src/theme';
 import { useStore } from '../../src/store/AppStore';
 
-/** Leadership overview — shown only to users with management permissions (PRD §7.1 item 7). */
+/** Role-scoped dashboard (PRD §10). Every number is computed from records the database
+ *  returned for this user, so it can only cover cases and members inside their scope. */
 export default function ManageOverview() {
-  const { tenant, cases, activeMember, committee, allMembers, isPlatformSuperAdmin } = useStore();
-  const isAuthorized = Boolean(
-    activeMember?.isLeader ||
-    isPlatformSuperAdmin ||
-    activeMember?.roles?.some((r) => ['super_admin', 'org_admin', 'chair', 'handler'].includes(r))
-  );
+  const {
+    tenant, cases, activeMember, committees, allMembers, adminMembers, loadAdminMembers, metrics, myAppointments,
+    isOrgAdmin, isMembershipAdmin, isPlatformSuperAdmin, isHandler, terminology, refresh,
+  } = useStore();
+  const [refreshing, setRefreshing] = React.useState(false);
+  React.useEffect(() => { if (isMembershipAdmin) void loadAdminMembers(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [isMembershipAdmin, tenant?.id]);
 
-  if (!isAuthorized) {
-    return (
-      <Screen>
-        <StackHeader onBack={() => router.back()} title="Management" />
-        <View style={{ padding: 24, alignItems: 'center', gap: 12, marginTop: 40 }}>
-          <IconTile icon="lock" tone="committee" />
-          <Txt variant="titleM" align="center">Access Restricted (PRD §7.1)</Txt>
-          <Txt variant="bodyS" color={colors.textSecondary} align="center">
-            The management console requires authorized committee leadership or administrator permissions.
-          </Txt>
-          <Button variant="secondary" onPress={() => router.replace('/main')}>Return to Home</Button>
-        </View>
-      </Screen>
-    );
-  }
-
-  const attention = cases.filter((c) => c.dueState === 'overdue' || c.status === 'triage');
-  const tenantMembers = allMembers.filter((m) => m.tenantId === tenant?.id);
-  const pendingCount = tenantMembers.filter((m) => m.status === 'pending').length;
-  const handleShareOrgCode = async () => {
-    if (!tenant) return;
-    await Share.share({
-      message: `Join ${tenant.name} on Union.\n\nOrganization Code: ${tenant.code}\n\nSign in with your mobile number on the Union app and enter this code to complete your member setup.`,
-    });
-  };
+  const attention = cases.filter((c) => !['resolved', 'closed', 'rejected'].includes(c.status) && (c.dueState !== 'ok' || c.status === 'triage' || !c.assignee));
+  const pendingCount = adminMembers.filter((m) => m.status === 'pending').length;
+  const scope = isOrgAdmin ? `${tenant?.name} · Organization admin`
+    : myAppointments.map((a) => `${a.role} · ${committees.find((c) => c.id === a.committeeId)?.name || ''}`).join(' / ') || 'Leadership';
+  // Workload by handler (PRD §10.2)
+  const workload = Object.entries(
+    cases.filter((c) => c.assignee && !['resolved', 'closed', 'rejected'].includes(c.status))
+      .reduce<Record<string, number>>((acc, c) => ({ ...acc, [c.assignee as string]: (acc[c.assignee as string] || 0) + 1 }), {}),
+  ).sort((a, b) => b[1] - a[1]);
 
   return (
-    <Screen>
+    <Screen refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await refresh(); setRefreshing(false); }}>
       <StackHeader onBack={() => router.back()} title="Management" />
       <View style={{ paddingHorizontal: 16, paddingTop: 4, gap: 4 }}>
-        <Txt variant="overline" color={colors.textMuted}>
-          {activeMember?.leaderScope || 'Executive Administration'}
-        </Txt>
-        <Txt variant="displayM">Welcome, {activeMember?.name || 'Administrator'}</Txt>
+        <Txt variant="overline" color={colors.textMuted}>{scope}</Txt>
+        <Txt variant="displayM">Welcome, {activeMember?.name}</Txt>
       </View>
 
-      {tenant && (
-        <Card
-          padding={14}
-          style={{
-            marginHorizontal: 12,
-            marginTop: 12,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
-          }}
-        >
+      {isMembershipAdmin && tenant ? (
+        <Card padding={14} style={{ marginHorizontal: 12, marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <View style={{ flex: 1, gap: 2 }}>
-            <Txt variant="overline" color={colors.textMuted}>
-              MEMBER INVITE CODE
-            </Txt>
-            <Txt variant="titleL" color={colors.accent}>
-              {tenant.code}
-            </Txt>
-            <Txt variant="bodyS" color={colors.textSecondary}>
-              {tenantMembers.length} registered {tenantMembers.length === 1 ? 'member' : 'members'}
-            </Txt>
+            <Txt variant="overline" color={colors.textMuted}>MEMBER INVITE CODE</Txt>
+            <Txt variant="titleL" color={colors.accent}>{tenant.code}</Txt>
+            <Txt variant="bodyS" color={colors.textSecondary}>{allMembers.filter((m) => m.status === 'verified').length} verified members</Txt>
           </View>
-          <Button size="sm" variant="secondary" icon="share-2" onPress={handleShareOrgCode}>
-            Share code
-          </Button>
+          <Button size="sm" variant="secondary" icon="share-2" onPress={() => Share.share({ message: `Join ${tenant.name} on Union with organization code ${tenant.code}.` })}>Share code</Button>
         </Card>
-      )}
+      ) : null}
 
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, padding: 12, paddingTop: 14 }}>
-        <MetricTile
-          label="Open cases"
-          value={cases.length}
-          delta={cases.length > 0 ? `${cases.length} active` : 'Queue clear'}
-          icon="inbox"
-        />
-        <MetricTile
-          label="Overdue"
-          value={cases.filter((c) => c.dueState === 'overdue').length}
-          danger
-          delta="Auto-escalate on SLA"
-          icon="triangle-alert"
-        />
-        <MetricTile label="Members" value={tenantMembers.length} delta="Active directory" icon="users" />
-        <MetricTile
-          label="Pending approvals"
-          value={pendingCount}
-          delta={pendingCount > 0 ? `${pendingCount} new applicants` : 'All verified'}
-          icon="user-check"
-        />
+        {isHandler ? (
+          <>
+            <MetricTile label={`Open ${terminology.caseLabel.toLowerCase()}s`} value={metrics.open} delta={metrics.triage ? `${metrics.triage} in triage` : 'In your scope'} icon="inbox" />
+            <MetricTile label="Overdue" value={metrics.overdue} danger={metrics.overdue > 0} delta="Escalates automatically" icon="triangle-alert" />
+            <MetricTile label="First response" value={metrics.firstResponseDays === null ? '—' : `${metrics.firstResponseDays.toFixed(1)}d`} delta="Median, your scope" icon="timer" />
+            <MetricTile label="Resolved" value={metrics.resolvedPct === null ? '—' : `${metrics.resolvedPct}%`} delta="Of cases you can see" icon="circle-check" />
+          </>
+        ) : null}
+        {isMembershipAdmin ? (
+          <MetricTile label="Pending approvals" value={pendingCount} delta={pendingCount ? 'Awaiting review' : 'All reviewed'} icon="user-check" />
+        ) : null}
       </View>
+
       <ListCard style={{ marginHorizontal: 12 }}>
-        <ListRow
-          title="Issue queue"
-          subtitle={cases.length + ' open in your scope'}
-          left={<IconTile icon="inbox" />}
-          onPress={() => router.push('/manage/queue')}
-        />
-        <ListRow
-          title="Committees & appointments"
-          subtitle={committee?.name || 'Committee Roster'}
-          left={<IconTile icon="users" tone="committee" />}
-          onPress={() => router.push('/manage/committee')}
-        />
-        <ListRow
-          title="New announcement"
-          subtitle="Publish to audiences you’re authorized for"
-          left={<IconTile icon="megaphone" />}
-          onPress={() => router.push('/manage/announce')}
-        />
+        {isHandler ? <ListRow title={`${terminology.caseLabel} queue`} subtitle={`${metrics.open} open in your scope`} left={<IconTile icon="inbox" />} onPress={() => router.push('/manage/queue')} /> : null}
+        <ListRow title="Committees & appointments" subtitle={`${committees.length} committees`} left={<IconTile icon="users" tone="committee" />} onPress={() => router.push('/manage/committee')} />
+        <ListRow title="New announcement" subtitle="Publish to audiences you’re authorized for" left={<IconTile icon="megaphone" />} onPress={() => router.push('/manage/announce')} />
+        {isMembershipAdmin ? <ListRow title="Members & approvals" subtitle={pendingCount ? `${pendingCount} pending` : 'Directory and status'} left={<IconTile icon="user-check" />} onPress={() => router.push('/manage/members')} /> : null}
+        {isOrgAdmin || isPlatformSuperAdmin ? <ListRow title="Settings & routing" subtitle="Terminology, categories, approval policy" left={<IconTile icon="settings" />} onPress={() => router.push('/manage/settings')} /> : null}
+        {isOrgAdmin || isPlatformSuperAdmin ? <ListRow title="Audit trail" subtitle="Who did what, and why" left={<IconTile icon="history" />} onPress={() => router.push('/manage/audit')} /> : null}
       </ListCard>
-      <SectionLabel>Needs attention</SectionLabel>
-      <View style={{ gap: 10, paddingHorizontal: 12 }}>
-        {attention.map((c) => (
-          <IssueCard
-            key={c.id}
-            id={c.id}
-            title={c.title}
-            status={c.status}
-            level={c.level}
-            priority={c.priority}
-            category={c.category}
-            location={c.location}
-            committee={c.committee}
-            assignee={c.assignee}
-            nextAction={c.next}
-            due={c.due}
-            dueState={c.dueState}
-            confidential={c.confidential}
-            onPress={() => router.push('/manage/case?id=' + c.id)}
-          />
-        ))}
-      </View>
+
+      {workload.length ? (
+        <>
+          <SectionLabel>Workload by handler</SectionLabel>
+          <Card style={{ marginHorizontal: 12, gap: 6 }}>
+            {workload.map(([name, n]) => <Txt key={name} variant="body">{`${name} · ${n} open`}</Txt>)}
+          </Card>
+        </>
+      ) : null}
+
+      {isHandler ? (
+        <>
+          <SectionLabel>Needs attention</SectionLabel>
+          <View style={{ gap: 10, paddingHorizontal: 12 }}>
+            {attention.length === 0 ? <Txt variant="bodyS" color={colors.textMuted} style={{ paddingHorizontal: 4 }}>Nothing overdue or unassigned.</Txt> : attention.map((c) => (
+              <IssueCard key={c.id} id={c.id} title={c.title} status={c.status} level={c.level} priority={c.priority} category={c.category}
+                location={c.location} committee={c.committee} assignee={c.assignee} nextAction={c.next} due={c.due} dueState={c.dueState}
+                confidential={c.confidential} onPress={() => router.push('/manage/case?id=' + encodeURIComponent(c.id))} />
+            ))}
+          </View>
+        </>
+      ) : null}
     </Screen>
   );
 }

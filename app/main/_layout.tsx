@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import type { ColorValue } from 'react-native';
 import { Icon } from '../../src/components';
 import { colors, fonts, palette } from '../../src/theme';
@@ -13,7 +13,11 @@ const tab = (title: string, icon: string) => ({
 });
 
 export default function TabsLayout() {
-  const { unreadCount } = useStore();
+  const { unreadCount, authReady, signedIn, activeMember, terminology } = useStore();
+  // Access gate (PRD §6.2): only verified members reach organization content.
+  if (!authReady) return null;
+  if (!signedIn || !activeMember) return <Redirect href="/" />;
+  if (activeMember.status !== 'verified') return <Redirect href="/pending" />;
   return (
     <Tabs
       screenOptions={{
@@ -27,9 +31,9 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="index" options={tab('Home', 'house')} />
       <Tabs.Screen name="groups" options={tab('Groups', 'users-round')} />
-      <Tabs.Screen name="issues" options={tab('Issues', 'circle-alert')} />
+      <Tabs.Screen name="issues" options={tab(terminology.caseLabel + 's', 'circle-alert')} />
       <Tabs.Screen name="alerts" options={{ ...tab('Alerts', 'bell'), tabBarBadge: unreadCount || undefined }} />
-      <Tabs.Screen name="org" options={tab('Organization', 'network')} />
+      <Tabs.Screen name="org" options={tab(terminology.orgLabel, 'network')} />
     </Tabs>
   );
 }

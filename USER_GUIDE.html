@@ -123,12 +123,12 @@
     </blockquote>
 
     <h2>1. Mobile + OTP Welcome & Setup Flows</h2>
-    <p>The Welcome screen asks <b>only</b> for a <b>Mobile Number</b> followed by <b>6-digit OTP verification</b> persisted in Supabase.</p>
+    <p>The Welcome screen asks <b>only</b> for a <b>Mobile Number</b> followed by <b>6-digit OTP verification</b>, sent and checked by Supabase Auth.</p>
 
-    <h3>Path A: Founding Administrator (Create Organization & Share Code)</h3>
-    <p><i>Regular members do not see the organization creation flow. Only a whitelisted admin phone number (e.g. <code>9999999999</code>) or an account entering the Admin Setup Key (<code>UNION-ADMIN</code>) can create an organization.</i></p>
+    <h3>Path A: Platform Super Admin (Create Organization & Share Code)</h3>
+    <p><i>Only Platform Super Admins can create organizations. An operator registers their phone number in the <code>platform_admins</code> table (see <code>docs/OPERATIONS.md</code>). There is no setup key in the app.</i></p>
     <ol>
-      <li><b>Mobile + OTP Verification:</b> Enter an admin phone number (or tap <i>"Founding administrator? Enter admin key"</i> and enter <code>UNION-ADMIN</code>), then verify the 6-digit OTP code.</li>
+      <li><b>Mobile + OTP Verification:</b> Enter your mobile number and the 6-digit code; registered Platform Super Admins are taken to the organization wizard.</li>
       <li><b>Step 1 of 3 (2 Questions):</b> Enter the official <b>Organization Name</b> and choose a unique <b>Organization Code</b> (e.g. <code>NHWU</code>).</li>
       <li><b>Step 2 of 3 (2 Questions):</b> Enter the <b>Organization Description</b> and configure governance terms (<b>Case label</b> &amp; <b>Group label</b>).</li>
       <li><b>Step 3 of 3 (2 Questions):</b> Enter the <b>Founding Administrator Name</b>, <b>Headquarters City</b>, and <b>Work Email</b>.</li>

@@ -38,3 +38,14 @@ This project incorporates third-party open-source software packages under their 
 - **react-native-screens**: MIT License (Copyright (c) 2018 Software Mansion)
 - **react-native-svg**: MIT License (Copyright (c) 2015-2016 Horcrux)
 - **query-string**: MIT License (Copyright (c) Sindre Sorhus)
+
+---
+
+## 5. Added in the security & PRD-compliance update
+- **@react-native-async-storage/async-storage** (session persistence): MIT License (Copyright (c) 2015-present, Facebook, Inc.)
+- **expo-notifications**, **expo-device**, **expo-document-picker** (push, device detection, evidence upload): MIT License (Copyright (c) 650 Industries, Inc.)
+- **@electric-sql/pglite** (development/test only — runs PostgreSQL in tests; not shipped in the app): Apache License 2.0 (Copyright (c) ElectricSQL) — the PostgreSQL portions are under the PostgreSQL License.
+- **Supabase Edge Runtime / Deno** (server-side `dispatch-push` function, not shipped in the app): MIT License.
+
+No source code was copied from the candidate repositories listed in PRD §15.3 (ciaorelated, xMind, Ahlan Social Mobile, CivicFix, etc.).
+

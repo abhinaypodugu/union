@@ -4,25 +4,24 @@ import { router } from 'expo-router';
 import { Button, ListCard, NotificationItem, Screen, ScreenHeader, SectionLabel, Txt, Card, IconTile } from '../../src/components';
 import { colors } from '../../src/theme';
 import { useStore } from '../../src/store/AppStore';
+import { notificationHref } from '../../src/lib/format';
 
 export default function Alerts() {
-  const { notifications: storeNotifications, readIds, markRead, markAllRead } = useStore();
-  const notifications = storeNotifications.map((n) => ({
-    id: n.id,
-    group: (n.group_name === 'Earlier' ? 'Earlier' : 'Today') as 'Today' | 'Earlier',
-    kind: (n.kind || 'status') as 'status' | 'announcement' | 'reply' | 'escalation' | 'security' | 'appointment',
-    title: n.title,
-    context: n.context || undefined,
-    time: n.time_ago || 'Recent',
-    mandatory: Boolean(n.mandatory),
-    unread: n.unread !== false && !readIds.has(n.id),
-    href: n.go_target ? (n.go_target.startsWith('CASE') ? `/issue?id=${n.go_target}` : `/main`) : undefined,
-  }));
+  const { notifications, markRead, markAllRead, refresh } = useStore();
+  const [refreshing, setRefreshing] = React.useState(false);
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const grouped = {
+    Today: notifications.filter((n) => new Date(n.createdAt) >= startOfDay),
+    Earlier: notifications.filter((n) => new Date(n.createdAt) < startOfDay),
+  };
+  const anyUnread = notifications.some((n) => n.unread);
+
   return (
-    <Screen>
+    <Screen refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await refresh(); setRefreshing(false); }}>
       <ScreenHeader
         title="Notifications"
-        right={notifications.length > 0 ? <Button variant="ghost" size="sm" onPress={markAllRead}>Mark all read</Button> : null}
+        right={anyUnread ? <Button variant="ghost" size="sm" onPress={markAllRead}>Mark all read</Button> : null}
       />
 
       {notifications.length === 0 ? (
@@ -37,7 +36,7 @@ export default function Alerts() {
         </View>
       ) : (
         (['Today', 'Earlier'] as const).map((g) => {
-          const items = notifications.filter((n) => n.group === g);
+          const items = grouped[g];
           if (items.length === 0) return null;
           return (
             <View key={g}>
@@ -51,10 +50,12 @@ export default function Alerts() {
                     context={n.context}
                     time={n.time}
                     mandatory={n.mandatory}
-                    unread={n.unread && !readIds.has(n.id)}
+                    unread={n.unread}
                     onPress={() => {
                       markRead(n.id);
-                      if (n.href) router.push(n.href as never);
+                      // The destination re-checks access against current permissions.
+                      const href = notificationHref(n.goTarget);
+                      if (href) router.push(href as never);
                     }}
                   />
                 ))}

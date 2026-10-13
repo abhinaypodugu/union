@@ -1,288 +1,19 @@
 import React from 'react';
 import { View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Toast, ToastData } from '../components/Toast';
-import { dbService, normalizePhoneNumber } from '../services/db';
-import type { IssueStatus } from '../components/domain/StatusBadge';
-import type { EscalationStage } from '../components/domain/EscalationTimeline';
-export type { IssueStatus, EscalationStage };
+import { dbService } from '../services/db';
+import { supabase } from '../services/supabase';
+import { registerForPush, unregisterPush } from '../services/push';
+import { errorMessage, median, relativeTime } from '../lib/format';
+import type {
+  AppNotification, AudienceOption, AuditEntry, Case, CommitteeInfo, CommitteeMember, FunctionalGroup, GeoUnit,
+  GroupSection, Issue, IssueAction, NotificationPrefs, Persona, Post, RoutingRule, Tenant, TenantSettings,
+  TerminologyConfig,
+} from './types';
 
-export interface TerminologyConfig {
-  orgLabel: string;
-  level1Label: string;
-  level2Label: string;
-  level3Label: string;
-  groupLabel: string;
-  caseLabel: string;
-}
-
-export interface Tenant {
-  id: string;
-  name: string;
-  short: string;
-  code: string;
-  description: string;
-  terminology: TerminologyConfig;
-}
-
-export interface Persona {
-  id: string;
-  name: string;
-  memberId: string;
-  tenantId: string;
-  email: string;
-  phone?: string;
-  unit: string;
-  region: string;
-  country: string;
-  groups: string[];
-  roles: string[];
-  status: 'verified' | 'pending' | 'suspended';
-  since: string;
-  isLeader?: boolean;
-  leaderScope?: string;
-}
-
-export type DueState = 'ok' | 'soon' | 'overdue';
-
-export interface TimelineEvent {
-  time: string;
-  text: string;
-}
-
-export interface Issue {
-  id: string;
-  tenantId?: string;
-  title: string;
-  status: IssueStatus;
-  statusLabel?: string;
-  level?: number;
-  category: string;
-  location: string;
-  group?: string;
-  committee: string;
-  due?: string;
-  dueState?: DueState;
-  nextAction?: string;
-  opened: string;
-  stages: EscalationStage[];
-}
-
-export interface Case {
-  id: string;
-  tenantId?: string;
-  title: string;
-  category: string;
-  location: string;
-  group: string;
-  committee: string;
-  assignee: string | null;
-  status: IssueStatus;
-  priority: 'normal' | 'high' | 'urgent';
-  age: string;
-  due: string;
-  dueState: DueState;
-  level: 1 | 2 | 3;
-  next: string;
-  confidential?: boolean;
-  reason?: string;
-}
-
-export interface Post {
-  id: string;
-  tenantId?: string;
-  kind?: 'member' | 'official' | 'committee';
-  pinned?: boolean;
-  mine?: boolean;
-  author: { name: string; role?: string; official?: boolean };
-  source?: string;
-  time?: string;
-  title?: string;
-  body?: string;
-  media?: string;
-  audience?: {
-    scope: 'org' | 'region' | 'local' | 'group' | 'committee' | 'private' | 'public';
-    label: string;
-  };
-  likes?: number;
-  comments?: number;
-  liked?: boolean;
-}
-
-export type MemberStatus = 'active' | 'suspended' | 'pending';
-
-export interface CommitteeMember {
-  name: string;
-  role: string;
-  since: string;
-  method: string;
-  status: MemberStatus;
-  override?: boolean;
-  overrideReason?: string;
-}
-
-export interface CommitteeInfo {
-  name: string;
-  scope: string;
-  level: 1 | 2 | 3;
-  method: string;
-  term: string;
-  members: CommitteeMember[];
-  responsibilities: [string, string][];
-  audit: { time: string; text: string }[];
-}
-
-export interface AuditEntry {
-  id: string;
-  time: string;
-  actor: string;
-  action: string;
-  entityId: string;
-  details: string;
-  isOverride?: boolean;
-}
-
-export interface GroupItem {
-  id: string;
-  name: string;
-  kind: string;
-  icon: string;
-  unread?: number;
-  tone: 'geo' | 'group' | 'committee';
-}
-
-export interface GroupSection {
-  section: string;
-  note?: string;
-  items: GroupItem[];
-}
-
-interface Store {
-  // Tenant & Organization
-  tenant: Tenant | null;
-  tenants: Tenant[];
-  switchTenant: (id: string) => void;
-  createTenant: (data: {
-    name: string;
-    short: string;
-    code: string;
-    description: string;
-    terminology?: Partial<TerminologyConfig>;
-  }) => Tenant;
-  terminology: TerminologyConfig;
-  updateTerminology: (patch: Partial<TerminologyConfig>) => void;
-  setupOrganization: (
-    org: {
-      name: string;
-      short: string;
-      code: string;
-      description: string;
-      terminology?: Partial<TerminologyConfig>;
-    },
-    admin: { id?: string; name: string; email: string; phone?: string; unit?: string }
-  ) => Promise<Tenant>;
-  lookupOrgByCode: (code: string) => Promise<Tenant | null>;
-
-  // Mobile OTP & Authentication
-  requestOtp: (
-    phone: string,
-    adminKey?: string
-  ) => Promise<{ ok: boolean; otpCode: string; phone: string; isAdmin: boolean; error?: string }>;
-  verifyOtp: (
-    phone: string,
-    code: string,
-    expectedCode: string,
-    adminKey?: string
-  ) => Promise<{
-    ok: boolean;
-    error?: string;
-    authUserId: string;
-    phone: string;
-    isAdmin: boolean;
-    existingProfile: Persona | null;
-  }>;
-
-  // Member & Authentication
-  activeMember: Persona | null;
-  allMembers: Persona[];
-  isPlatformSuperAdmin: boolean;
-  logout: () => void;
-  registerMember: (data: {
-    id?: string;
-    name: string;
-    email: string;
-    phone?: string;
-    unit: string;
-    region: string;
-    group: string;
-    orgCode: string;
-    autoSignIn?: boolean;
-  }) => Promise<Persona | null>;
-  approveMember: (id: string) => void;
-
-  // Posts & Content
-  posts: Post[];
-  addPost: (p: {
-    title?: string;
-    body: string;
-    pinned?: boolean;
-    audienceScope: 'org' | 'region' | 'local' | 'group';
-    audienceLabel: string;
-    notifyPush?: boolean;
-  }) => void;
-  liked: Record<string, boolean>;
-  toggleLike: (id: string) => void;
-
-  // Issues & Cases (Synchronized)
-  issues: Issue[];
-  cases: Case[];
-  addIssue: (v: {
-    title: string;
-    category: string;
-    desc: string;
-    priority?: 'normal' | 'high' | 'urgent';
-    confidential?: boolean;
-    affectsOthers?: boolean;
-  }) => Issue;
-  replyToIssue: (id: string, replyText?: string) => void;
-  requestMemberInfo: (id: string, question: string) => void;
-  updateCase: (id: string, patch: Partial<Case>) => void;
-  assignCase: (id: string, assigneeName: string) => void;
-  escalateCase: (id: string, reason: string, isAuto?: boolean) => void;
-  resolveCase: (id: string) => void;
-  committee: CommitteeInfo | null;
-  members: CommitteeMember[];
-  setMembers: React.Dispatch<React.SetStateAction<CommitteeMember[]>>;
-  addCommitteeMember: (data: {
-    name: string;
-    role: string;
-    method: string;
-    override?: boolean;
-    overrideReason?: string;
-  }) => void;
-
-  // Groups
-  groups: GroupSection[];
-
-  // Auditing & Notifications
-  auditLogs: AuditEntry[];
-  notifications: any[];
-  readIds: Set<string>;
-  unreadCount: number;
-  markRead: (id: string) => void;
-  markAllRead: () => void;
-  // Toast
-  toast: (t: ToastData) => void;
-  isLiveDatabase: boolean;
-}
-
-const Ctx = React.createContext<Store | null>(null);
-
-export function useStore() {
-  const s = React.useContext(Ctx);
-  if (!s) throw new Error('useStore must be used inside <AppStoreProvider>');
-  return s;
-}
+export * from './types';
 
 const DEFAULT_TERMINOLOGY: TerminologyConfig = {
   orgLabel: 'Organization',
@@ -293,46 +24,136 @@ const DEFAULT_TERMINOLOGY: TerminologyConfig = {
   caseLabel: 'Issue',
 };
 
-function mapIssuesToCases(issuesList: Issue[]): Case[] {
-  return issuesList.map((iss) => ({
-    id: iss.id,
-    tenantId: iss.tenantId,
-    title: iss.title,
-    category: iss.category,
-    location: iss.location,
-    group: iss.group || 'General',
-    committee: iss.committee,
-    assignee: null,
-    status: iss.status,
-    priority: 'normal',
-    age: iss.opened || 'Today',
-    due: iss.due || 'Within 2 days',
-    dueState: iss.dueState || 'ok',
-    level: ((iss.level as 1 | 2 | 3) || 1),
-    next: iss.nextAction || 'Committee review',
-  }));
+const ACTIVE_TENANT_KEY = 'union.activeTenant';
+const MUTED_KEY = 'union.mutedSources';
+
+interface Store {
+  // Session
+  authReady: boolean;
+  signedIn: boolean;
+  isLiveDatabase: boolean;
+  requestOtp: (phone: string) => Promise<{ ok: boolean; phone: string; error?: string }>;
+  verifyOtp: (phone: string, code: string) => Promise<{ ok: boolean; memberships: Persona[]; isPlatformAdmin: boolean }>;
+  logout: () => Promise<void>;
+
+  // Organizations & memberships
+  tenant: Tenant | null;
+  tenants: Tenant[];
+  memberships: Persona[];
+  switchTenant: (id: string) => void;
+  lookupOrgByCode: (code: string) => Promise<Tenant | null>;
+  setupOrganization: (org: {
+    name: string; short: string; code: string; description: string; terminology?: Partial<TerminologyConfig>;
+  }, admin: { name: string; email: string; unit: string; region: string }) => Promise<Tenant | null>;
+  registerMember: (d: { name: string; email: string; unit: string; region: string; group: string; orgCode: string }) => Promise<Persona | null>;
+  terminology: TerminologyConfig;
+  updateTenantConfig: (terminology: Partial<TerminologyConfig>, settings?: TenantSettings) => Promise<boolean>;
+
+  // Who am I here
+  activeMember: Persona | null;
+  isPlatformSuperAdmin: boolean;
+  isOrgAdmin: boolean;
+  isMembershipAdmin: boolean;
+  isModerator: boolean;
+  isLeader: boolean;
+  isHandler: boolean;
+  myAppointments: CommitteeMember[];
+  audienceOptions: { official: AudienceOption[]; member: AudienceOption[] };
+
+  // Directory & membership admin
+  allMembers: Persona[];
+  adminMembers: Persona[];
+  loadAdminMembers: () => Promise<void>;
+  setMemberStatus: (id: string, status: 'verified' | 'rejected' | 'suspended' | 'ended', reason?: string) => Promise<boolean>;
+  approveMember: (id: string) => Promise<boolean>;
+  setMemberRoles: (id: string, roles: string[]) => Promise<boolean>;
+  updatePrefs: (prefs: NotificationPrefs) => Promise<boolean>;
+
+  // Structure & governance
+  geoUnits: GeoUnit[];
+  functionalGroups: FunctionalGroup[];
+  committees: CommitteeInfo[];
+  committee: CommitteeInfo | null;
+  members: CommitteeMember[];
+  saveCommittee: (c: Parameters<typeof dbService.saveCommittee>[1]) => Promise<string | null>;
+  appointMember: (a: Parameters<typeof dbService.appointCommitteeMember>[0]) => Promise<boolean>;
+  setAppointmentStatus: (id: string, action: 'approve' | 'suspend' | 'reinstate' | 'revoke' | 'replace' | 'expire', reason?: string) => Promise<boolean>;
+  routingRules: RoutingRule[];
+  saveRoutingRule: (r: Omit<RoutingRule, 'id'>) => Promise<boolean>;
+  categories: string[];
+
+  // Feed
+  posts: Post[];
+  liked: Record<string, boolean>;
+  toggleLike: (id: string) => void;
+  addPost: (p: { kind: 'official' | 'member'; title?: string; body: string; pinned: boolean; audiences: AudienceOption[]; notify: boolean; expiresAt?: string | null }) => Promise<boolean>;
+  reportPost: (id: string, reason: string) => Promise<boolean>;
+  moderatePost: (id: string, action: 'pin' | 'unpin' | 'remove' | 'restore', reason?: string) => Promise<boolean>;
+  mutedSources: string[];
+  toggleMute: (source: string) => void;
+
+  // Issues
+  issues: Issue[];
+  cases: Case[];
+  addIssue: (v: { title: string; category: string; desc: string; priority: 'normal' | 'high' | 'urgent'; confidential: boolean; affectsOthers: boolean }) => Promise<string | null>;
+  issueAction: (id: string, action: IssueAction, payload?: Record<string, unknown>) => Promise<boolean>;
+  escalateCase: (id: string, reason: string, expectedLevel: number) => Promise<boolean>;
+  metrics: { open: number; overdue: number; triage: number; firstResponseDays: number | null; resolvedPct: number | null };
+
+  // Groups
+  groups: GroupSection[];
+
+  // Audit & notifications
+  auditLogs: AuditEntry[];
+  notifications: AppNotification[];
+  unreadCount: number;
+  markRead: (id: string) => void;
+  markAllRead: () => void;
+
+  refresh: () => Promise<void>;
+  toast: (t: ToastData) => void;
+}
+
+const Ctx = React.createContext<Store | null>(null);
+
+export function useStore() {
+  const s = React.useContext(Ctx);
+  if (!s) throw new Error('useStore must be used inside <AppStoreProvider>');
+  return s;
+}
+
+function toCase(i: Issue): Case {
+  return { ...i, age: relativeTime(i.createdAt), next: i.nextAction, reason: i.lastReason };
 }
 
 export function AppStoreProvider({ children }: { children: React.ReactNode }) {
+  const insets = useSafeAreaInsets();
+  const [authReady, setAuthReady] = React.useState(false);
+  const [userId, setUserId] = React.useState<string | null>(null);
+  const [isPlatformSuperAdmin, setIsPlatformSuperAdmin] = React.useState(false);
+  const [memberships, setMemberships] = React.useState<Persona[]>([]);
   const [tenants, setTenants] = React.useState<Tenant[]>([]);
   const [currentTenantId, setCurrentTenantId] = React.useState<string | null>(null);
-  const [terminology, setTerminology] = React.useState<TerminologyConfig>(DEFAULT_TERMINOLOGY);
 
   const [allMembers, setAllMembers] = React.useState<Persona[]>([]);
-  const [activeMemberId, setActiveMemberId] = React.useState<string | null>(null);
-
+  const [adminMembers, setAdminMembers] = React.useState<Persona[]>([]);
+  const [geoUnits, setGeoUnits] = React.useState<GeoUnit[]>([]);
+  const [functionalGroups, setFunctionalGroups] = React.useState<FunctionalGroup[]>([]);
+  const [committees, setCommittees] = React.useState<CommitteeInfo[]>([]);
+  const [routingRules, setRoutingRules] = React.useState<RoutingRule[]>([]);
   const [posts, setPosts] = React.useState<Post[]>([]);
-  const [issues, setIssues] = React.useState<Issue[]>([]);
-  const [cases, setCases] = React.useState<Case[]>([]);
-  const [committee, setCommittee] = React.useState<CommitteeInfo | null>(null);
-  const [auditLogs, setAuditLogs] = React.useState<AuditEntry[]>([]);
-  const [notifications, setNotifications] = React.useState<any[]>([]);
-
-  const [readIds, setReadIds] = React.useState<Set<string>>(new Set());
   const [liked, setLiked] = React.useState<Record<string, boolean>>({});
+  const [issues, setIssues] = React.useState<Issue[]>([]);
+  const [auditLogs, setAuditLogs] = React.useState<AuditEntry[]>([]);
+  const [notifications, setNotifications] = React.useState<AppNotification[]>([]);
+  const [mutedSources, setMutedSources] = React.useState<string[]>([]);
   const [toastData, setToastData] = React.useState<(ToastData & { key: number }) | null>(null);
 
-  const insets = useSafeAreaInsets();
+  const toast = React.useCallback((t: ToastData) => setToastData({ ...t, key: Date.now() }), []);
+  const fail = React.useCallback((title: string, err: unknown) => {
+    toast({ title, description: errorMessage(err) });
+    return false as const;
+  }, [toast]);
 
   React.useEffect(() => {
     if (!toastData) return;
@@ -340,943 +161,508 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(t);
   }, [toastData]);
 
-  // Initial Hydration of Tenants & Members from Supabase
   React.useEffect(() => {
-    if (!dbService.isLive) return;
-    let mounted = true;
-    async function hydrateDirectory() {
-      const [liveTenants, liveProfiles] = await Promise.all([
-        dbService.getTenants(),
-        dbService.getAllMembers(),
-      ]);
-      if (!mounted) return;
-      if (liveTenants.length > 0) {
-        setTenants(liveTenants);
-      }
-      if (liveProfiles.length > 0) {
-        setAllMembers(liveProfiles);
-      }
-    }
-    hydrateDirectory();
-    return () => {
-      mounted = false;
-    };
+    AsyncStorage.getItem(MUTED_KEY).then((v) => v && setMutedSources(JSON.parse(v))).catch(() => undefined);
   }, []);
 
-  // Load Tenant-Scoped Data from Supabase when currentTenantId changes
+  const tenant = tenants.find((t) => t.id === currentTenantId) || null;
+  const activeMember = memberships.find((m) => m.tenantId === currentTenantId) || null;
+  const terminology = tenant?.terminology || DEFAULT_TERMINOLOGY;
+
+  // ------------------------------------------------------------------ identity
+  const clearTenantData = () => {
+    setAllMembers([]); setAdminMembers([]); setGeoUnits([]); setFunctionalGroups([]); setCommittees([]);
+    setRoutingRules([]); setPosts([]); setLiked({}); setIssues([]); setAuditLogs([]); setNotifications([]);
+  };
+
+  const loadIdentity = React.useCallback(async () => {
+    const [ms, ts, admin] = await Promise.all([dbService.getMyMemberships(), dbService.getMyTenants(), dbService.isPlatformAdmin()]);
+    setMemberships(ms);
+    setTenants(ts);
+    setIsPlatformSuperAdmin(admin);
+    const saved = await AsyncStorage.getItem(ACTIVE_TENANT_KEY).catch(() => null);
+    const pick = ms.find((m) => m.tenantId === saved) || ms.find((m) => m.status === 'verified') || ms[0];
+    setCurrentTenantId(pick ? pick.tenantId : null);
+    return { memberships: ms, isPlatformAdmin: admin };
+  }, []);
+
   React.useEffect(() => {
-    if (!dbService.isLive || !currentTenantId) return;
     let mounted = true;
-    async function loadTenantWorkspace() {
-      const [liveIssues, livePosts, liveMembers, liveCommittee, liveAudits, liveNotifs] =
-        await Promise.all([
-          dbService.getIssues(currentTenantId!),
-          dbService.getPosts(currentTenantId!),
-          dbService.getMembers(currentTenantId!),
-          dbService.getCommittee(currentTenantId!),
-          dbService.getAuditLogs(currentTenantId!),
-          dbService.getNotifications(currentTenantId!, activeMemberId || undefined),
-        ]);
+    supabase.auth.getSession().then(async ({ data }) => {
       if (!mounted) return;
-      setIssues(liveIssues);
-      setCases(mapIssuesToCases(liveIssues));
-      setPosts(livePosts);
-      setNotifications(liveNotifs);
-      if (liveMembers.length > 0) {
-        setAllMembers((prev) => {
-          const otherTenants = prev.filter((m) => m.tenantId !== currentTenantId);
-          return [...liveMembers, ...otherTenants];
-        });
+      const uid = data.session?.user.id || null;
+      setUserId(uid);
+      if (uid) {
+        try { await loadIdentity(); void registerForPush(); } catch (e) { fail('Could not load your account', e); }
       }
-      if (liveCommittee) {
-        setCommittee(liveCommittee);
-      }
-      if (liveAudits.length > 0) {
-        setAuditLogs(liveAudits);
-      }
-    }
-    loadTenantWorkspace();
-
-    const unsubIssues = dbService.subscribeToChanges('issues', currentTenantId, () => {
-      dbService.getIssues(currentTenantId!).then((res) => {
-        if (mounted) {
-          setIssues(res);
-          setCases(mapIssuesToCases(res));
-        }
-      });
+      setAuthReady(true);
     });
-
-    const unsubPosts = dbService.subscribeToChanges('posts', currentTenantId, () => {
-      dbService.getPosts(currentTenantId!).then((res) => {
-        if (mounted) setPosts(res);
-      });
-    });
-
-    return () => {
-      mounted = false;
-      unsubIssues();
-      unsubPosts();
-    };
-  }, [currentTenantId]);
-
-  const activeTenant = tenants.find((t) => t.id === currentTenantId) || null;
-  const activeMember = allMembers.find((p) => p.id === activeMemberId) || null;
-  const isPlatformSuperAdmin = Boolean(activeMember?.roles?.includes('super_admin'));
-
-  const toast = (t: ToastData) => setToastData({ ...t, key: Date.now() });
-
-  // 0. Mobile OTP Request & Verification
-  const requestOtp = async (phone: string, adminKey?: string) => {
-    const res = await dbService.requestPhoneOtp(phone, adminKey);
-    if (!res.ok) {
-      toast({ title: 'Invalid mobile number', description: res.error });
-    }
-    return res;
-  };
-
-  const verifyOtp = async (
-    phone: string,
-    code: string,
-    expectedCode: string,
-    adminKey?: string
-  ) => {
-    const res = await dbService.verifyPhoneOtp(phone, code, expectedCode, adminKey);
-    if (!res.ok) {
-      toast({ title: 'Verification failed', description: res.error });
-      return res;
-    }
-
-    // Refresh tenants from Supabase
-    const liveTenants = await dbService.getTenants();
-    if (liveTenants.length > 0) {
-      setTenants(liveTenants);
-    }
-
-    // If an existing member/admin profile exists for this phone number, sign in directly
-    if (res.existingProfile) {
-      const prof = res.existingProfile;
-      setAllMembers((prev) => {
-        const filtered = prev.filter((p) => p.id !== prof.id);
-        return [prof, ...filtered];
-      });
-      setActiveMemberId(prof.id);
-      setCurrentTenantId(prof.tenantId);
-      const matchedTenant =
-        liveTenants.find((t) => t.id === prof.tenantId) ||
-        tenants.find((t) => t.id === prof.tenantId);
-      if (matchedTenant) {
-        setTerminology(matchedTenant.terminology);
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      const uid = session?.user.id || null;
+      setUserId(uid);
+      if (event === 'SIGNED_OUT') {
+        setMemberships([]); setTenants([]); setCurrentTenantId(null); setIsPlatformSuperAdmin(false); clearTenantData();
       }
-      toast({ title: 'Verified & signed in', description: `Welcome back, ${prof.name}.` });
+    });
+    return () => { mounted = false; sub.subscription.unsubscribe(); };
+  }, [loadIdentity, fail]);
+
+  // ------------------------------------------------------------------ tenant workspace
+  const isOrgAdmin = Boolean(activeMember?.roles.includes('org_admin'));
+  const loadTenant = React.useCallback(async (tenantId: string, me: Persona | null, admin: boolean) => {
+    if (!me || me.status !== 'verified') { clearTenantData(); return; }
+    const results = await Promise.allSettled([
+      dbService.getMembers(tenantId),
+      dbService.getGeoUnits(tenantId),
+      dbService.getFunctionalGroups(tenantId),
+      dbService.getCommittees(tenantId),
+      dbService.getRoutingRules(tenantId),
+      dbService.getPosts(tenantId),
+      dbService.getMyLikes(me.id),
+      dbService.getIssues(tenantId),
+      dbService.getNotifications(tenantId),
+      admin ? dbService.getAuditLogs(tenantId) : Promise.resolve([] as AuditEntry[]),
+    ]);
+    const v = <T,>(i: number, fallback: T): T => (results[i].status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<T>).value : fallback);
+    setAllMembers(v(0, []));
+    setGeoUnits(v(1, []));
+    setFunctionalGroups(v(2, []));
+    setCommittees(v(3, []));
+    setRoutingRules(v(4, []));
+    setPosts(v(5, []));
+    setLiked(Object.fromEntries(v<string[]>(6, []).map((id) => [id, true])));
+    setIssues(v(7, []));
+    setNotifications(v(8, []));
+    setAuditLogs(v(9, []));
+  }, []);
+
+  const meKey = activeMember ? `${activeMember.id}:${activeMember.status}:${activeMember.roles.join(',')}` : '';
+  React.useEffect(() => {
+    if (!currentTenantId || !activeMember) { clearTenantData(); return; }
+    let mounted = true;
+    const tid = currentTenantId;
+    const admin = isOrgAdmin || isPlatformSuperAdmin;
+    void loadTenant(tid, activeMember, admin);
+    if (activeMember.status !== 'verified') return;
+    const reloadIssues = () => dbService.getIssues(tid).then((r) => mounted && setIssues(r)).catch(() => undefined);
+    const reloadPosts = () => dbService.getPosts(tid).then((r) => mounted && setPosts(r)).catch(() => undefined);
+    const reloadNotifs = () => dbService.getNotifications(tid).then((r) => mounted && setNotifications(r)).catch(() => undefined);
+    const unsubs = [
+      dbService.subscribeToChanges('issues', tid, reloadIssues),
+      dbService.subscribeToChanges('posts', tid, reloadPosts),
+      dbService.subscribeToChanges('notifications', tid, reloadNotifs),
+    ];
+    return () => { mounted = false; unsubs.forEach((u) => u()); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTenantId, meKey, isPlatformSuperAdmin]);
+
+  const refresh = React.useCallback(async () => {
+    if (!userId) return;
+    try {
+      const { memberships: ms, isPlatformAdmin } = await loadIdentity();
+      const me = ms.find((m) => m.tenantId === currentTenantId) || null;
+      if (currentTenantId) await loadTenant(currentTenantId, me, Boolean(me?.roles.includes('org_admin')) || isPlatformAdmin);
+    } catch (e) {
+      fail('Refresh failed', e);
     }
+  }, [userId, currentTenantId, loadIdentity, loadTenant, fail]);
 
-    return res;
-  };
+  // ------------------------------------------------------------------ derived permissions (display only;
+  // the server re-checks every action)
+  const myAppointments = React.useMemo(
+    () => committees.flatMap((c) => c.members.filter((m) => m.profileId === activeMember?.id && m.status === 'active')),
+    [committees, activeMember?.id],
+  );
+  const isMembershipAdmin = isOrgAdmin || Boolean(activeMember?.roles.includes('membership_admin'));
+  const isModerator = isOrgAdmin || Boolean(activeMember?.roles.includes('moderator'));
+  const isHandler = isOrgAdmin || isPlatformSuperAdmin || myAppointments.length > 0;
+  const isLeader = isHandler || isMembershipAdmin || isModerator;
 
-  const lookupOrgByCode = async (code: string): Promise<Tenant | null> => {
-    const clean = code.trim().toUpperCase();
-    if (!clean) return null;
-    const localMatch = tenants.find(
-      (t) => t.code.toUpperCase() === clean || t.id.toUpperCase() === clean
-    );
-    if (localMatch) return localMatch;
-
-    const remoteMatch = await dbService.findTenantByCode(clean);
-    if (remoteMatch) {
-      setTenants((prev) => {
-        if (prev.some((t) => t.id === remoteMatch.id)) return prev;
-        return [remoteMatch, ...prev];
+  const audienceOptions = React.useMemo(() => {
+    const official: AudienceOption[] = [];
+    const add = (o: AudienceOption) => {
+      if (!official.some((x) => x.scope === o.scope && x.value === o.value)) official.push(o);
+    };
+    if (isOrgAdmin || isPlatformSuperAdmin) {
+      add({ scope: 'org', value: null, label: `${tenant?.name || 'Organization'} · All members` });
+      geoUnits.filter((g) => g.type === 'state').forEach((g) => add({ scope: 'region', value: g.name, label: `${g.name} · ${terminology.level2Label}` }));
+      geoUnits.filter((g) => g.type === 'city').forEach((g) => add({ scope: 'local', value: g.name, label: `${g.name} · ${terminology.level1Label}` }));
+      functionalGroups.forEach((f) => add({ scope: 'group', value: f.name, label: `${f.name} · ${terminology.groupLabel}` }));
+      committees.forEach((c) => add({ scope: 'committee', value: c.id, label: `${c.name} (private)` }));
+    } else {
+      myAppointments.filter((a) => a.role === 'Chair' || a.role === 'Secretary').forEach((a) => {
+        const c = committees.find((x) => x.id === a.committeeId);
+        if (!c) return;
+        const geo = geoUnits.find((g) => g.id === c.geoUnitId);
+        add({ scope: 'committee', value: c.id, label: `${c.name} (private)` });
+        if (c.functionalGroup && (!geo || c.level === 3)) add({ scope: 'group', value: c.functionalGroup, label: `${c.functionalGroup} · ${terminology.groupLabel}` });
+        if (geo?.type === 'city') add({ scope: 'local', value: geo.name, label: `${geo.name} · ${terminology.level1Label}` });
+        if (geo?.type === 'state') add({ scope: 'region', value: geo.name, label: `${geo.name} · ${terminology.level2Label}` });
+        if (c.level === 3 && !c.functionalGroup) add({ scope: 'org', value: null, label: `${tenant?.name || 'Organization'} · All members` });
       });
-      return remoteMatch;
     }
-    return null;
-  };
+    const member: AudienceOption[] = activeMember
+      ? [
+        { scope: 'local', value: activeMember.unit, label: `${activeMember.unit} · ${terminology.level1Label}` },
+        ...activeMember.groups.map((g) => ({ scope: 'group' as const, value: g, label: `${g} · ${terminology.groupLabel}` })),
+      ]
+      : [];
+    return { official, member };
+  }, [isOrgAdmin, isPlatformSuperAdmin, tenant?.name, geoUnits, functionalGroups, committees, myAppointments, activeMember, terminology]);
 
-  // 1. Founding Organization & Admin Setup (Persisted to Supabase)
-  const setupOrganization = async (
-    org: {
-      name: string;
-      short: string;
-      code: string;
-      description: string;
-      terminology?: Partial<TerminologyConfig>;
-    },
-    admin: { id?: string; name: string; email: string; phone?: string; unit?: string }
-  ): Promise<Tenant> => {
-    const orgId = org.code.toLowerCase().replace(/[^a-z0-9]/g, '-');
-    const newTerminology: TerminologyConfig = {
-      ...DEFAULT_TERMINOLOGY,
-      ...(org.terminology || {}),
-    };
-    const newTenant: Tenant = {
-      id: orgId,
-      name: org.name,
-      short: org.short.toUpperCase(),
-      code: org.code.toUpperCase(),
-      description: org.description,
-      terminology: newTerminology,
-    };
-
-    const rawAdminId = admin.id || 'admin-' + Date.now();
-    const initialAdminPersona: Persona = {
-      id: rawAdminId,
-      name: admin.name,
-      memberId: `${org.code.toUpperCase()}-0001`,
-      tenantId: orgId,
-      email: admin.email || admin.phone || 'admin@union.app',
-      phone: admin.phone || '',
-      unit: admin.unit || 'Headquarters',
-      region: 'Central',
-      country: 'India',
-      groups: ['Administration'],
-      roles: ['org_admin', 'chair', 'handler'],
-      status: 'verified',
-      since: 'Founding Admin',
-      isLeader: true,
-      leaderScope: `Executive · ${org.name}`,
-    };
-
-    const initialCommittee: CommitteeInfo = {
-      name: `${org.name} Executive Committee`,
-      scope: 'Organization-wide',
-      level: 3,
-      method: 'Founding Constitution',
-      term: '2026 – 2028',
-      members: [
-        {
-          name: admin.name,
-          role: 'Chair',
-          since: 'Today',
-          method: 'Founding Admin',
-          status: 'active',
-        },
-      ],
-      responsibilities: [
-        ['Governance', `Executive authority over ${org.name}`],
-        ['Appeals', 'Final escalation destination for grievances'],
-      ],
-      audit: [{ time: 'Today', text: `${admin.name} established ${org.name}` }],
-    };
-
-    const auditEntry: AuditEntry = {
-      id: 'aud-' + Date.now(),
-      time: 'Just now',
-      actor: admin.name,
-      action: 'Setup Organization',
-      entityId: orgId,
-      details: `Established organization "${org.name}" (Code: ${org.code.toUpperCase()})`,
-      isOverride: false,
-    };
-
-    // Optimistic state update
-    setTenants((prev) => [newTenant, ...prev.filter((t) => t.id !== orgId)]);
-    setCurrentTenantId(orgId);
-    setTerminology(newTerminology);
-    setAllMembers((prev) => [initialAdminPersona, ...prev.filter((p) => p.id !== initialAdminPersona.id)]);
-    setActiveMemberId(initialAdminPersona.id);
-    setCommittee(initialCommittee);
-    setAuditLogs((prev) => [auditEntry, ...prev]);
-
-    // Persist to Supabase DB
-    await dbService.upsertTenant(newTenant);
-    const savedAdmin = await dbService.upsertMember(initialAdminPersona);
-    if (savedAdmin.id !== initialAdminPersona.id) {
-      setAllMembers((prev) =>
-        prev.map((p) => (p.id === initialAdminPersona.id ? savedAdmin : p))
-      );
-      setActiveMemberId(savedAdmin.id);
-    }
-    await dbService.upsertCommittee(orgId, initialCommittee, savedAdmin.id);
-    await dbService.insertAudit(auditEntry, orgId, org.name);
-
-    toast({
-      title: 'Organization saved to Supabase',
-      description: `${org.name} (${org.code.toUpperCase()}) is live.`,
-    });
-
-    return newTenant;
-  };
-
-  // 2. Member Registration (PRD §6.1 — Persisted to Supabase)
-  const registerMember = async (data: {
-    id?: string;
-    name: string;
-    email: string;
-    phone?: string;
-    unit: string;
-    region: string;
-    group: string;
-    orgCode: string;
-    autoSignIn?: boolean;
-  }): Promise<Persona | null> => {
-    let targetTenant = tenants.find(
-      (t) =>
-        t.code.toUpperCase() === data.orgCode.toUpperCase() ||
-        t.id.toLowerCase() === data.orgCode.toLowerCase()
-    );
-
-    if (!targetTenant) {
-      const remoteTenant = await dbService.findTenantByCode(data.orgCode);
-      if (remoteTenant) {
-        targetTenant = remoteTenant;
-        setTenants((prev) => [remoteTenant, ...prev.filter((t) => t.id !== remoteTenant.id)]);
-      }
-    }
-
-    if (!targetTenant) {
-      toast({
-        title: 'Invalid organization code',
-        description: `No organization found matching "${data.orgCode}".`,
-      });
-      return null;
-    }
-
-    const rawId = data.id || 'm-' + Date.now();
-    const newPersona: Persona = {
-      id: rawId,
-      name: data.name,
-      memberId: `${targetTenant.code}-${Math.floor(1000 + Math.random() * 9000)}`,
-      tenantId: targetTenant.id,
-      email: data.email || data.phone || 'member@union.app',
-      phone: data.phone || '',
-      unit: data.unit || 'Headquarters',
-      region: data.region || 'Central',
-      country: 'India',
-      groups: [data.group || 'General'],
-      roles: ['member'],
-      status: 'verified',
-      since: 'Today',
-      isLeader: false,
-    };
-
-    const auditEntry: AuditEntry = {
-      id: 'aud-' + Date.now(),
-      time: 'Just now',
-      actor: data.name,
-      action: 'Member Registration',
-      entityId: rawId,
-      details: `Joined ${targetTenant.name} (${targetTenant.code}) in ${newPersona.unit}`,
-    };
-
-    setAllMembers((prev) => [newPersona, ...prev.filter((p) => p.id !== newPersona.id)]);
-    setAuditLogs((prev) => [auditEntry, ...prev]);
-
-    if (data.autoSignIn !== false) {
-      setCurrentTenantId(targetTenant.id);
-      setTerminology(targetTenant.terminology);
-      setActiveMemberId(newPersona.id);
-    }
-
-    // Persist to Supabase DB
-    const savedPersona = await dbService.upsertMember(newPersona);
-    if (savedPersona.id !== newPersona.id) {
-      setAllMembers((prev) =>
-        prev.map((p) => (p.id === newPersona.id ? savedPersona : p))
-      );
-      if (data.autoSignIn !== false) {
-        setActiveMemberId(savedPersona.id);
-      }
-    }
-    await dbService.insertAudit(auditEntry, targetTenant.id, targetTenant.name);
-
-    toast({
-      title: 'Welcome to ' + targetTenant.name,
-      description: 'Your membership profile is saved to Supabase.',
-    });
-    return savedPersona;
-  };
-
-  // 3. Member Approval (PRD §6.2)
-  const approveMember = (id: string) => {
-    const target = allMembers.find((p) => p.id === id);
-    setAllMembers((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, status: 'verified', since: 'Today' } : p))
-    );
-    void dbService.approveMember(id);
-    if (target) {
-      const entry: AuditEntry = {
-        id: 'aud-' + Date.now(),
-        time: 'Just now',
-        actor: activeMember?.name || 'Admin',
-        action: 'Approve Member',
-        entityId: id,
-        details: `Approved membership for ${target.name} (${target.memberId})`,
-      };
-      setAuditLogs((prev) => [entry, ...prev]);
-      if (currentTenantId) {
-        void dbService.insertAudit(entry, currentTenantId, activeTenant?.name);
-      }
-      toast({ title: 'Member approved', description: `${target.name} is now verified.` });
-    }
-  };
-
-  // 4. Authentication (Login / Logout)
-  const login = (identifier: string): boolean => {
-    const clean = identifier.trim().toLowerCase();
-    const { digits } = normalizePhoneNumber(identifier);
-    const match = allMembers.find((m) => {
-      const mPhoneDigits = (m.phone || '').replace(/[^0-9]/g, '');
-      return (
-        m.email.toLowerCase() === clean ||
-        m.name.toLowerCase() === clean ||
-        (digits.length >= 10 && mPhoneDigits.slice(-10) === digits.slice(-10))
-      );
-    });
-    if (match) {
-      setActiveMemberId(match.id);
-      setCurrentTenantId(match.tenantId);
-      const matchTenant = tenants.find((t) => t.id === match.tenantId);
-      if (matchTenant) setTerminology(matchTenant.terminology);
-      toast({ title: 'Signed in', description: `Welcome back, ${match.name}.` });
+  // ------------------------------------------------------------------ actions
+  const run = React.useCallback(async (title: string, fn: () => Promise<unknown>, okToast?: ToastData) => {
+    try {
+      await fn();
+      if (okToast) toast(okToast);
       return true;
+    } catch (e) {
+      return fail(title, e);
     }
-    toast({ title: 'Account not found', description: 'No member found matching that identifier.' });
-    return false;
+  }, [toast, fail]);
+
+  const reloadIssuesNow = async () => { if (currentTenantId) setIssues(await dbService.getIssues(currentTenantId)); };
+  const reloadCommitteesNow = async () => { if (currentTenantId) setCommittees(await dbService.getCommittees(currentTenantId)); };
+  const reloadAuditNow = async () => {
+    if (currentTenantId && (isOrgAdmin || isPlatformSuperAdmin)) setAuditLogs(await dbService.getAuditLogs(currentTenantId));
   };
 
-  const logout = () => {
-    setActiveMemberId(null);
+  const requestOtp = (phone: string) => dbService.requestPhoneOtp(phone).then((r) => {
+    if (!r.ok) toast({ title: 'Could not send code', description: r.error });
+    return r;
+  });
+
+  const verifyOtp = async (phone: string, code: string) => {
+    const r = await dbService.verifyPhoneOtp(phone, code);
+    if (!r.ok) {
+      toast({ title: 'Verification failed', description: r.error });
+      return { ok: false, memberships: [], isPlatformAdmin: false };
+    }
+    try {
+      const { data } = await supabase.auth.getUser();
+      setUserId(data.user?.id || null);
+      const id = await loadIdentity();
+      void registerForPush();
+      return { ok: true, ...id };
+    } catch (e) {
+      fail('Could not load your account', e);
+      return { ok: false, memberships: [], isPlatformAdmin: false };
+    }
+  };
+
+  const logout = async () => {
+    await unregisterPush().catch(() => undefined);
+    await dbService.signOut();
+    await AsyncStorage.removeItem(ACTIVE_TENANT_KEY).catch(() => undefined);
     toast({ title: 'Signed out', description: 'You have been signed out.' });
   };
 
   const switchTenant = (id: string) => {
+    if (!memberships.some((m) => m.tenantId === id)) return; // only your own organizations
     setCurrentTenantId(id);
-    const target = tenants.find((t) => t.id === id);
-    if (target) setTerminology(target.terminology);
+    void AsyncStorage.setItem(ACTIVE_TENANT_KEY, id).catch(() => undefined);
   };
 
-  const switchPersona = (id: string) => {
-    setActiveMemberId(id);
-    const m = allMembers.find((p) => p.id === id);
-    if (m && m.tenantId !== currentTenantId) {
-      setCurrentTenantId(m.tenantId);
-      const target = tenants.find((t) => t.id === m.tenantId);
-      if (target) setTerminology(target.terminology);
+  const lookupOrgByCode = async (code: string) => {
+    try { return await dbService.findTenantByCode(code); } catch (e) { fail('Lookup failed', e); return null; }
+  };
+
+  const setupOrganization: Store['setupOrganization'] = async (org, admin) => {
+    try {
+      const id = await dbService.createOrganization({
+        name: org.name, code: org.code, short: org.short, description: org.description, terminology: org.terminology,
+        adminName: admin.name, adminEmail: admin.email, hqCity: admin.unit, hqRegion: admin.region,
+      });
+      await loadIdentity();
+      setCurrentTenantId(id);
+      void AsyncStorage.setItem(ACTIVE_TENANT_KEY, id).catch(() => undefined);
+      const created = (await dbService.getMyTenants()).find((t) => t.id === id) || null;
+      toast({ title: 'Organization created', description: `${org.name} (${org.code.toUpperCase()}) is live.` });
+      return created;
+    } catch (e) {
+      fail('Could not create organization', e);
+      return null;
     }
   };
 
-  const updateTerminology = (patch: Partial<TerminologyConfig>) => {
-    setTerminology((prev) => {
-      const next = { ...prev, ...patch };
-      if (currentTenantId) {
-        void dbService.updateTenantTerminology(currentTenantId, next);
+  const registerMember: Store['registerMember'] = async (d) => {
+    try {
+      const profileId = await dbService.registerMember({ orgCode: d.orgCode, name: d.name, email: d.email, city: d.unit, region: d.region, group: d.group });
+      const { memberships: ms } = await loadIdentity();
+      const mine = ms.find((m) => m.id === profileId) || null;
+      if (mine) {
+        setCurrentTenantId(mine.tenantId);
+        void AsyncStorage.setItem(ACTIVE_TENANT_KEY, mine.tenantId).catch(() => undefined);
       }
+      toast({
+        title: mine?.status === 'verified' ? 'Welcome!' : 'Application submitted',
+        description: mine?.status === 'verified' ? 'Your membership is active.' : 'An administrator will review your application.',
+      });
+      return mine;
+    } catch (e) {
+      fail('Could not submit application', e);
+      return null;
+    }
+  };
+
+  const updateTenantConfig = async (t: Partial<TerminologyConfig>, s: TenantSettings = {}) => {
+    if (!currentTenantId) return false;
+    const ok = await run('Could not save settings', () => dbService.updateTenantConfig(currentTenantId, t, s), { title: 'Settings saved' });
+    if (ok) setTenants(await dbService.getMyTenants());
+    return ok;
+  };
+
+  const loadAdminMembers = async () => {
+    if (!currentTenantId) return;
+    try { setAdminMembers(await dbService.adminListMembers(currentTenantId)); } catch (e) { fail('Could not load members', e); }
+  };
+
+  const setMemberStatus: Store['setMemberStatus'] = async (id, status, reason) => {
+    const ok = await run('Could not update membership', () => dbService.setMemberStatus(id, status, reason), { title: `Membership ${status}` });
+    if (ok) { await loadAdminMembers(); if (currentTenantId) setAllMembers(await dbService.getMembers(currentTenantId)); await reloadAuditNow(); }
+    return ok;
+  };
+
+  const setMemberRoles = async (id: string, roles: string[]) => {
+    const ok = await run('Could not change roles', () => dbService.setMemberRoles(id, roles), { title: 'Roles updated' });
+    if (ok) await loadAdminMembers();
+    return ok;
+  };
+
+  const updatePrefs = async (prefs: NotificationPrefs) => {
+    if (!currentTenantId) return false;
+    const ok = await run('Could not save preferences', () => dbService.updateMyPrefs(currentTenantId, prefs));
+    if (ok) setMemberships(await dbService.getMyMemberships());
+    return ok;
+  };
+
+  const saveCommittee: Store['saveCommittee'] = async (c) => {
+    if (!currentTenantId) return null;
+    try {
+      const id = (await dbService.saveCommittee(currentTenantId, c)) as unknown as string;
+      await reloadCommitteesNow(); await reloadAuditNow();
+      toast({ title: 'Committee saved', description: c.name });
+      return id;
+    } catch (e) { fail('Could not save committee', e); return null; }
+  };
+
+  const appointMember: Store['appointMember'] = async (a) => {
+    const ok = await run('Could not appoint member', () => dbService.appointCommitteeMember(a), {
+      title: a.override ? 'Platform override recorded' : a.method === 'Appointment' ? 'Member appointed' : 'Nomination sent',
+      description: 'Recorded in the appointment history',
+    });
+    if (ok) { await reloadCommitteesNow(); await reloadAuditNow(); }
+    return ok;
+  };
+
+  const setAppointmentStatus: Store['setAppointmentStatus'] = async (id, action, reason) => {
+    const ok = await run('Could not update appointment', () => dbService.setAppointmentStatus(id, action, reason), { title: `Appointment ${action}d` });
+    if (ok) { await reloadCommitteesNow(); await reloadAuditNow(); }
+    return ok;
+  };
+
+  const saveRoutingRule = async (r: Omit<RoutingRule, 'id'>) => {
+    if (!currentTenantId) return false;
+    const ok = await run('Could not save routing rule', () => dbService.saveRoutingRule(currentTenantId, r), { title: 'Routing rule saved' });
+    if (ok) setRoutingRules(await dbService.getRoutingRules(currentTenantId));
+    return ok;
+  };
+
+  const toggleLike = (id: string) => {
+    const was = Boolean(liked[id]);
+    setLiked((l) => ({ ...l, [id]: !was }));
+    setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, likes: Math.max(0, p.likes + (was ? -1 : 1)) } : p)));
+    dbService.toggleLike(id).catch((e) => {
+      setLiked((l) => ({ ...l, [id]: was }));
+      setPosts((ps) => ps.map((p) => (p.id === id ? { ...p, likes: Math.max(0, p.likes + (was ? 1 : -1)) } : p)));
+      fail('Could not update like', e);
+    });
+  };
+
+  const addPost: Store['addPost'] = async (p) => {
+    if (!currentTenantId) return false;
+    const ok = await run('Could not publish', () => dbService.publishPost(currentTenantId, p), {
+      title: p.kind === 'official' ? 'Announcement published' : 'Posted',
+      description: `${p.audiences.map((a) => a.label).join(', ')}${p.notify ? ' · audience notified' : ''}`,
+    });
+    if (ok) setPosts(await dbService.getPosts(currentTenantId));
+    return ok;
+  };
+
+  const reportPost = (id: string, reason: string) =>
+    run('Could not report post', () => dbService.reportPost(id, reason), { title: 'Reported', description: 'Moderators will review this post.' });
+
+  const moderatePost: Store['moderatePost'] = async (id, action, reason) => {
+    const ok = await run('Moderation failed', () => dbService.moderatePost(id, action, reason), { title: `Post ${action === 'remove' ? 'removed' : action + 'ned'}` });
+    if (ok && currentTenantId) setPosts(await dbService.getPosts(currentTenantId));
+    return ok;
+  };
+
+  const toggleMute = (source: string) => {
+    setMutedSources((prev) => {
+      const next = prev.includes(source) ? prev.filter((s) => s !== source) : [...prev, source];
+      void AsyncStorage.setItem(MUTED_KEY, JSON.stringify(next)).catch(() => undefined);
       return next;
     });
-    toast({ title: 'Terminology updated', description: 'New nouns saved to Supabase.' });
   };
 
-  // 5. Posts & Announcements (Persisted to Supabase)
-  const addPost = (p: {
-    title?: string;
-    body: string;
-    pinned?: boolean;
-    audienceScope: 'org' | 'region' | 'local' | 'group';
-    audienceLabel: string;
-  }) => {
-    const newPost: Post = {
-      id: 'p-' + Date.now(),
-      tenantId: currentTenantId || undefined,
-      kind: 'official',
-      pinned: p.pinned || false,
-      mine: true,
-      author: {
-        name: activeMember ? `${activeMember.name} (Executive)` : 'Leadership',
-        role: 'Official announcement',
-        official: true,
-      },
-      source: p.audienceLabel,
-      time: 'Just now',
-      title: p.title,
-      body: p.body,
-      audience: { scope: p.audienceScope, label: p.audienceLabel },
-      likes: 0,
-      comments: 0,
+  const addIssue: Store['addIssue'] = async (v) => {
+    if (!currentTenantId) return null;
+    try {
+      const id = await dbService.createIssue(currentTenantId, {
+        title: v.title, description: v.desc, category: v.category, priority: v.priority, affectsOthers: v.affectsOthers, confidential: v.confidential,
+      });
+      await reloadIssuesNow();
+      return id;
+    } catch (e) { fail(`Could not submit ${terminology.caseLabel.toLowerCase()}`, e); return null; }
+  };
+
+  const issueAction: Store['issueAction'] = async (id, action, payload = {}) => {
+    const labels: Partial<Record<IssueAction, string>> = {
+      assign: 'Case assigned', acknowledge: 'Acknowledged', start: 'Marked in progress', request_info: 'Information requested',
+      await_external: 'Waiting on external action', resolve: 'Case resolved', close: 'Case closed', reject: 'Case rejected',
+      reply: 'Reply sent', confirm: 'Resolution confirmed', reopen: 'Case reopened', add_note: 'Note added', route: 'Case routed',
     };
-    setPosts((prev) => [newPost, ...prev]);
-    void dbService.insertPost(newPost);
-    if (currentTenantId) {
-      const entry: AuditEntry = {
-        id: 'aud-' + Date.now(),
-        time: 'Just now',
-        actor: activeMember?.name || 'Leadership',
-        action: 'Publish Announcement',
-        entityId: newPost.id,
-        details: `Broadcast "${p.title || 'Notice'}" to ${p.audienceLabel}`,
-      };
-      setAuditLogs((prev) => [entry, ...prev]);
-      void dbService.insertAudit(entry, currentTenantId, activeTenant?.name);
-    }
-    toast({ title: 'Announcement published', description: `Broadcast to ${p.audienceLabel}.` });
+    const ok = await run('Action failed', () => dbService.issueAction(id, action, payload), { title: labels[action] || 'Done' });
+    if (ok) { await reloadIssuesNow(); await reloadAuditNow(); }
+    return ok;
   };
 
-  // 6. Issue Creation & Routing (PRD §9 — Persisted to Supabase)
-  const addIssue = (v: {
-    title: string;
-    category: string;
-    desc: string;
-    priority?: 'normal' | 'high' | 'urgent';
-    confidential?: boolean;
-    affectsOthers?: boolean;
-  }): Issue => {
-    const loc = activeMember?.unit || 'Local Unit';
-    const grp = activeMember?.groups?.[0] || 'General';
-    const isConfidential = Boolean(
-      v.confidential ||
-      v.category.toLowerCase().includes('harassment') ||
-      v.category.toLowerCase().includes('retaliation')
-    );
-    const initialLevel: 1 | 2 | 3 = isConfidential ? 2 : 1;
-    const committeeName = isConfidential
-      ? 'Confidential Handlers · Regional'
-      : v.category.toLowerCase().includes('facilities')
-        ? `${loc} Facilities Committee`
-        : committee?.name || `${loc} ${grp} Committee`;
-    const seq = 1000 + issues.length + Math.floor(Math.random() * 900);
-    const newId = `${activeTenant?.code || 'CASE'}-${seq}`;
+  const escalateCase = async (id: string, reason: string, expectedLevel: number) => {
+    const ok = await run('Escalation failed', () => dbService.escalateIssue(id, reason, expectedLevel), { title: 'Case escalated', description: `${id} moved to the next level.` });
+    await reloadIssuesNow();
+    if (ok) await reloadAuditNow();
+    return ok;
+  };
 
-    const newIssue: Issue = {
-      id: newId,
-      tenantId: currentTenantId || undefined,
-      title: v.title,
-      status: 'submitted',
-      level: initialLevel,
-      category: v.category,
-      location: loc,
-      group: grp,
-      committee: committeeName,
-      nextAction: isConfidential ? 'Confidential committee review' : 'Committee acknowledges grievance',
-      due: 'Within 2 days',
-      dueState: 'ok',
-      opened: 'Today',
-      stages: [
-        {
-          name: committeeName,
-          state: 'current',
-          levelShort: `L${initialLevel}`,
-          sub: isConfidential ? 'Direct confidential escalation · Tier 2' : 'Local committee · just submitted',
-          events: [
-            {
-              time: 'Today',
-              text: `Submitted and routed under rule: ${v.category} -> ${committeeName}`,
-            },
-          ],
-        },
+  const markRead = (id: string) => {
+    setNotifications((ns) => ns.map((n) => (n.id === id ? { ...n, unread: false } : n)));
+    void dbService.markNotificationsRead([id]).catch(() => undefined);
+  };
+  const markAllRead = () => {
+    setNotifications((ns) => ns.map((n) => ({ ...n, unread: false })));
+    void dbService.markNotificationsRead(null).catch((e) => fail('Could not mark read', e));
+  };
+
+  // ------------------------------------------------------------------ derived data
+  const myIssues = issues.filter((i) => i.complainantId === activeMember?.id);
+  const cases = issues.filter((i) => i.complainantId !== activeMember?.id).map(toCase);
+  const committee = committees.find((c) => c.level === 3 && !c.functionalGroup) || committees[0] || null;
+
+  const metrics = React.useMemo(() => {
+    const open = cases.filter((c) => !['resolved', 'closed', 'rejected'].includes(c.status));
+    const firstResponse = cases
+      .filter((c) => c.firstResponseAt)
+      .map((c) => (new Date(c.firstResponseAt as string).getTime() - new Date(c.createdAt).getTime()) / 86400000);
+    const done = cases.filter((c) => ['resolved', 'closed'].includes(c.status)).length;
+    return {
+      open: open.length,
+      overdue: open.filter((c) => c.dueState === 'overdue').length,
+      triage: open.filter((c) => c.status === 'triage').length,
+      firstResponseDays: median(firstResponse),
+      resolvedPct: cases.length ? Math.round((done / cases.length) * 100) : null,
+    };
+  }, [cases]);
+
+  const categories = routingRules.filter((r) => r.active).map((r) => r.category);
+
+  const groups: GroupSection[] = React.useMemo(() => {
+    if (!tenant || !activeMember) return [];
+    const country = geoUnits.find((g) => g.type === 'country');
+    const places: GroupSection = {
+      section: 'Your places',
+      note: 'Joined automatically from your registered location',
+      items: [
+        { id: 'loc', name: activeMember.unit, kind: terminology.level1Label, icon: 'building-2', tone: 'geo', scope: 'local', value: activeMember.unit },
+        { id: 'reg', name: activeMember.region, kind: terminology.level2Label, icon: 'map-pin', tone: 'geo', scope: 'region', value: activeMember.region },
+        { id: 'org', name: country ? `${tenant.name} · ${country.name}` : tenant.name, kind: terminology.level3Label, icon: 'globe', tone: 'geo', scope: 'org', value: null },
       ],
     };
-
-    setIssues((prev) => [newIssue, ...prev]);
-
-    const newCase: Case = {
-      id: newId,
-      tenantId: currentTenantId || undefined,
-      title: v.title,
-      category: v.category,
-      location: loc,
-      group: grp,
-      committee: committeeName,
-      assignee: null,
-      status: 'submitted',
-      priority: v.priority || 'normal',
-      age: 'Today',
-      due: 'Within 2 days',
-      dueState: 'ok',
-      level: initialLevel,
-      next: isConfidential ? 'Assign confidential handler' : 'Assign officer',
-      confidential: isConfidential,
+    const fg: GroupSection = {
+      section: `${terminology.groupLabel}s`,
+      items: activeMember.groups.map((g) => ({ id: 'grp-' + g, name: g, kind: terminology.groupLabel, icon: 'briefcase', tone: 'group', scope: 'group', value: g })),
     };
-
-    setCases((prev) => [newCase, ...prev]);
-
-    const auditEntry: AuditEntry = {
-      id: 'aud-' + Date.now(),
-      time: 'Just now',
-      actor: activeMember?.name || 'Member',
-      action: 'Create Issue',
-      entityId: newId,
-      details: `Created grievance "${v.title}" [${v.category}] routed to ${committeeName}`,
+    const mine = committees.filter((c) => myAppointments.some((a) => a.committeeId === c.id));
+    const cm: GroupSection = {
+      section: 'Committee channels',
+      note: 'Private to current appointees',
+      items: mine.map((c) => ({ id: 'com-' + c.id, name: c.name, kind: 'Committee · private', icon: 'lock', tone: 'committee', scope: 'committee', value: c.id })),
     };
-    setAuditLogs((prev) => [auditEntry, ...prev]);
-
-    void dbService.insertIssue(
-      newIssue,
-      { id: activeMember?.id, name: activeMember?.name },
-      v.priority || 'normal',
-      v.desc,
-      isConfidential,
-      Boolean(v.affectsOthers)
-    );
-    if (currentTenantId) {
-      void dbService.insertAudit(auditEntry, currentTenantId, activeTenant?.name);
-    }
-
-    toast({ title: `${terminology.caseLabel} submitted`, description: `Routed to ${committeeName}` });
-    return newIssue;
-  };
-
-  const replyToIssue = (id: string, replyText?: string) => {
-    const text = replyText?.trim() || 'Reply sent';
-    setIssues((list) =>
-      list.map((i) =>
-        i.id === id
-          ? { ...i, status: 'in_progress', statusLabel: 'Reply sent', nextAction: 'Officer reviews reply' }
-          : i
-      )
-    );
-    setCases((list) =>
-      list.map((c) =>
-        c.id === id
-          ? { ...c, status: 'in_progress', next: 'Officer reviews reply' }
-          : c
-      )
-    );
-    void dbService.updateIssue(id, {
-      status: 'in_progress',
-      statusLabel: 'Reply sent',
-      nextAction: 'Officer reviews reply',
-    });
-    if (currentTenantId) {
-      void dbService.insertMemberReply(id, text, activeMember?.name || 'Member', currentTenantId);
-    }
-    toast({ title: 'Reply sent', description: 'The committee received your response.' });
-  };
-
-  const requestMemberInfo = (id: string, question: string) => {
-    setIssues((list) =>
-      list.map((i) =>
-        i.id === id
-          ? {
-            ...i,
-            status: 'awaiting_member',
-            statusLabel: 'Action needed',
-            nextAction: question,
-            due: 'Reply in 2 days',
-            dueState: 'soon',
-          }
-          : i
-      )
-    );
-    setCases((list) =>
-      list.map((c) =>
-        c.id === id
-          ? {
-            ...c,
-            status: 'awaiting_member',
-            next: question,
-            due: 'Reply in 2 days',
-            dueState: 'soon',
-          }
-          : c
-      )
-    );
-    void dbService.updateIssue(id, {
-      status: 'awaiting_member',
-      statusLabel: 'Action needed',
-      nextAction: question,
-      due: 'Reply in 2 days',
-      dueState: 'soon',
-    });
-    toast({ title: 'Information requested', description: 'Complainant was asked for details.' });
-  };
-
-  const updateCase = (id: string, patch: Partial<Case>) => {
-    setCases((list) => list.map((c) => (c.id === id ? { ...c, ...patch } : c)));
-    setIssues((list) =>
-      list.map((i) =>
-        i.id === id
-          ? {
-            ...i,
-            ...(patch.status ? { status: patch.status } : {}),
-            ...(patch.level ? { level: patch.level } : {}),
-            ...(patch.next ? { nextAction: patch.next } : {}),
-            ...(patch.due ? { due: patch.due } : {}),
-            ...(patch.dueState ? { dueState: patch.dueState } : {}),
-            ...(patch.committee ? { committee: patch.committee } : {}),
-          }
-          : i
-      )
-    );
-    void dbService.updateIssue(id, {
-      status: patch.status,
-      level: patch.level,
-      due: patch.due,
-      dueState: patch.dueState,
-      committee: patch.committee,
-      nextAction: patch.next,
-      assignee: patch.assignee,
-    });
-  };
-
-  const assignCase = (id: string, assigneeName: string) => {
-    const nextAction = `Handler review by ${assigneeName}`;
-    updateCase(id, {
-      assignee: assigneeName,
-      status: 'assigned',
-      next: nextAction,
-    });
-    setIssues((list) =>
-      list.map((i) =>
-        i.id === id
-          ? { ...i, status: 'assigned', statusLabel: 'Assigned', nextAction }
-          : i
-      )
-    );
-    toast({ title: 'Case assigned', description: `${id} assigned to ${assigneeName}.` });
-  };
-
-  const escalateCase = (id: string, reason: string) => {
-    const target = issues.find((i) => i.id === id);
-    const curLevel = target?.level || 1;
-    const nextLevel = Math.min(3, curLevel + 1) as 1 | 2 | 3;
-    const nextCommittee =
-      nextLevel === 2
-        ? 'Regional Review Committee'
-        : `${activeTenant?.name || 'National'} Board of Review`;
-    const nextAction = `Level ${nextLevel} Committee Review`;
-    const nextDue = nextLevel === 2 ? 'Within 7 days' : 'Within 14 days';
-
-    setCases((list) =>
-      list.map((c) =>
-        c.id === id
-          ? {
-            ...c,
-            status: 'escalated',
-            level: nextLevel,
-            committee: nextCommittee,
-            reason,
-            next: nextAction,
-            due: nextDue,
-          }
-          : c
-      )
-    );
-    setIssues((list) =>
-      list.map((i) =>
-        i.id === id
-          ? {
-            ...i,
-            status: 'escalated',
-            statusLabel: `Escalated · L${nextLevel}`,
-            level: nextLevel,
-            committee: nextCommittee,
-            nextAction,
-            due: nextDue,
-            stages: [
-              ...i.stages,
-              {
-                name: nextCommittee,
-                state: 'current',
-                levelShort: `L${nextLevel}`,
-                sub: `Escalated from L${curLevel}`,
-                due: nextDue,
-                dueState: 'ok',
-                events: [
-                  {
-                    time: 'Today',
-                    text: `Escalated: ${reason}`,
-                    actor: activeMember?.name || 'Officer',
-                  },
-                ],
-              },
-            ],
-          }
-          : i
-      )
-    );
-    void dbService.updateIssue(id, {
-      status: 'escalated',
-      statusLabel: `Escalated · L${nextLevel}`,
-      level: nextLevel,
-      committee: nextCommittee,
-      nextAction,
-      due: nextDue,
-      reason,
-    });
-    const entry: AuditEntry = {
-      id: 'aud-' + Date.now(),
-      time: 'Just now',
-      actor: activeMember?.name || 'Officer',
-      action: 'Escalate Case',
-      entityId: id,
-      details: `Escalated ${id} to Tier ${nextLevel} (${nextCommittee}). Reason: ${reason}`,
-    };
-    setAuditLogs((prev) => [entry, ...prev]);
-    if (currentTenantId) {
-      void dbService.insertAudit(entry, currentTenantId, activeTenant?.name);
-    }
-    toast({ title: 'Case escalated', description: `${id} escalated to Tier ${nextLevel}.` });
-  };
-
-  const resolveCase = (id: string) => {
-    updateCase(id, { status: 'resolved', due: '—', dueState: 'ok', next: 'Member confirmation' });
-    setIssues((list) =>
-      list.map((i) =>
-        i.id === id
-          ? { ...i, status: 'resolved', statusLabel: 'Resolved', nextAction: 'Member confirmation' }
-          : i
-      )
-    );
-    toast({ title: 'Case resolved', description: `${id} marked resolved.` });
-  };
-
-  const addCommitteeMember = (data: {
-    name: string;
-    role: string;
-    method: string;
-    override?: boolean;
-    overrideReason?: string;
-  }) => {
-    const active = data.override || data.method === 'Appointment';
-    const newMember: CommitteeMember = {
-      name: data.name,
-      role: data.role,
-      since: active ? 'Today' : 'Pending',
-      method: data.override ? 'Platform admin override' : data.method,
-      status: active ? 'active' : 'pending',
-      override: data.override,
-      overrideReason: data.overrideReason,
-    };
-    setCommittee((prev) => (prev ? { ...prev, members: [newMember, ...prev.members] } : null));
-    if (currentTenantId) {
-      void dbService.insertCommitteeMember(currentTenantId, newMember);
-    }
-    toast({
-      title: data.override ? 'Platform override applied' : 'Member appointed',
-      description: `${data.name} added as ${data.role}.`,
-    });
-  };
-
-  const groups: GroupSection[] = activeTenant
-    ? [
-      {
-        section: 'Your places',
-        note: `Joined automatically based on ${activeTenant.name} jurisdictions`,
-        items: [
-          {
-            id: 'hq',
-            name: `${activeTenant.name} HQ`,
-            kind: 'National office',
-            icon: 'globe',
-            tone: 'geo',
-          },
-          ...(activeMember?.unit
-            ? [
-              {
-                id: 'loc',
-                name: activeMember.unit,
-                kind: 'Local jurisdiction',
-                icon: 'building-2',
-                tone: 'geo' as const,
-              },
-            ]
-            : []),
-        ],
-      },
-      {
-        section: `${terminology.groupLabel}s`,
-        items: (activeMember?.groups || ['General']).map((grp, i) => ({
-          id: 'grp-' + i,
-          name: grp,
-          kind: `${terminology.groupLabel}`,
-          icon: 'briefcase',
-          tone: 'group' as const,
-        })),
-      },
-    ]
-    : [];
+    return [places, fg, ...(cm.items.length ? [cm] : [])];
+  }, [tenant, activeMember, geoUnits, committees, myAppointments, terminology]);
 
   const store: Store = {
-    tenant: activeTenant,
-    tenants,
-    switchTenant,
-    createTenant: (data) => {
-      void setupOrganization(
-        {
-          name: data.name,
-          short: data.short,
-          code: data.code,
-          description: data.description,
-          terminology: data.terminology,
-        },
-        {
-          id: activeMember?.id,
-          name: activeMember?.name || 'Administrator',
-          email: activeMember?.email || 'admin@union.app',
-          phone: activeMember?.phone,
-        }
-      );
-      return {
-        id: data.code.toLowerCase(),
-        name: data.name,
-        short: data.short,
-        code: data.code,
-        description: data.description,
-        terminology: { ...DEFAULT_TERMINOLOGY, ...(data.terminology || {}) },
-      };
-    },
-    terminology,
-    updateTerminology,
-    setupOrganization,
-    lookupOrgByCode,
+    authReady,
+    signedIn: Boolean(userId),
+    isLiveDatabase: dbService.isLive,
     requestOtp,
     verifyOtp,
-    activeMember,
-    allMembers,
-    isPlatformSuperAdmin,
     logout,
+    tenant,
+    tenants,
+    memberships,
+    switchTenant,
+    lookupOrgByCode,
+    setupOrganization,
     registerMember,
-    approveMember,
-    posts,
-    addPost,
-    liked,
-    toggleLike: (id) => setLiked((l) => ({ ...l, [id]: !l[id] })),
-    issues,
-    cases,
-    addIssue,
-    replyToIssue,
-    requestMemberInfo,
-    updateCase,
-    assignCase,
-    escalateCase,
-    resolveCase,
+    terminology,
+    updateTenantConfig,
+    activeMember,
+    isPlatformSuperAdmin,
+    isOrgAdmin,
+    isMembershipAdmin,
+    isModerator,
+    isLeader,
+    isHandler,
+    myAppointments,
+    audienceOptions,
+    allMembers,
+    adminMembers,
+    loadAdminMembers,
+    setMemberStatus,
+    approveMember: (id) => setMemberStatus(id, 'verified'),
+    setMemberRoles,
+    updatePrefs,
+    geoUnits,
+    functionalGroups,
+    committees,
     committee,
     members: committee?.members || [],
-    setMembers: (action) => {
-      setCommittee((prev) => {
-        if (!prev) return null;
-        const updated = typeof action === 'function' ? action(prev.members) : action;
-        return { ...prev, members: updated };
-      });
-    },
-    addCommitteeMember,
+    saveCommittee,
+    appointMember,
+    setAppointmentStatus,
+    routingRules,
+    saveRoutingRule,
+    categories,
+    posts,
+    liked,
+    toggleLike,
+    addPost,
+    reportPost,
+    moderatePost,
+    mutedSources,
+    toggleMute,
+    issues: myIssues,
+    cases,
+    addIssue,
+    issueAction,
+    escalateCase,
+    metrics,
     groups,
     auditLogs,
     notifications,
-    readIds,
-    unreadCount: notifications.filter((n) => !readIds.has(n.id) && n.unread !== false).length,
-    markRead: (id) => {
-      setReadIds((s) => new Set(s).add(id));
-      void dbService.markNotificationRead(id);
-    },
-    markAllRead: () => {
-      const allIds = new Set(notifications.map((n) => n.id));
-      setReadIds(allIds);
-      if (currentTenantId) {
-        void dbService.markAllNotificationsRead(currentTenantId, activeMember?.id);
-      }
-    },
+    unreadCount: notifications.filter((n) => n.unread).length,
+    markRead,
+    markAllRead,
+    refresh,
     toast,
-    isLiveDatabase: dbService.isLive,
   };
 
   return (
     <Ctx.Provider value={store}>
       {children}
       {toastData ? (
-        <View
-          pointerEvents="box-none"
-          style={{ position: 'absolute', left: 12, right: 12, bottom: insets.bottom + 72 }}
-        >
+        <View pointerEvents="box-none" style={{ position: 'absolute', left: 12, right: 12, bottom: insets.bottom + 72 }}>
           <Toast
             key={toastData.key}
             title={toastData.title}

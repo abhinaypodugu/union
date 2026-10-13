@@ -1,26 +1,33 @@
 import React from 'react';
 import { View } from 'react-native';
 import { router } from 'expo-router';
-import { Button, IssueCard, Notice, Screen, ScreenHeader, Tabs, Card, IconTile, Txt } from '../../src/components';
+import { Button, IssueCard, ListCard, ListRow, Notice, Screen, ScreenHeader, Tabs, Card, IconTile, Txt } from '../../src/components';
 import { colors } from '../../src/theme';
 import { useStore } from '../../src/store/AppStore';
 
+const DONE = ['closed', 'rejected'];
+
 export default function Issues() {
-  const { issues, terminology } = useStore();
+  // `issues` contains only the signed-in member's own cases (filtered by complainant;
+  // RLS additionally guarantees nobody else's can be returned).
+  const { issues, terminology, isHandler, cases, refresh } = useStore();
   const [tab, setTab] = React.useState('open');
-  const open = issues.filter((i) => i.status !== 'closed');
-  const list = tab === 'open' ? open : issues.filter((i) => i.status === 'closed');
+  const [refreshing, setRefreshing] = React.useState(false);
+  const open = issues.filter((i) => !DONE.includes(i.status));
+  const list = tab === 'open' ? open : issues.filter((i) => DONE.includes(i.status));
+  const queueOpen = cases.filter((c) => !['resolved', 'closed', 'rejected'].includes(c.status)).length;
 
   return (
-    <Screen>
+    <Screen refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await refresh(); setRefreshing(false); }}>
       <ScreenHeader
-        title={terminology.caseLabel + 's'}
-        right={
-          <Button size="sm" icon="plus" onPress={() => router.push('/raise')}>
-            Raise
-          </Button>
-        }
+        title={'My ' + terminology.caseLabel.toLowerCase() + 's'}
+        right={<Button size="sm" icon="plus" onPress={() => router.push('/raise')}>Raise</Button>}
       />
+      {isHandler ? (
+        <ListCard style={{ marginHorizontal: 12, marginBottom: 8 }}>
+          <ListRow title="Assigned to my committees" subtitle={`${queueOpen} open in your queue`} left={<IconTile icon="inbox" tone="committee" />} onPress={() => router.push('/manage/queue')} />
+        </ListCard>
+      ) : null}
       <View style={{ paddingHorizontal: 16 }}>
         <Tabs
           value={tab}
@@ -37,7 +44,7 @@ export default function Issues() {
             <IconTile icon="circle-alert" tone="group" />
             <Txt variant="titleM" align="center">No {tab} {terminology.caseLabel.toLowerCase()}s</Txt>
             <Txt variant="bodyS" color={colors.textSecondary} align="center">
-              Workplace grievances submitted by you will be tracked here through investigation and resolution.
+              {`${terminology.caseLabel}s you raise are tracked here through review and resolution.`}
             </Txt>
             <Button size="sm" icon="plus" onPress={() => router.push('/raise')}>
               {'Raise a ' + terminology.caseLabel.toLowerCase()}
@@ -57,7 +64,8 @@ export default function Issues() {
               due={i.due}
               dueState={i.dueState}
               nextAction={i.nextAction}
-              onPress={() => router.push('/issue?id=' + i.id)}
+              confidential={i.confidential}
+              onPress={() => router.push('/issue?id=' + encodeURIComponent(i.id))}
             />
           ))
         )}

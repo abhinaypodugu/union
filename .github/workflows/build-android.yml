@@ -3,12 +3,12 @@ name: Build Android APK
 on:
   push:
     branches: [ main ]
+  pull_request:
   workflow_dispatch:
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -16,7 +16,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install Dependencies
@@ -25,14 +25,47 @@ jobs:
       - name: Lint & Typecheck
         run: npm run lint
 
+      # Runs supabase/schema.sql on real PostgreSQL (PGlite) and checks tenant isolation,
+      # RLS, routing, escalation, governance and notification rules (PRD §12.2, §17).
+      - name: Database, RLS & unit tests
+        run: npm test
+
+  build:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci --legacy-peer-deps
+
       - name: Export Expo Bundle
         run: npx expo export --platform android
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ vars.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
 
       - name: Set up Java JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
+
+      # Regenerate native projects so newly added native modules/config plugins
+      # (expo-notifications, async-storage, document-picker) are applied.
+      - name: Expo prebuild (Android)
+        run: npx expo prebuild --platform android --no-install
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ vars.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
 
       - name: Grant Execute Permission to Gradlew
         run: chmod +x android/gradlew

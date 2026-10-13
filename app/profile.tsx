@@ -2,399 +2,215 @@ import React from 'react';
 import { View, Pressable, Share } from 'react-native';
 import { router } from 'expo-router';
 import {
-  Avatar,
-  Badge,
-  Button,
-  Card,
-  IconTile,
-  KeyValue,
-  ListCard,
-  ListRow,
-  Notice,
-  Screen,
-  SectionLabel,
-  StackHeader,
-  Switch,
-  Txt,
-  Sheet,
-  Field,
-  Input,
+  Avatar, Badge, Button, Card, IconTile, KeyValue, ListCard, ListRow, Notice, Screen, SectionLabel, StackHeader,
+  Switch, Txt, Sheet, Field, Input,
 } from '../src/components';
 import { colors, palette } from '../src/theme';
-import { useStore } from '../src/store/AppStore';
+import { useStore, NotificationPrefs, Tenant } from '../src/store/AppStore';
 
-const PREFS: Array<[string, boolean, boolean]> = [
-  ['Official announcements', true, false],
-  ['Replies & mentions', true, false],
-  ['Group activity', false, false],
-  ['Case updates', true, true],
+const PREFS: Array<[keyof NotificationPrefs, string, boolean]> = [
+  ['announcements', 'Official announcements', false],
+  ['replies', 'Replies & mentions', false],
+  ['groupActivity', 'Group activity', false],
+  ['caseUpdates', 'Case updates', true],
 ];
 
 export default function Profile() {
   const {
-    tenant,
-    tenants,
-    switchTenant,
-    activeMember,
-    isPlatformSuperAdmin,
-    allMembers,
-    approveMember,
-    createTenant,
-    logout,
+    tenant, tenants, memberships, switchTenant, activeMember, isPlatformSuperAdmin, isOrgAdmin, isMembershipAdmin,
+    adminMembers, loadAdminMembers, setupOrganization, registerMember, lookupOrgByCode, updatePrefs, logout, myAppointments,
+    committees, toast,
   } = useStore();
 
-  const [prefs, setPrefs] = React.useState(PREFS.map((p) => p[1]));
-  const [tenantSheetOpen, setTenantSheetOpen] = React.useState(false);
-  const [createOrgOpen, setCreateOrgOpen] = React.useState(false);
+  const [orgSheet, setOrgSheet] = React.useState(false);
+  const [createOpen, setCreateOpen] = React.useState(false);
+  const [joinOpen, setJoinOpen] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const [org, setOrg] = React.useState({ name: '', code: '', desc: '', caseLabel: 'Grievance', groupLabel: 'Sector', city: '', region: '' });
+  const [join, setJoin] = React.useState({ code: '', unit: '', region: '', group: '' });
+  const [joinOrg, setJoinOrg] = React.useState<Tenant | null>(null);
 
-  // Admin-only new organization state
-  const [newOrgName, setNewOrgName] = React.useState('');
-  const [newOrgShort, setNewOrgShort] = React.useState('');
-  const [newOrgCode, setNewOrgCode] = React.useState('');
-  const [newOrgDesc, setNewOrgDesc] = React.useState('');
-  const [newOrgCaseLabel, setNewOrgCaseLabel] = React.useState('Grievance');
-  const [newOrgGroupLabel, setNewOrgGroupLabel] = React.useState('Sector');
-
-  const isOrgAdmin = Boolean(
-    isPlatformSuperAdmin ||
-    activeMember?.isLeader ||
-    activeMember?.roles?.some((r) => ['super_admin', 'org_admin'].includes(r))
-  );
-
-  const pendingMembers = allMembers.filter(
-    (m) => m.tenantId === tenant?.id && m.status === 'pending'
-  );
-
-  const handleCreateOrg = () => {
-    if (!isOrgAdmin || !newOrgName.trim() || !newOrgCode.trim()) return;
-    createTenant({
-      name: newOrgName.trim(),
-      short: newOrgShort.trim() || newOrgCode.trim().slice(0, 3).toUpperCase(),
-      code: newOrgCode.trim().toUpperCase(),
-      description: newOrgDesc.trim(),
-      terminology: {
-        orgLabel: 'Organization',
-        caseLabel: newOrgCaseLabel.trim() || 'Grievance',
-        groupLabel: newOrgGroupLabel.trim() || 'Sector',
-      },
-    });
-    setNewOrgName('');
-    setNewOrgShort('');
-    setNewOrgCode('');
-    setNewOrgDesc('');
-    setCreateOrgOpen(false);
-    setTenantSheetOpen(false);
-  };
-
-  const handleShareCode = async () => {
-    if (!tenant) return;
-    await Share.share({
-      message: `Join ${tenant.name} on Union.\n\nOrganization Code: ${tenant.code}\n\nSign in with your mobile number on the Union app and enter this code to complete your member setup.`,
-    });
-  };
+  React.useEffect(() => { if (isMembershipAdmin) void loadAdminMembers(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [isMembershipAdmin, tenant?.id]);
 
   if (!activeMember || !tenant) {
-    return (
-      <Screen>
-        <View style={{ padding: 32, alignItems: 'center', justifyContent: 'center', flex: 1 }}>
-          <Txt variant="body" color={colors.textSecondary}>
-            Signed out.
-          </Txt>
-        </View>
-      </Screen>
-    );
+    return <Screen><View style={{ padding: 32, alignItems: 'center' }}><Txt variant="body" color={colors.textSecondary}>Signed out.</Txt></View></Screen>;
   }
+
+  const prefs = activeMember.prefs || {};
+  const quiet = Boolean(prefs.quietHours);
+  const pendingCount = adminMembers.filter((m) => m.status === 'pending').length;
+  const tenantName = (id: string) => tenants.find((t) => t.id === id)?.name || id;
+
+  const handleShareCode = () => Share.share({
+    message: `Join ${tenant.name} on Union.\n\nOrganization Code: ${tenant.code}\n\nSign in with your mobile number and enter this code to apply for membership.`,
+  });
+
+  const createOrg = async () => {
+    if (!org.name.trim() || !org.code.trim() || !org.city.trim()) return;
+    setBusy(true);
+    const created = await setupOrganization(
+      { name: org.name.trim(), code: org.code.trim().toUpperCase(), short: org.code.trim().slice(0, 4).toUpperCase(), description: org.desc.trim(),
+        terminology: { caseLabel: org.caseLabel.trim() || 'Issue', groupLabel: org.groupLabel.trim() || 'Functional Group' } },
+      { name: activeMember.name, email: activeMember.email || '', unit: org.city.trim(), region: org.region.trim() || 'Central' },
+    );
+    setBusy(false);
+    if (created) { setCreateOpen(false); setOrg({ name: '', code: '', desc: '', caseLabel: 'Grievance', groupLabel: 'Sector', city: '', region: '' }); }
+  };
+
+  const checkJoin = async () => {
+    const t = await lookupOrgByCode(join.code);
+    if (!t) { toast({ title: 'Organization code not found' }); return; }
+    if (memberships.some((m) => m.tenantId === t.id)) { toast({ title: 'You already have a membership there' }); return; }
+    setJoinOrg(t);
+  };
+
+  const submitJoin = async () => {
+    if (!joinOrg || !join.unit.trim()) return;
+    setBusy(true);
+    const m = await registerMember({ name: activeMember.name, email: activeMember.email || '', unit: join.unit.trim(), region: join.region.trim(), group: join.group.trim(), orgCode: joinOrg.code });
+    setBusy(false);
+    if (m) { setJoinOpen(false); setJoinOrg(null); setJoin({ code: '', unit: '', region: '', group: '' }); if (m.status !== 'verified') router.replace('/pending'); }
+  };
+
+  const setPref = (key: keyof NotificationPrefs, val: boolean) => void updatePrefs({ [key]: val } as NotificationPrefs);
+  const setQuiet = (on: boolean) => void updatePrefs({
+    quietHours: on ? { start: '22:00', end: '07:00', tzOffsetMinutes: -new Date().getTimezoneOffset() } : null,
+  });
 
   return (
     <Screen>
-      <StackHeader onBack={() => router.back()} title="Profile & Governance" />
+      <StackHeader onBack={() => router.back()} title="Profile" />
 
-      {/* Member Hero */}
       <View style={{ alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 8 }}>
-        <Avatar name={activeMember.name || 'User'} size={80} />
-        <Txt variant="displayM" style={{ marginTop: 6 }}>
-          {activeMember.name || 'User'}
-        </Txt>
+        <Avatar name={activeMember.name} size={80} />
+        <Txt variant="displayM" style={{ marginTop: 6 }}>{activeMember.name}</Txt>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-          <Badge tone={activeMember.status === 'verified' ? 'success' : 'warning'} dot>
-            {activeMember.status === 'verified' ? 'Verified member' : 'Pending verification'}
-          </Badge>
-          <Txt variant="mono" color={colors.textSecondary}>
-            {activeMember.memberId || ''}
-          </Txt>
-          {isOrgAdmin && (
-            <Badge tone="danger" variant="outline" icon="shield">
-              Admin
-            </Badge>
-          )}
+          <Badge tone="success" dot>Verified member</Badge>
+          <Txt variant="mono" color={colors.textSecondary}>{activeMember.memberId}</Txt>
+          {isOrgAdmin ? <Badge tone="info" variant="outline" icon="shield">Org admin</Badge> : null}
+          {isPlatformSuperAdmin ? <Badge tone="danger" variant="outline" icon="shield">Platform admin</Badge> : null}
         </View>
       </View>
 
-      {/* Organization Context */}
       <SectionLabel>Organization</SectionLabel>
       <ListCard style={{ marginHorizontal: 12 }}>
         <ListRow
           title={tenant.name}
-          subtitle={
-            isOrgAdmin
-              ? `Code: ${tenant.code} · Tap to manage or switch organization`
-              : `Organization code: ${tenant.code}`
-          }
+          subtitle={memberships.length > 1 ? `You belong to ${memberships.length} organizations · tap to switch` : `Organization code: ${tenant.code}`}
           left={<IconTile icon="building-2" tone="geo" />}
           right={<Badge size="sm" tone="info">{tenant.code}</Badge>}
-          onPress={isOrgAdmin ? () => setTenantSheetOpen(true) : undefined}
+          onPress={() => setOrgSheet(true)}
         />
       </ListCard>
 
-      {/* ADMIN-ONLY: Share Organization Invite Code with Members */}
-      {isOrgAdmin && (
+      {isMembershipAdmin && (
         <>
-          <SectionLabel>Member Onboarding & Administration</SectionLabel>
+          <SectionLabel>Member onboarding</SectionLabel>
           <Card padding={16} style={{ marginHorizontal: 12, gap: 12 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Txt variant="overline" color={colors.textMuted}>
-                  SHAREABLE ORGANIZATION CODE
-                </Txt>
-                <Txt variant="displayM" color={colors.accent} style={{ letterSpacing: 2 }}>
-                  {tenant.code}
-                </Txt>
-                <Txt variant="bodyS" color={colors.textSecondary}>
-                  Share this code with members so they can join {tenant.name} after mobile OTP verification.
-                </Txt>
-              </View>
-            </View>
+            <Txt variant="overline" color={colors.textMuted}>SHAREABLE ORGANIZATION CODE</Txt>
+            <Txt variant="displayM" color={colors.accent} style={{ letterSpacing: 2 }}>{tenant.code}</Txt>
+            <Txt variant="bodyS" color={colors.textSecondary}>New members apply with this code; applications wait for your approval.</Txt>
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <View style={{ flex: 1 }}>
-                <Button variant="secondary" block icon="share-2" onPress={handleShareCode}>
-                  Share code with members
-                </Button>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Button block icon="shield" onPress={() => router.push('/manage')}>
-                  Admin console
-                </Button>
-              </View>
+              <View style={{ flex: 1 }}><Button variant="secondary" block icon="share-2" onPress={handleShareCode}>Share code</Button></View>
+              <View style={{ flex: 1 }}><Button block icon="user-check" onPress={() => router.push('/manage/members')}>{pendingCount ? `Review ${pendingCount}` : 'Members'}</Button></View>
             </View>
           </Card>
         </>
       )}
 
-      {/* Pending Member Applications Review (Admin only) */}
-      {isOrgAdmin && pendingMembers.length > 0 && (
-        <>
-          <SectionLabel>{`Pending member approvals · ${pendingMembers.length}`}</SectionLabel>
-          <Card padding={14} style={{ marginHorizontal: 12, gap: 10 }}>
-            {pendingMembers.map((pm) => (
-              <View
-                key={pm.id}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingVertical: 6,
-                }}
-              >
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Txt variant="titleS">{pm.name}</Txt>
-                  <Txt variant="bodyS" color={colors.textMuted}>
-                    {pm.unit} · {pm.groups.join(', ') || 'General'}
-                  </Txt>
-                </View>
-                <Button size="sm" variant="secondary" onPress={() => approveMember(pm.id)}>
-                  Approve
-                </Button>
-              </View>
-            ))}
-          </Card>
-        </>
-      )}
-
-      {/* Membership Info */}
       <SectionLabel>Membership details</SectionLabel>
       <Card padding={14} style={{ marginHorizontal: 12, paddingVertical: 2 }}>
-        <KeyValue
-          first
-          k="Verified mobile"
-          v={activeMember.phone || activeMember.email || 'Verified'}
-        />
-        <KeyValue
-          k="Location"
-          v={`${activeMember.unit || 'Headquarters'} · ${activeMember.region || 'Central'}`}
-        />
-        <KeyValue
-          k="Functional groups"
-          v={
-            (activeMember.groups?.length ?? 0) > 0
-              ? activeMember.groups.join(', ')
-              : 'General Membership'
-          }
-        />
-        <KeyValue k="Roles" v={activeMember.roles?.join(', ') || 'Member'} />
-        <KeyValue k="Member since" v={activeMember.since || 'Today'} />
+        <KeyValue first k="Verified mobile" v={activeMember.phone ? '+' + activeMember.phone.replace(/^\+/, '') : '—'} />
+        <KeyValue k="Location" v={`${activeMember.unit} · ${activeMember.region}`} />
+        <KeyValue k="Functional groups" v={activeMember.groups.length ? activeMember.groups.join(', ') : 'General membership'} />
+        <KeyValue k="Roles" v={activeMember.roles.join(', ')} />
+        <KeyValue k="Committees" v={myAppointments.length ? myAppointments.map((a) => `${a.role}, ${committees.find((c) => c.id === a.committeeId)?.name || ''}`).join('; ') : 'None'} />
+        <KeyValue k="Member since" v={activeMember.since} />
       </Card>
 
-      {/* Notification Preferences */}
       <SectionLabel>Notifications</SectionLabel>
       <Card padding={14} style={{ marginHorizontal: 12, paddingVertical: 2 }}>
-        {PREFS.map(([label, , locked], i) => (
-          <View
-            key={label}
-            style={{
-              paddingVertical: 10,
-              borderTopWidth: i ? 1 : 0,
-              borderTopColor: colors.borderSubtle,
-            }}
-          >
+        {PREFS.map(([key, label, locked], i) => (
+          <View key={key} style={{ paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderTopColor: colors.borderSubtle }}>
             <Switch
               label={label}
-              description={locked ? 'Mandated by organization constitution' : undefined}
-              value={prefs[i]}
+              description={locked ? 'Required by your organization' : undefined}
+              value={locked ? true : prefs[key] !== false && (key !== 'groupActivity' || prefs[key] === true)}
               disabled={locked}
-              onChange={(val) => setPrefs(prefs.map((p, j) => (j === i ? val : p)))}
+              onChange={(val) => setPref(key, val)}
             />
           </View>
         ))}
+        <View style={{ paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.borderSubtle }}>
+          <Switch label="Quiet hours (22:00–07:00)" description="Non-urgent pushes wait until morning" value={quiet} onChange={setQuiet} />
+        </View>
       </Card>
 
       <View style={{ padding: 12, paddingTop: 16, gap: 10 }}>
-        <Button
-          variant="ghost"
-          block
-          icon="log-out"
-          onPress={() => {
-            router.replace('/');
-            logout();
-          }}
-        >
-          Sign out
-        </Button>
+        <Button variant="ghost" block icon="log-out" onPress={async () => { await logout(); router.replace('/'); }}>Sign out</Button>
       </View>
 
-      {/* Admin-Only Tenant Switcher & Creation Sheet */}
-      {isOrgAdmin && (
-        <Sheet
-          visible={tenantSheetOpen}
-          onClose={() => setTenantSheetOpen(false)}
-          title="Manage organizations"
-        >
-          <Txt
-            variant="bodyS"
-            color={colors.textMuted}
-            style={{ paddingHorizontal: 16, paddingBottom: 8 }}
-          >
-            Each organization maintains independent membership, issues, committees, and terminology.
-          </Txt>
-          {tenants.map((t) => (
-            <Pressable
-              key={t.id}
-              onPress={() => {
-                switchTenant(t.id);
-                setTenantSheetOpen(false);
-              }}
-              style={({ pressed }) => ({
-                flexDirection: 'row',
-                alignItems: 'center',
-                paddingHorizontal: 16,
-                minHeight: 56,
-                backgroundColor: pressed ? palette.paper100 : 'transparent',
-                gap: 12,
-              })}
-            >
-              <View style={{ flex: 1 }}>
-                <Txt variant="titleS">{t.name}</Txt>
-                <Txt variant="bodyS" color={colors.textMuted}>
-                  Code: {t.code} · {t.description}
-                </Txt>
-              </View>
-              {tenant.id === t.id && <Badge tone="info">Active</Badge>}
-            </Pressable>
-          ))}
-          <View style={{ padding: 16 }}>
-            <Button
-              variant="secondary"
-              block
-              icon="plus"
-              onPress={() => {
-                setTenantSheetOpen(false);
-                setCreateOrgOpen(true);
-              }}
-            >
-              Create new organization
-            </Button>
-          </View>
-        </Sheet>
-      )}
-
-      {/* Admin-Only Create Organization Sheet */}
-      {isOrgAdmin && (
-        <Sheet
-          visible={createOrgOpen}
-          onClose={() => setCreateOrgOpen(false)}
-          title="Create new organization"
-        >
-          <View style={{ paddingHorizontal: 16, gap: 12, paddingBottom: 28 }}>
-            <Notice tone="info" title="Administrator-only organization setup">
-              Creates an isolated organization in Supabase and generates an invite code for members.
-            </Notice>
-            <Field label="Organization name" required>
-              <Input
-                value={newOrgName}
-                onChangeText={setNewOrgName}
-                placeholder="e.g. National Workers Union"
-              />
-            </Field>
-            <Field label="Organization code / acronym" required>
-              <Input
-                value={newOrgCode}
-                onChangeText={(t) => setNewOrgCode(t.toUpperCase())}
-                placeholder="e.g. NWU"
-                autoCapitalize="characters"
-              />
-            </Field>
-            <Field label="Short label / monogram">
-              <Input
-                value={newOrgShort}
-                onChangeText={(t) => setNewOrgShort(t.toUpperCase())}
-                placeholder="e.g. NWU"
-                autoCapitalize="characters"
-              />
-            </Field>
-            <Field label="Description">
-              <Input
-                value={newOrgDesc}
-                onChangeText={setNewOrgDesc}
-                placeholder="Official platform for workers..."
-              />
-            </Field>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <View style={{ flex: 1 }}>
-                <Field label="Case noun">
-                  <Input
-                    value={newOrgCaseLabel}
-                    onChangeText={setNewOrgCaseLabel}
-                    placeholder="Grievance / Issue"
-                  />
-                </Field>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Field label="Group noun">
-                  <Input
-                    value={newOrgGroupLabel}
-                    onChangeText={setNewOrgGroupLabel}
-                    placeholder="Sector / Trade"
-                  />
-                </Field>
-              </View>
+      {/* Your organizations — only memberships you hold (PRD §4.1) */}
+      <Sheet visible={orgSheet} onClose={() => setOrgSheet(false)} title="Your organizations">
+        <Txt variant="bodyS" color={colors.textMuted} style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
+          Each membership is separate: its own groups, cases, roles and notifications.
+        </Txt>
+        {memberships.map((m) => (
+          <Pressable key={m.id} onPress={() => { switchTenant(m.tenantId); setOrgSheet(false); if (m.status !== 'verified') router.replace('/pending'); }}
+            style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, minHeight: 56, backgroundColor: pressed ? palette.paper100 : 'transparent', gap: 12 })}>
+            <View style={{ flex: 1 }}>
+              <Txt variant="titleS">{tenantName(m.tenantId)}</Txt>
+              <Txt variant="bodyS" color={colors.textMuted}>{m.memberId} · {m.unit}</Txt>
             </View>
-            <Button
-              block
-              size="lg"
-              icon="plus"
-              disabled={!newOrgName.trim() || !newOrgCode.trim()}
-              onPress={handleCreateOrg}
-            >
-              Establish organization
+            {tenant.id === m.tenantId ? <Badge tone="info">Active</Badge> : <Badge size="sm" tone={m.status === 'verified' ? 'success' : 'warning'}>{m.status}</Badge>}
+          </Pressable>
+        ))}
+        <View style={{ padding: 16, gap: 10 }}>
+          <Button variant="secondary" block icon="user-plus" onPress={() => { setOrgSheet(false); setJoinOpen(true); }}>Join another organization</Button>
+          {isPlatformSuperAdmin ? (
+            <Button variant="secondary" block icon="plus" onPress={() => { setOrgSheet(false); setCreateOpen(true); }}>Create new organization</Button>
+          ) : null}
+        </View>
+      </Sheet>
+
+      <Sheet visible={joinOpen} onClose={() => setJoinOpen(false)} title="Join another organization">
+        <View style={{ paddingHorizontal: 16, gap: 12, paddingBottom: 24 }}>
+          {!joinOrg ? (
+            <>
+              <Field label="Organization code" required>
+                <Input value={join.code} onChangeText={(t) => setJoin({ ...join, code: t.toUpperCase() })} autoCapitalize="characters" placeholder="e.g. NHWU" />
+              </Field>
+              <Button block icon="chevron-right" disabled={!join.code.trim()} onPress={checkJoin}>Continue</Button>
+            </>
+          ) : (
+            <>
+              <Notice tone="info" title={`Applying to ${joinOrg.name}`}>Your application will be reviewed by its administrators.</Notice>
+              <Field label={joinOrg.terminology.level1Label} required><Input value={join.unit} onChangeText={(t) => setJoin({ ...join, unit: t })} /></Field>
+              <Field label={joinOrg.terminology.level2Label}><Input value={join.region} onChangeText={(t) => setJoin({ ...join, region: t })} /></Field>
+              <Field label={joinOrg.terminology.groupLabel}><Input value={join.group} onChangeText={(t) => setJoin({ ...join, group: t })} /></Field>
+              <Button block icon="user-plus" disabled={!join.unit.trim() || busy} onPress={submitJoin}>{busy ? 'Submitting…' : 'Submit application'}</Button>
+            </>
+          )}
+        </View>
+      </Sheet>
+
+      {isPlatformSuperAdmin && (
+        <Sheet visible={createOpen} onClose={() => setCreateOpen(false)} title="Create new organization">
+          <View style={{ paddingHorizontal: 16, gap: 12, paddingBottom: 28 }}>
+            <Notice tone="info" title="Platform Super Admin action">Creates an isolated organization; you become its founding administrator. Recorded in the audit trail.</Notice>
+            <Field label="Organization name" required><Input value={org.name} onChangeText={(t) => setOrg({ ...org, name: t })} /></Field>
+            <Field label="Organization code" required><Input value={org.code} onChangeText={(t) => setOrg({ ...org, code: t.toUpperCase() })} autoCapitalize="characters" /></Field>
+            <Field label="Description"><Input value={org.desc} onChangeText={(t) => setOrg({ ...org, desc: t })} /></Field>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}><Field label="Headquarters city" required><Input value={org.city} onChangeText={(t) => setOrg({ ...org, city: t })} /></Field></View>
+              <View style={{ flex: 1 }}><Field label="State / region"><Input value={org.region} onChangeText={(t) => setOrg({ ...org, region: t })} /></Field></View>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}><Field label="Case noun"><Input value={org.caseLabel} onChangeText={(t) => setOrg({ ...org, caseLabel: t })} /></Field></View>
+              <View style={{ flex: 1 }}><Field label="Group noun"><Input value={org.groupLabel} onChangeText={(t) => setOrg({ ...org, groupLabel: t })} /></Field></View>
+            </View>
+            <Button block size="lg" icon="plus" disabled={!org.name.trim() || !org.code.trim() || !org.city.trim() || busy} onPress={createOrg}>
+              {busy ? 'Creating…' : 'Create organization'}
             </Button>
           </View>
         </Sheet>
