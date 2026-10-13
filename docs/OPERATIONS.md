@@ -27,6 +27,9 @@ EAS environment, CI), treat the key as leaked:
    ```sql
    INSERT INTO platform_admins (phone, name) VALUES ('+917995731200', 'Platform Operations');
    ```
+   Use the full number with country code. A bare 10-digit number is treated as India (+91),
+   the same rule the app applies when someone types a 10-digit number, so `'7995731200'`
+   and `'+917995731200'` are equivalent; the same digits under another country code are not.
    That person signs in with OTP and sees "Create organization". Add at least two admins; the database
    refuses to deactivate the last one.
 5. **App environment** (`.env` locally, EAS environment / GitHub `vars` for builds):
@@ -98,9 +101,17 @@ Runs `supabase/schema.sql` on a real PostgreSQL (PGlite) and checks tenant isola
 escalation, governance, notification and audit rules, plus unit tests for app helpers. CI runs this on
 every push and pull request.
 
-## 6. Web administration
+## 6. Platforms
 
-The PRD (§15.1) suggests a separate Next.js admin app. The Management area of this Expo app (routes
-under `/manage`) also runs on the web (`npm run web` / `npx expo export --platform web`) against the same
-RLS-protected backend, which covers organization, membership, committee, routing, queue and audit
-administration for the MVP. A dedicated Next.js console can be added later without backend changes.
+PRD §14.6 targets Android and iOS via Expo. The Management area (`/manage`) is part of the
+mobile app. The same code also builds for the web (`npx expo export --platform web`) and works
+against the same RLS-protected backend, which is handy for desk-based admins, but the web
+build is not a supported product surface. PRD §15.1 still mentions a separate Next.js admin
+console; that remains optional and would need no backend changes.
+
+## 7. Test data (staging only)
+
+`supabase/seed-ten-levels.sql` creates a 10-role test roster (see `docs/SEED_TEN_LEVELS.md`).
+It refuses to run unless you first execute `SET app.allow_test_seed = 'on';`, uses only the
+fictional +1 555-555-01xx numbers, and writes audit rows for every grant. Never run it on
+production.

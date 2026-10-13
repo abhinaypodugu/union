@@ -4,7 +4,7 @@
 // is wrong or RLS regresses, these tests fail. The seed SQL itself is idempotent
 // on a live project; these tests build the same roster on an isolated PGlite DB.
 //
-// Phones: 919000000101..109 (+ the stranger 919000000099 and platform 917995731200).
+// Phones: 15555550101..109 (+ the stranger 919000000099 and platform 917995731200).
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createDb, createUser, as, asScheduler } from './helpers/supabase-sim.mjs';
@@ -34,7 +34,7 @@ before(async () => {
   // Reassign SU's founding profile to user 102 so we can sign in as that person
   // (create_organization made it under the platform user; we want a separate org admin).
   const suProfile = (await db.query(`SELECT id FROM profiles WHERE tenant_id = 'su'`)).rows[0].id;
-  const suUser = await createUser(db, '919000000102');
+  const suUser = await createUser(db, '15555550102');
   await db.query(`UPDATE profiles SET user_id = $1, name = 'Vikram Singh' WHERE id = $2`, [suUser, suProfile]);
   // committee_members for SU executive points at the same profile
   await db.query(`UPDATE committee_members SET profile_id = $1, name = 'Vikram Singh' WHERE tenant_id = 'su'`, [suProfile]);
@@ -55,7 +55,7 @@ before(async () => {
     ['late',     'Late Joiner',      'TU', 'Hyderabad', 'Telangana', 'IT Workers'],
   ];
   // Pre-create auth users for each
-  const phoneByKey = { priya: '919000000101', anita: '919000000103', ramesh: '919000000104', suresh: '919000000105', lakshmi: '919000000106', asha: '919000000107', omar: '919000000108', late: '919000000109' };
+  const phoneByKey = { priya: '15555550101', anita: '15555550103', ramesh: '15555550104', suresh: '15555550105', lakshmi: '15555550106', asha: '15555550107', omar: '15555550108', late: '15555550109' };
   for (const [k] of roster) u[k] = await createUser(db, phoneByKey[k]);
   u.stranger = await createUser(db, '919000000099');
 

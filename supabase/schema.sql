@@ -511,13 +511,21 @@ CREATE OR REPLACE FUNCTION digits_only(p TEXT) RETURNS TEXT AS $$
   SELECT regexp_replace(coalesce(p, ''), '[^0-9]', '', 'g');
 $$ LANGUAGE sql IMMUTABLE;
 
+-- E.164 digits with the app's rule: a bare 10-digit number means India (+91).
+CREATE OR REPLACE FUNCTION e164_digits(p TEXT) RETURNS TEXT AS $$
+  SELECT CASE WHEN length(digits_only(p)) = 10 THEN '91' || digits_only(p) ELSE digits_only(p) END;
+$$ LANGUAGE sql IMMUTABLE;
+
+-- Platform Super Admin: the caller's verified auth phone is in platform_admins.
+-- Exact match on the full number incl. country code ('+917995731200', '917995731200'
+-- and '7995731200' are the same number; '+447995731200' is not).
 CREATE OR REPLACE FUNCTION is_platform_admin() RETURNS BOOLEAN AS $$
   SELECT EXISTS (
     SELECT 1 FROM platform_admins pa
     JOIN auth.users u ON u.id = auth.uid()
     WHERE pa.active
       AND u.phone_confirmed_at IS NOT NULL
-      AND digits_only(pa.phone) = digits_only(u.phone)
+      AND e164_digits(pa.phone) = e164_digits(u.phone)
       AND length(digits_only(u.phone)) >= 10
   );
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;

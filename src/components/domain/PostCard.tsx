@@ -26,6 +26,10 @@ export interface PostCardProps {
   onComment?: () => void;
   onShare?: () => void;
   onMore?: () => void;
+  /** Cap the body in lists; omit to show the full text (post detail). */
+  bodyLines?: number;
+  /** Opens the full post; shown as "Read more" when the body is truncated. */
+  onOpen?: () => void;
 }
 
 /** Instagram-familiar feed card. Official / committee-private / member are visually distinct (PRD §14.4). */
@@ -62,7 +66,7 @@ export function PostCard(p: PostCardProps) {
         <IconButton icon="ellipsis" label="Post options" size="sm" onPress={p.onMore} />
       </View>
       {title ? <Txt variant="displayS" numberOfLines={2} style={{ marginHorizontal: 16, marginTop: 12, flexShrink: 1 }}>{title}</Txt> : null}
-      {body ? <Txt variant="body" color={palette.ink800} numberOfLines={6} style={{ marginHorizontal: 16, marginTop: 8, flexShrink: 1 }}>{body}</Txt> : null}
+      {body ? <PostBody body={body} lines={p.bodyLines} onOpen={p.onOpen} /> : null}
       {media ? (
         <View style={{ marginTop: 12, aspectRatio: 4 / 3, backgroundColor: palette.paper150, alignItems: 'center', justifyContent: 'center', borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.borderSubtle }}>
           {isUri ? <Image source={{ uri: media }} style={{ width: '100%', height: '100%' }} resizeMode="cover" /> : <Txt variant="mono" color={palette.ink500}>{media}</Txt>}
@@ -85,5 +89,29 @@ function Action({ icon, count, on, onPress, label }: { icon: string; count?: num
       <Icon name={icon} size={20} color={c} fill={on ? c : 'none'} />
       {count ? <Txt style={{ fontFamily: fonts.sans600, fontSize: 13 }} color={c}>{String(count)}</Txt> : null}
     </Pressable>
+  );
+}
+
+/** Body text; when capped and actually truncated, offers "Read more" (PRD §8.1: posts must stay readable). */
+function PostBody({ body, lines, onOpen }: { body: string; lines?: number; onOpen?: () => void }) {
+  const [truncated, setTruncated] = React.useState(false);
+  return (
+    <View style={{ marginHorizontal: 16, marginTop: 8 }}>
+      <Txt
+        variant="body"
+        color={palette.ink800}
+        numberOfLines={lines}
+        style={{ flexShrink: 1 }}
+        // iOS reports every line, Android only the visible ones — so also use a length heuristic below.
+        onTextLayout={lines ? (e) => setTruncated(e.nativeEvent.lines.length > lines) : undefined}
+      >
+        {body}
+      </Txt>
+      {lines && onOpen && (truncated || body.length > lines * 60 || body.split('\n').length > lines) ? (
+        <Pressable onPress={onOpen} accessibilityRole="link" hitSlop={8} style={{ marginTop: 4, alignSelf: 'flex-start' }}>
+          <Txt variant="bodySStrong" color={colors.accent}>Read more</Txt>
+        </Pressable>
+      ) : null}
+    </View>
   );
 }

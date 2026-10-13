@@ -3,105 +3,73 @@ import * as FileSystem from 'expo-file-system/legacy';
 import type * as SecureStoreType from 'expo-secure-store';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-// Dynamically load SecureStore only if compiled into this native runtime.
+import { createChunkedStore, KV } from '../lib/chunkedStore';
+
+// Session storage: the refresh token lives in exactly ONE place.
+//  * Native with SecureStore (Keychain / Android Keystore): encrypted, chunked
+//    under the 2 KB per-value limit. Plaintext copies left by older builds
+//    (AsyncStorage, documentDirectory JSON) are migrated on first read and deleted.
+//  * Native without SecureStore compiled in: AsyncStorage, else the private
+//    documentDirectory file — a single plaintext fallback, never in addition.
+//  * Web: localStorage.
 let secureStoreModule: typeof SecureStoreType | null = null;
 try {
   secureStoreModule = require('expo-secure-store');
 } catch {
-  // Not compiled into current base APK; safeStorage uses AsyncStorage + FileSystem
+  secureStoreModule = null;
 }
-// Safe, durable storage adapter for mobile and web.
-// Prefer encrypted storage (SecureStore/Keychain) where available so refresh tokens
-// never touch plaintext files. Falls back through AsyncStorage to the private
-// sandboxed document directory (FileSystem.documentDirectory) so sessions still
-// survive app minimizes, closes, and reboots.
-const memoryStore = new Map<string, string>();
 
-function getStorageFileUri(key: string): string | null {
+const secureKV: KV | null = secureStoreModule
+  ? {
+    get: (k) => secureStoreModule!.getItemAsync(k),
+    set: (k, v) => secureStoreModule!.setItemAsync(k, v),
+    remove: (k) => secureStoreModule!.deleteItemAsync(k),
+  }
+  : null;
+
+const hasAsyncStorage = Boolean(NativeModules && (NativeModules.RNCAsyncStorage || NativeModules.PlatformLocalStorage));
+const asyncKV: KV | null = hasAsyncStorage
+  ? (() => {
+    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+    return { get: (k: string) => AsyncStorage.getItem(k), set: (k: string, v: string) => AsyncStorage.setItem(k, v), remove: (k: string) => AsyncStorage.removeItem(k) };
+  })()
+  : null;
+
+function fileUri(key: string): string | null {
   try {
     if (!FileSystem || !FileSystem.documentDirectory) return null;
-    const safeKey = key.replace(/[^a-zA-Z0-9_-]/g, '_');
-    return `${FileSystem.documentDirectory}union_store_${safeKey}.json`;
+    return `${FileSystem.documentDirectory}union_store_${key.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`;
   } catch {
     return null;
   }
 }
-
-export const safeStorage = {
-  getItem: async (key: string): Promise<string | null> => {
-    try {
-      if (Platform.OS === 'web') {
-        if (typeof localStorage !== 'undefined') return localStorage.getItem(key);
-        return memoryStore.get(key) ?? null;
-      }
-      if (secureStoreModule) {
-        try {
-          const v = await secureStoreModule.getItemAsync(key);
-          if (v !== null) return v;
-        } catch { }
-      }
-      if (NativeModules && (NativeModules.RNCAsyncStorage || NativeModules.PlatformLocalStorage)) {
-        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-        const val = await AsyncStorage.getItem(key);
-        if (val !== null && val !== undefined) return val;
-      }
-      const fileUri = getStorageFileUri(key);
-      if (fileUri) {
-        const info = await FileSystem.getInfoAsync(fileUri);
-        if (info.exists) {
-          const content = await FileSystem.readAsStringAsync(fileUri);
-          memoryStore.set(key, content);
-          return content;
-        }
-      }
-    } catch { }
-    return memoryStore.get(key) ?? null;
+const fileKV: KV = {
+  get: async (k) => {
+    const uri = fileUri(k);
+    if (!uri) return null;
+    const info = await FileSystem.getInfoAsync(uri);
+    return info.exists ? FileSystem.readAsStringAsync(uri) : null;
   },
-  setItem: async (key: string, value: string): Promise<void> => {
-    memoryStore.set(key, value);
-    try {
-      if (Platform.OS === 'web') {
-        if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
-        return;
-      }
-      if (secureStoreModule) {
-        try {
-          await secureStoreModule.setItemAsync(key, value);
-        } catch { }
-      }
-      if (NativeModules && (NativeModules.RNCAsyncStorage || NativeModules.PlatformLocalStorage)) {
-        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-        await AsyncStorage.setItem(key, value);
-      }
-      const fileUri = getStorageFileUri(key);
-      if (fileUri) {
-        await FileSystem.writeAsStringAsync(fileUri, value);
-      }
-    } catch { }
+  set: async (k, v) => {
+    const uri = fileUri(k);
+    if (!uri) throw new Error('no document directory');
+    await FileSystem.writeAsStringAsync(uri, v);
   },
-  removeItem: async (key: string): Promise<void> => {
-    memoryStore.delete(key);
-    try {
-      if (Platform.OS === 'web') {
-        if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
-        return;
-      }
-      if (secureStoreModule) {
-        try {
-          await secureStoreModule.deleteItemAsync(key);
-        } catch { }
-      }
-      if (NativeModules && (NativeModules.RNCAsyncStorage || NativeModules.PlatformLocalStorage)) {
-        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-        await AsyncStorage.removeItem(key);
-      }
-      const fileUri = getStorageFileUri(key);
-      if (fileUri) {
-        await FileSystem.deleteAsync(fileUri, { idempotent: true });
-      }
-    } catch { }
+  remove: async (k) => {
+    const uri = fileUri(k);
+    if (uri) await FileSystem.deleteAsync(uri, { idempotent: true });
   },
 };
+
+const webKV: KV = {
+  get: async (k) => (typeof localStorage !== 'undefined' ? localStorage.getItem(k) : null),
+  set: async (k, v) => { if (typeof localStorage !== 'undefined') localStorage.setItem(k, v); },
+  remove: async (k) => { if (typeof localStorage !== 'undefined') localStorage.removeItem(k); },
+};
+
+export const safeStorage = Platform.OS === 'web'
+  ? createChunkedStore(null, [webKV])
+  : createChunkedStore(secureKV, [asyncKV, fileKV].filter(Boolean) as KV[]);
 
 // EXPO_PUBLIC_* values are inlined at build time only when referenced statically
 // (process.env.EXPO_PUBLIC_X), so they are read one by one here.
