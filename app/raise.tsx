@@ -1,9 +1,11 @@
 import React from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, View } from 'react-native';
-import { router } from 'expo-router';
-import * as DocumentPicker from 'expo-document-picker';
+import { Redirect, router } from 'expo-router';
+import type * as DocumentPickerType from 'expo-document-picker';
+let DocumentPicker: typeof DocumentPickerType | null = null;
+try { DocumentPicker = require('expo-document-picker'); } catch {}
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Button, Checkbox, Field, IconButton, Input, Notice, Select, Tag, TextArea, Txt } from '../src/components';
+import { Button, Checkbox, Field, IconButton, Input, LoadingState, Notice, Screen, Select, StackHeader, Tag, TextArea, Txt } from '../src/components';
 import { colors } from '../src/theme';
 import { useStore } from '../src/store/AppStore';
 import { dbService } from '../src/services/db';
@@ -14,17 +16,21 @@ type Picked = { uri: string; name: string; mimeType?: string; size?: number };
 
 export default function Raise() {
   const insets = useSafeAreaInsets();
-  const { addIssue, toast, activeMember, categories, routingRules, terminology, tenant } = useStore();
+  const { addIssue, toast, activeMember, authReady, signedIn, categories, routingRules, terminology, tenant } = useStore();
   const [v, setV] = React.useState({ title: '', category: '', desc: '', others: false, confidential: false, priority: 'Normal' });
   const [files, setFiles] = React.useState<Picked[]>([]);
   const [tried, setTried] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  if (!authReady) return <LoadingState subtitle="Signing you in…" />;
+  if (!signedIn || !activeMember) return <Redirect href="/" />;
+  if (activeMember.status !== 'verified') return <Redirect href="/pending" />;
   const ok = !!v.title.trim() && !!v.category;
   const top = Platform.OS === 'ios' ? 8 : insets.top;
   const rule = routingRules.find((r) => r.category === v.category);
   const options = categories.length ? categories : ['General'];
 
   const pick = async () => {
+    if (!DocumentPicker) { toast({ title: 'Attachments unavailable', description: 'File picking is not available in this build.' }); return; }
     const res = await DocumentPicker.getDocumentAsync({ multiple: true, copyToCacheDirectory: true, type: ['image/*', 'application/pdf'] });
     if (res.canceled) return;
     const next = res.assets.filter((a) => (a.size || 0) <= 15 * 1024 * 1024).map((a) => ({ uri: a.uri, name: a.name, mimeType: a.mimeType, size: a.size }));

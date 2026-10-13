@@ -12,9 +12,9 @@ export function AudienceLabel({ scope, label }: { scope: AudienceScope; label: s
   const priv = scope === 'committee' || scope === 'private';
   const c = priv ? colors.privateFg : colors.textMuted;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }} accessibilityLabel={'Visible to ' + label}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1 }} accessibilityLabel={'Visible to ' + label}>
       <Icon name={ICON[scope]} size={13} color={c} strokeWidth={2} />
-      <Txt style={{ fontFamily: fonts.sans500, fontSize: 12 }} color={c} numberOfLines={1}>{label}</Txt>
+      <Txt style={{ fontFamily: fonts.sans500, fontSize: 12, flexShrink: 1 }} color={c} numberOfLines={1}>{label}</Txt>
     </View>
   );
 }

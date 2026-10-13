@@ -17,6 +17,7 @@
     },
     "android": {
       "package": "org.commons.union",
+      "versionCode": 2,
       "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",

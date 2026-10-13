@@ -1,8 +1,8 @@
 import React from 'react';
 import { View, Pressable, Share } from 'react-native';
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import {
-  Avatar, Badge, Button, Card, IconTile, KeyValue, ListCard, ListRow, Notice, Screen, SectionLabel, StackHeader,
+  Avatar, Badge, Button, Card, IconTile, KeyValue, ListCard, ListRow, LoadingState, Notice, Screen, SectionLabel, StackHeader,
   Switch, Txt, Sheet, Field, Input,
 } from '../src/components';
 import { colors, palette } from '../src/theme';
@@ -17,7 +17,7 @@ const PREFS: Array<[keyof NotificationPrefs, string, boolean]> = [
 
 export default function Profile() {
   const {
-    tenant, tenants, memberships, switchTenant, activeMember, isPlatformSuperAdmin, isOrgAdmin, isMembershipAdmin,
+    tenant, tenants, memberships, switchTenant, activeMember, authReady, signedIn, isPlatformSuperAdmin, isOrgAdmin, isMembershipAdmin,
     adminMembers, loadAdminMembers, setupOrganization, registerMember, lookupOrgByCode, updatePrefs, logout, myAppointments,
     committees, toast,
   } = useStore();
@@ -32,10 +32,9 @@ export default function Profile() {
 
   React.useEffect(() => { if (isMembershipAdmin) void loadAdminMembers(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [isMembershipAdmin, tenant?.id]);
 
-  if (!activeMember || !tenant) {
-    return <Screen><View style={{ padding: 32, alignItems: 'center' }}><Txt variant="body" color={colors.textSecondary}>Signed out.</Txt></View></Screen>;
-  }
-
+  if (!authReady) return <LoadingState subtitle="Signing you in…" />;
+  if (!signedIn || !activeMember || !tenant) return <Redirect href="/" />;
+  if (activeMember.status !== 'verified') return <Redirect href="/pending" />;
   const prefs = activeMember.prefs || {};
   const quiet = Boolean(prefs.quietHours);
   const pendingCount = adminMembers.filter((m) => m.status === 'pending').length;
@@ -49,8 +48,10 @@ export default function Profile() {
     if (!org.name.trim() || !org.code.trim() || !org.city.trim()) return;
     setBusy(true);
     const created = await setupOrganization(
-      { name: org.name.trim(), code: org.code.trim().toUpperCase(), short: org.code.trim().slice(0, 4).toUpperCase(), description: org.desc.trim(),
-        terminology: { caseLabel: org.caseLabel.trim() || 'Issue', groupLabel: org.groupLabel.trim() || 'Functional Group' } },
+      {
+        name: org.name.trim(), code: org.code.trim().toUpperCase(), short: org.code.trim().slice(0, 4).toUpperCase(), description: org.desc.trim(),
+        terminology: { caseLabel: org.caseLabel.trim() || 'Issue', groupLabel: org.groupLabel.trim() || 'Functional Group' }
+      },
       { name: activeMember.name, email: activeMember.email || '', unit: org.city.trim(), region: org.region.trim() || 'Central' },
     );
     setBusy(false);

@@ -1,11 +1,20 @@
-import { AppState, Platform, NativeModules } from 'react-native';
+import { AppState, NativeModules, Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
+import type * as SecureStoreType from 'expo-secure-store';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
+// Dynamically load SecureStore only if compiled into this native runtime.
+let secureStoreModule: typeof SecureStoreType | null = null;
+try {
+  secureStoreModule = require('expo-secure-store');
+} catch {
+  // Not compiled into current base APK; safeStorage uses AsyncStorage + FileSystem
+}
 // Safe, durable storage adapter for mobile and web.
-// Sessions and active tenant selection survive app minimizes, closes, and reboots.
-// Writes to the app's private sandboxed document directory (FileSystem.documentDirectory)
-// on mobile, and uses localStorage on web.
+// Prefer encrypted storage (SecureStore/Keychain) where available so refresh tokens
+// never touch plaintext files. Falls back through AsyncStorage to the private
+// sandboxed document directory (FileSystem.documentDirectory) so sessions still
+// survive app minimizes, closes, and reboots.
 const memoryStore = new Map<string, string>();
 
 function getStorageFileUri(key: string): string | null {
@@ -24,6 +33,12 @@ export const safeStorage = {
       if (Platform.OS === 'web') {
         if (typeof localStorage !== 'undefined') return localStorage.getItem(key);
         return memoryStore.get(key) ?? null;
+      }
+      if (secureStoreModule) {
+        try {
+          const v = await secureStoreModule.getItemAsync(key);
+          if (v !== null) return v;
+        } catch { }
       }
       if (NativeModules && (NativeModules.RNCAsyncStorage || NativeModules.PlatformLocalStorage)) {
         const AsyncStorage = require('@react-native-async-storage/async-storage').default;
@@ -49,6 +64,11 @@ export const safeStorage = {
         if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
         return;
       }
+      if (secureStoreModule) {
+        try {
+          await secureStoreModule.setItemAsync(key, value);
+        } catch { }
+      }
       if (NativeModules && (NativeModules.RNCAsyncStorage || NativeModules.PlatformLocalStorage)) {
         const AsyncStorage = require('@react-native-async-storage/async-storage').default;
         await AsyncStorage.setItem(key, value);
@@ -65,6 +85,11 @@ export const safeStorage = {
       if (Platform.OS === 'web') {
         if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
         return;
+      }
+      if (secureStoreModule) {
+        try {
+          await secureStoreModule.deleteItemAsync(key);
+        } catch { }
       }
       if (NativeModules && (NativeModules.RNCAsyncStorage || NativeModules.PlatformLocalStorage)) {
         const AsyncStorage = require('@react-native-async-storage/async-storage').default;
@@ -86,21 +111,31 @@ export const safeStorage = {
 const envUrl = (process.env.EXPO_PUBLIC_SUPABASE_URL || '').trim();
 const envKey = (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '').trim();
 
-export const supabaseUrl = envUrl || 'https://zxwzmmbvhwrptycocssy.supabase.co';
-export const supabaseAnonKey = envKey || 'sb_publishable_s9_l2TlUqGX9_oyb986hYg_qkqlEJwz';
+if (!envUrl || !envKey) {
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.warn('[supabase] Missing EXPO_PUBLIC_SUPABASE_URL / ANON_KEY — running without backend');
+  }
+}
+
+export const supabaseUrl = envUrl;
+export const supabaseAnonKey = envKey;
 
 export const isSupabaseConfigured = Boolean(
-  supabaseUrl && supabaseAnonKey && supabaseUrl.startsWith('https://') && !supabaseUrl.includes('placeholder')
+  envUrl && envKey && envUrl.startsWith('https://') && !envUrl.includes('placeholder')
 );
 
-export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    storage: safeStorage,
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: false,
-  },
-});
+export const supabase: SupabaseClient = isSupabaseConfigured
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      storage: safeStorage,
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: false,
+    },
+  })
+  : createClient('https://placeholder.invalid', 'placeholder.invalid', {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 
 // Refresh tokens only while the app is in the foreground (Supabase RN guidance).
 if (Platform.OS !== 'web') {

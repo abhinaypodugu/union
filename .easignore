@@ -3,8 +3,23 @@ node_modules
 dist
 dist-ssr
 web_backup
+*.env*
+*.local
 *.apk
+*.aab
+*.idsig
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
 *.log
 .git
 Design system react native
 Design system setup form
+phone_*.png
+apk_*.png
+running_*.png
+current_screen.png
+union_live.png
+screen_now.png

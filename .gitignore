@@ -27,9 +27,16 @@ web_backup/
 *.sln
 *.sw?
 *.apk
+*.aab
 *.idsig
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
 phone_*.png
 apk_*.png
 running_*.png
 current_screen.png
 union_live.png
+screen_now.png

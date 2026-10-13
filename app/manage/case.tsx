@@ -1,9 +1,11 @@
 import React from 'react';
 import { Linking, Pressable, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import * as DocumentPicker from 'expo-document-picker';
+import type * as DocumentPickerType from 'expo-document-picker';
+let DocumentPicker: typeof DocumentPickerType | null = null;
+try { DocumentPicker = require('expo-document-picker'); } catch {}
 import {
-  AudienceLabel, Avatar, Button, Card, Dialog, DueLabel, EscalationTimeline, Fact, Field, Icon, KeyValue, Notice, Screen,
+  AudienceLabel, Avatar, Button, Card, Dialog, DueLabel, EscalationTimeline, Fact, Field, Icon, KeyValue, LoadingState, Notice, Screen,
   SectionLabel, Sheet, StackHeader, StatusBadge, Tag, TextArea, Txt,
 } from '../../src/components';
 import { Restricted } from '../../src/components/Restricted';
@@ -54,8 +56,7 @@ export default function CaseDetail() {
   React.useEffect(() => { void load(); }, [load, version]);
 
   if (!isHandler) return <Restricted what="Case handling" />;
-  if (c === undefined) return <Screen><StackHeader onBack={() => router.back()} /><Txt style={{ padding: 16 }}>Loading…</Txt></Screen>;
-  if (c === null) return <Screen><StackHeader onBack={() => router.back()} /><View style={{ padding: 16 }}><Notice tone="private" title="Not available">Case not found or outside your scope.</Notice></View></Screen>;
+  if (c === undefined) return <LoadingState subtitle="Loading case…" />;
 
   const committee = committees.find((x) => x.id === c.committeeId);
   const eligible = (committee?.members || []).filter((m) => m.status === 'active' && m.profileId && (!c.confidential || m.role === 'Chair' || m.role === 'Issue handler'));
@@ -82,6 +83,7 @@ export default function CaseDetail() {
   };
 
   const attachInternal = async () => {
+    if (!DocumentPicker) { toast({ title: 'Attachments unavailable', description: 'File picking is not available in this build.' }); return; }
     if (!tenant) return;
     const res = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, type: ['image/*', 'application/pdf'] });
     if (res.canceled) return;

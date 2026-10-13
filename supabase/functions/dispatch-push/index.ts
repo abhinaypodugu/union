@@ -79,7 +79,7 @@ function inQuietHours(prefs: Record<string, unknown> | null, now: Date): Date | 
 
 Deno.serve(async (req) => {
   const secret = Deno.env.get('CRON_SECRET');
-  if (secret && req.headers.get('authorization') !== `Bearer ${secret}`) {
+  if (!secret || req.headers.get('authorization') !== `Bearer ${secret}`) {
     return new Response('Unauthorized', { status: 401 });
   }
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {

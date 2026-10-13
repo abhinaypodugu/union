@@ -61,8 +61,8 @@ export function PostCard(p: PostCardProps) {
         </View>
         <IconButton icon="ellipsis" label="Post options" size="sm" onPress={p.onMore} />
       </View>
-      {title ? <Txt variant="displayS" style={{ marginHorizontal: 16, marginTop: 12 }}>{title}</Txt> : null}
-      {body ? <Txt variant="body" color={palette.ink800} style={{ marginHorizontal: 16, marginTop: 8 }}>{body}</Txt> : null}
+      {title ? <Txt variant="displayS" numberOfLines={2} style={{ marginHorizontal: 16, marginTop: 12, flexShrink: 1 }}>{title}</Txt> : null}
+      {body ? <Txt variant="body" color={palette.ink800} numberOfLines={6} style={{ marginHorizontal: 16, marginTop: 8, flexShrink: 1 }}>{body}</Txt> : null}
       {media ? (
         <View style={{ marginTop: 12, aspectRatio: 4 / 3, backgroundColor: palette.paper150, alignItems: 'center', justifyContent: 'center', borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.borderSubtle }}>
           {isUri ? <Image source={{ uri: media }} style={{ width: '100%', height: '100%' }} resizeMode="cover" /> : <Txt variant="mono" color={palette.ink500}>{media}</Txt>}

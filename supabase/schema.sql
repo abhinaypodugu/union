@@ -511,14 +511,13 @@ CREATE OR REPLACE FUNCTION digits_only(p TEXT) RETURNS TEXT AS $$
   SELECT regexp_replace(coalesce(p, ''), '[^0-9]', '', 'g');
 $$ LANGUAGE sql IMMUTABLE;
 
--- Platform Super Admin: the caller's verified auth phone is in platform_admins.
 CREATE OR REPLACE FUNCTION is_platform_admin() RETURNS BOOLEAN AS $$
   SELECT EXISTS (
     SELECT 1 FROM platform_admins pa
     JOIN auth.users u ON u.id = auth.uid()
     WHERE pa.active
       AND u.phone_confirmed_at IS NOT NULL
-      AND right(digits_only(pa.phone), 10) = right(digits_only(u.phone), 10)
+      AND digits_only(pa.phone) = digits_only(u.phone)
       AND length(digits_only(u.phone)) >= 10
   );
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;

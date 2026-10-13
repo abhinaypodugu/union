@@ -1,36 +1,15 @@
 import React from 'react';
-import { Alert, Platform, Pressable, Share, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { router } from 'expo-router';
-import { Avatar, Button, Card, Field, IconButton, IconTile, PostCard, Screen, ScreenHeader, SegmentedControl, Sheet, Tag, TextArea, Txt } from '../../src/components';
+import { Avatar, Button, Card, Dialog, FeedSkeleton, Field, IconButton, IconTile, PostCard, Screen, ScreenHeader, SegmentedControl, Select, Sheet, Tag, TextArea, Txt } from '../../src/components';
 import { colors } from '../../src/theme';
 import { useStore, Post, AudienceOption } from '../../src/store/AppStore';
 
 const FILTERS = ['For you', 'My groups', 'Announcements'];
 
-/** Options menu that works on native (Alert) and web (confirm/prompt). */
-function chooseAction(title: string, options: Array<{ text: string; onPress: () => void; destructive?: boolean }>) {
-  if (Platform.OS === 'web') {
-    const pick = window.prompt(`${title}\n${options.map((o, i) => `${i + 1}. ${o.text}`).join('\n')}`);
-    const idx = Number(pick) - 1;
-    if (options[idx]) options[idx].onPress();
-    return;
-  }
-  Alert.alert(title, undefined, [...options.map((o) => ({ text: o.text, onPress: o.onPress, style: o.destructive ? 'destructive' as const : 'default' as const })), { text: 'Cancel', style: 'cancel' }]);
-}
-
-function askReason(title: string, onSubmit: (reason: string) => void) {
-  if (Platform.OS === 'web') {
-    const r = window.prompt(title);
-    if (r && r.trim()) onSubmit(r.trim());
-    return;
-  }
-  if (Alert.prompt) Alert.prompt(title, undefined, (r) => r && r.trim() && onSubmit(r.trim()));
-  else onSubmit('Reported from app');
-}
-
 export default function Home() {
   const {
-    liked, toggleLike, posts: storePosts, tenant, activeMember, isLeader, isModerator, refresh,
+    liked, toggleLike, posts: storePosts, tenant, activeMember, tenantLoading, isLeader, isModerator, refresh,
     reportPost, moderatePost, mutedSources, toggleMute, audienceOptions, addPost,
   } = useStore();
   const [filter, setFilter] = React.useState(FILTERS[0]);
@@ -38,6 +17,9 @@ export default function Home() {
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [draft, setDraft] = React.useState('');
   const [target, setTarget] = React.useState<AudienceOption | null>(null);
+  const [actionSheet, setActionSheet] = React.useState<Post | null>(null);
+  const [reasonFor, setReasonFor] = React.useState<{ post: Post; kind: 'report' | 'remove' } | null>(null);
+  const [reasonText, setReasonText] = React.useState('');
 
   const mine = (p: Post) =>
     (p.audience.scope === 'group' && (activeMember?.groups || []).some((g) => g.toLowerCase() === (p.audience.value || '').toLowerCase())) ||
@@ -54,18 +36,17 @@ export default function Home() {
 
   const doRefresh = async () => { setRefreshing(true); await refresh(); setRefreshing(false); };
 
-  const more = (p: Post) => {
-    const opts: Array<{ text: string; onPress: () => void; destructive?: boolean }> = [
-      { text: 'Report post', onPress: () => askReason('Why are you reporting this post?', (r) => void reportPost(p.id, r)) },
-      { text: mutedSources.includes(p.source) ? `Unmute ${p.source}` : `Mute ${p.source}`, onPress: () => toggleMute(p.source) },
-    ];
-    if (isModerator) {
-      opts.push({ text: p.pinned ? 'Unpin' : 'Pin to top', onPress: () => void moderatePost(p.id, p.pinned ? 'unpin' : 'pin') });
-      opts.push({ text: 'Remove post', destructive: true, onPress: () => askReason('Reason for removal', (r) => void moderatePost(p.id, 'remove', r)) });
-    } else if (p.authorId === activeMember?.id) {
-      opts.push({ text: 'Delete my post', destructive: true, onPress: () => void moderatePost(p.id, 'remove', 'Removed by author') });
-    }
-    chooseAction('Post options', opts);
+  const openReason = (post: Post, kind: 'report' | 'remove') => {
+    setActionSheet(null);
+    setReasonText('');
+    setReasonFor({ post, kind });
+  };
+  const confirmReason = () => {
+    if (!reasonFor || !reasonText.trim()) return;
+    if (reasonFor.kind === 'report') void reportPost(reasonFor.post.id, reasonText.trim());
+    else void moderatePost(reasonFor.post.id, 'remove', reasonText.trim());
+    setReasonFor(null);
+    setReasonText('');
   };
 
   const canCompose = tenant?.settings?.memberPosts !== false && audienceOptions.member.length > 0;
@@ -92,63 +73,69 @@ export default function Home() {
           <Pressable onPress={() => { setTarget(audienceOptions.member[0]); setComposeOpen(true); }}>
             <Card style={{ padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <Avatar name={activeMember?.name || 'User'} size={32} />
-              <Txt variant="body" color={colors.textMuted}>Share with your groups…</Txt>
+              <Txt variant="body" color={colors.textMuted}>Share an update with your group…</Txt>
             </Card>
           </Pressable>
         ) : null}
-        {posts.length === 0 ? (
-          <Card style={{ padding: 24, marginHorizontal: 4, alignItems: 'center', gap: 10 }}>
-            <IconTile icon="megaphone" tone="committee" />
+
+        {tenantLoading && posts.length === 0 ? (
+          <FeedSkeleton />
+        ) : posts.length === 0 ? (
+          <Card style={{ padding: 28, alignItems: 'center', gap: 10 }}>
+            <IconTile icon="inbox" tone="group" />
             <Txt variant="titleM" align="center">Nothing here yet</Txt>
             <Txt variant="bodyS" color={colors.textSecondary} align="center">
-              Official notices and posts from your groups will appear here.
+              Posts from your organization, group and committees will appear here.
             </Txt>
-            {isLeader && (
-              <Button size="sm" icon="megaphone" onPress={() => router.push('/manage/announce')}>
-                Publish an announcement
-              </Button>
-            )}
           </Card>
-        ) : (
-          <>
-            {posts.map((p) => (
-              <PostCard
-                key={p.id}
-                kind={p.kind}
-                pinned={p.pinned}
-                author={p.author}
-                source={p.source}
-                time={p.time}
-                title={p.title}
-                body={p.body}
-                audience={{ scope: p.audience.scope, label: p.audience.label }}
-                liked={!!liked[p.id]}
-                likes={p.likes}
-                comments={p.comments}
-                onLike={() => toggleLike(p.id)}
-                onComment={() => router.push(('/post?id=' + encodeURIComponent(p.id)) as never)}
-                onShare={() => Share.share({ message: (p.title ? p.title + ' — ' : '') + p.body })}
-                onMore={() => more(p)}
-              />
-            ))}
-            <Txt variant="bodyS" color={colors.textMuted} align="center" style={{ paddingVertical: 8 }}>You’re all caught up · newest first</Txt>
-          </>
-        )}
+        ) : posts.map((p) => (
+          <PostCard key={p.id} kind={p.kind} pinned={p.pinned} author={p.author} source={p.source} time={p.time}
+            title={p.title} body={p.body} audience={{ scope: p.audience.scope, label: p.audience.label }}
+            liked={!!liked[p.id]} likes={p.likes} comments={p.comments}
+            onLike={() => toggleLike(p.id)}
+            onComment={() => router.push(('/post?id=' + encodeURIComponent(p.id)) as never)}
+            onMore={() => setActionSheet(p)} />
+        ))}
       </View>
 
+      <Sheet visible={!!actionSheet} onClose={() => setActionSheet(null)} title="Post options">
+        <View style={{ gap: 8, paddingHorizontal: 16, paddingBottom: 16 }}>
+          {actionSheet ? (<>
+            <Button variant="secondary" block onPress={() => openReason(actionSheet, 'report')}>Report post</Button>
+            <Button variant="secondary" block onPress={() => { const p = actionSheet; setActionSheet(null); toggleMute(p.source); }}>
+              {mutedSources.includes(actionSheet.source) ? `Unmute ${actionSheet.source}` : `Mute ${actionSheet.source}`}
+            </Button>
+            {isModerator ? (<>
+              <Button variant="secondary" block onPress={() => { const p = actionSheet; setActionSheet(null); void moderatePost(p.id, p.pinned ? 'unpin' : 'pin'); }}>
+                {actionSheet.pinned ? 'Unpin' : 'Pin to top'}
+              </Button>
+              <Button variant="secondary" block onPress={() => openReason(actionSheet, 'remove')}>Remove post</Button>
+            </>) : null}
+            {!isModerator && actionSheet.authorId === activeMember?.id ? (
+              <Button variant="secondary" block onPress={() => { const p = actionSheet; setActionSheet(null); void moderatePost(p.id, 'remove', 'Removed by author'); }}>Delete my post</Button>
+            ) : null}
+            <Button variant="ghost" block onPress={() => setActionSheet(null)}>Cancel</Button>
+          </>) : null}
+        </View>
+      </Sheet>
+
+      <Dialog visible={!!reasonFor} onClose={() => setReasonFor(null)} title={reasonFor?.kind === 'report' ? 'Why are you reporting this post?' : 'Reason for removal'} description={reasonFor?.kind === 'report' ? 'This reason is visible to moderators.' : 'Visible in the moderation record.'}
+        actions={<><Button variant="secondary" onPress={() => setReasonFor(null)}>Cancel</Button><Button disabled={!reasonText.trim()} onPress={confirmReason}>Confirm</Button></>}>
+        <Field label="Reason" required><TextArea value={reasonText} onChangeText={setReasonText} placeholder="Enter reason…" autoFocus /></Field>
+      </Dialog>
+
       <Sheet visible={composeOpen} onClose={() => setComposeOpen(false)} title="New post">
-        <View style={{ paddingHorizontal: 16, gap: 12, paddingBottom: 16 }}>
-          <Field label="Post to">
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-              {audienceOptions.member.map((o) => (
-                <Tag key={o.scope + (o.value || '')} selected={target?.label === o.label} onPress={() => setTarget(o)}>{o.label}</Tag>
-              ))}
-            </View>
+        <View style={{ gap: 14, paddingHorizontal: 16, paddingBottom: 16 }}>
+          <Field label="Audience" required hint="Only members of this audience will see your post">
+            <Select label="Audience" value={target?.label || ''} onChange={(v) => setTarget(audienceOptions.member.find((o) => o.label === v) || null)} options={audienceOptions.member.map((o) => o.label)} />
           </Field>
-          <Field label="Message" required>
-            <TextArea value={draft} onChangeText={setDraft} placeholder="What would you like to share?" />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+            {audienceOptions.member.map((o) => <Tag key={o.label} selected={target?.label === o.label} onPress={() => setTarget(o)}>{o.label}</Tag>)}
+          </View>
+          <Field label="What would you like to share?" required>
+            <TextArea value={draft} onChangeText={setDraft} placeholder="Write a post for your group…" />
           </Field>
-          <Button block icon="send" disabled={!draft.trim() || !target} onPress={publishDraft}>Post</Button>
+          <Button size="lg" block icon="send" disabled={!draft.trim() || !target} onPress={publishDraft}>Publish</Button>
         </View>
       </Sheet>
     </Screen>

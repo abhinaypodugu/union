@@ -693,15 +693,33 @@ Initial targets to validate:
 - Complaint creation and assignment should provide prompt confirmation.
 - Time-based escalation should execute within the configured tolerance.
 - Performance targets must be verified through load testing.
+- Interactive overlays (toasts, sheets, dialogs, tooltips) must use native-driven animation and dismiss on scrim/back.
+- Home-feed empty check: `tenantLoading` drives a skeleton, not the final empty card.
 
-### 14.4 Accessibility and Usability
-- Responsive web interface for desktop and mobile.
+### 14.4 Onboarding & Routing (added 2026-10-14)
+- Onboarding is a short wizard with **1–2 questions per screen**; replace flaky `1.` / `2a.` / `2b.` numbering with plain labels and a filling **progress bar** (`value/total`, 4px height, accent `#1E40AF` fill, track `paper200`) as user advances. 3 steps for admin, 3 for member; `admin_share` shows full bar.
+- No placeholder examples under fields unless the format is non-obvious (e.g. a code pattern); question copy is intuitive on its own. Use a small **"i" info button** (`20dp` circle, `1px` border `borderDefault`/`accent` on press, `bgSunken`/`accentSoft` fill, popover `accentSoft` / `accentSoftBorder` with `radius.m` and `bodyS` body) at the right of each label for explanations — progressive disclosure, not hint spam.
+- **Back is top-left** (`IconButton chevron-left size=md`) on every wizard step including `Welcome → phone` and `Verify` (subtitle shows `normalizedPhone`); the secondary "Change number" row is removed — header is the single navigation affordance, as on standard apps.
+- **Keyboard must never cover the focused field.** `KeyboardAvoidingView` (`ios: padding`, `android: height`, `keyboardVerticalOffset = insets.top + 8` via `useSafeAreaInsets`) + `ScrollView automaticallyAdjustKeyboardInsets + keyboardDismissMode="interactive" + keyboardShouldPersistTaps="handled"` + safe-area + bottom padding `max(insets.bottom, 16) + 24` is the standard iOS/Android pattern and must be audited on every input-bearing screen. Registered onboarding location fields (`Headquarters city` / city, state) lift fluidly with this stack. `Field` + `Input` keep `control.sm/md` height, focus ring `shadow.focus`, and `editable` sunken variant.
+- City/State autofill: `expo-location` (`requestForegroundPermissionsAsync` → `getCurrentPositionAsync(Balanced)` → `reverseGeocodeAsync` → `city/subregion/district` + `region`) proposes into the city/state `Input`s with a **"Use my location"** ghost `ghost map-pin` button (`locBusy → "Locating…"`) above the fields; fallback is manual typing. Country defaults to **India**; permission denied shows a `toast` and keeps manual flow. Native module is guarded (`try require('expo-location')`) so a base APK without it does not crash (JS null-ops).
+- **Loader gate to kill admin/member flash.** After OTP, hold `pendingPhone: string | null` + branded `LoadingState` (`pulse 700ms easeInOut + shimmer 1400ms linear, shield-check 30dp in 72dp rounded 18 track, scale 1→1.08, shimmer translateX -40→88`) with subtitle "Signing you in…" until Supabase `verifyOtp(normalizedPhone||phoneInput, otp)` + `is_platform_admin()` resolves; branch render is: `!authReady → LoadingState` → `pendingPhone→LoadingState` → `signedIn && activeMember && !admin_share → Redirect /main` → wizard. Do not render either wizard in the `pendingPhone` gap and do not route via `member_q1 → admin_q1`.
+- Phone number never overflows the header: mono `UNION` pill + titles use `numberOfLines={1}` truncation; wizard headers carry phone as subtitle with truncation.
+- `TenantLoading` skeleton gate on Home: `AppStore.tenantLoading` around `loadTenant` (10-way `Promise.allSettled`) drives `FeedSkeleton` (`3× PostCardSkeleton` with `SkeletonBlock` shimmer `paper100→paper200`, `1100ms linear loop, translateX -80→260`) when `tenantLoading && posts.length===0`; otherwise empty `Card ("Nothing here yet")` or `PostCard` list. Prevents the post-login empty-feed flash.
+
+### 14.5 Design System
+- **Primitives:** `Button (primary/secondary/ghost/danger/inverse, sm/md/lg, 44dp tap target)`, `Card (radius.l, borderSubtle, shadow.card)`, `Field (gap 6, label ink800 + red * + inline error circle-alert / hint bodyS muted)`, `Input (h sm32/md40, radius s/m, borderDefault→Focus→redSolid invalid, bgSunken when not editable, placeholder ink400, selection accent)`, `Badge, Tag, Sheet, Dialog, Toast`.
+- **Feedback surfaces:** `LoadingState` (branded pulse+shimmer), `FeedSkeleton`/`PostCardSkeleton`/`SkeletonBlock` shimmer skeletons — shared animation tokens (`Easing` with `useNativeDriver:true`, translateX shimmer, scale pulse).
+- **Motion:** all sheets/dialogs/tooltips/notifications use native animation tokens (`motion.slow 320ms`, `Easing.bezier(0.2,0.7,0.2,1)` in sheets, spring-free loops in loaders) and remain fluid during keyboard and navigation transitions; loaders are `useNativeDriver:true` and do not jank.
+- **Tokens (src/theme/tokens.ts — sRGB from oklch):** `palette` (`paper0/50/100/150/200/300`, `ink400–900`, `blue50–800 #1E40AF`, `red/amber/green/violet` triples), `colors` (`bgApp paper50, bgSunken paper100, surfaceCard paper0, surfaceHover paper100, textPrimary ink900 → textMuted ink500, accent blue600, borderSubtle paper200, etc`), `space / radius / control / shadow (card/raised/popover/sheet/focus) / motion (fast120/base200/slow320)` — single source of truth for every screen.
+
+### 14.6 Accessibility and Usability
+- Responsive mobile interface on Android/iOS via Expo.
 - Clear distinction between public/ordinary group posts, official announcements, private committee content, and complaints.
 - Accessible navigation, readable typography, and clear status indicators.
 - Support localization and multiple languages as needed.
 - Provide understandable permission and privacy messaging.
 
-### 14.5 Observability
+### 14.7 Observability
 - Application logs, metrics, error tracking, and health checks.
 - Monitoring for failed notifications, stuck escalations, and workflow errors.
 - Operational alerts without leaking sensitive complaint data.
@@ -709,9 +727,6 @@ Initial targets to validate:
 ---
 
 ## 15. Suggested Technical Direction
-
-The stack is a recommendation to validate during a short technical spike, not a hard product requirement. Optimize for MVP speed, low operational overhead, secure tenant isolation, and a path to scale.
-
 ### 15.1 Recommended MVP Stack
 
 - **Android/iOS:** React Native + Expo + TypeScript.

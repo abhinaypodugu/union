@@ -1,9 +1,9 @@
 import React from 'react';
-import { Platform, Alert, View } from 'react-native';
+import { View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
-  Avatar, Badge, Button, Card, Checkbox, CommitteeBadge, Field, IconButton, Input, ListCard, ListRow, Notice, Radio,
-  Screen, SectionLabel, Select, Sheet, StackHeader, Tag, Txt, IconTile,
+  Avatar, Badge, Button, Card, Checkbox, CommitteeBadge, Dialog, Field, IconButton, Input, ListCard, ListRow, Notice, Radio,
+  Screen, SectionLabel, Select, Sheet, StackHeader, Tag, TextArea, Txt, IconTile,
 } from '../../src/components';
 import { colors, fonts } from '../../src/theme';
 import { useStore, AppointmentStatus, CommitteeInfo, CommitteeMember } from '../../src/store/AppStore';
@@ -14,11 +14,6 @@ const STATUS: Record<AppointmentStatus, ['success' | 'warning' | 'neutral' | 'da
 };
 const GENERAL = 'General (cross-functional)';
 const NONE = 'Organization-wide';
-
-function askReason(title: string, onSubmit: (r: string) => void) {
-  if (Platform.OS === 'web') { const r = window.prompt(title); if (r && r.trim()) onSubmit(r.trim()); return; }
-  if (Alert.prompt) Alert.prompt(title, undefined, (r) => r && r.trim() && onSubmit(r.trim()));
-}
 
 const blankForm = { id: '', name: '', scope: '', level: 1 as 1 | 2 | 3, group: GENERAL, geo: NONE, escalatesTo: 'Next level (automatic)', method: 'Appointment', term: '', responseHours: '48', resolutionHours: '336' };
 
@@ -40,6 +35,9 @@ export default function Committee() {
   const [overrideReason, setOverrideReason] = React.useState('');
   const [termEnd, setTermEnd] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const [reasonFor, setReasonFor] = React.useState<{ m: CommitteeMember; action: 'suspend' | 'reinstate' | 'revoke' | 'replace' | 'expire' } | null>(null);
+  const [reasonText, setReasonText] = React.useState('');
+  const [manageFor, setManageFor] = React.useState<CommitteeMember | null>(null);
 
   const canAdmin = isOrgAdmin || isPlatformSuperAdmin;
   const C = committees.find((c) => c.id === selectedId) || null;
@@ -88,19 +86,10 @@ export default function Committee() {
     if (ok) { setAddOpen(false); setPick(null); setOverride(false); setOverrideReason(''); setTermEnd(''); setSearch(''); }
   };
 
-  const manage = (m: CommitteeMember) => {
-    const actions: Array<[string, 'suspend' | 'reinstate' | 'revoke' | 'replace' | 'expire']> = [];
-    if (m.status === 'active') actions.push(['Suspend', 'suspend'], ['Mark replaced', 'replace'], ['End term (expire)', 'expire'], ['Revoke', 'revoke']);
-    if (m.status === 'suspended') actions.push(['Reinstate', 'reinstate'], ['Revoke', 'revoke']);
-    if (m.status === 'pending') actions.push(['Reject nomination', 'revoke']);
-    const go = (a: typeof actions[number][1]) => askReason(`Reason to ${a} ${m.name}`, (r) => void setAppointmentStatus(m.id, a, r));
-    if (Platform.OS === 'web') {
-      const choice = window.prompt(actions.map(([l], i) => `${i + 1}. ${l}`).join('\n'));
-      const a = actions[Number(choice) - 1];
-      if (a) go(a[1]);
-      return;
-    }
-    Alert.alert(m.name, `${m.role} · ${STATUS[m.status][1]}`, [...actions.map(([l, a]) => ({ text: l, onPress: () => go(a) })), { text: 'Cancel', style: 'cancel' as const }]);
+  const confirmStatus = () => {
+    if (!reasonFor || !reasonText.trim()) return;
+    void setAppointmentStatus(reasonFor.m.id, reasonFor.action, reasonText.trim());
+    setReasonFor(null); setReasonText(''); setManageFor(null);
   };
 
   // ------------------------------------------------------------ list view
@@ -140,6 +129,12 @@ export default function Committee() {
     .filter((p) => !search.trim() || `${p.name} ${p.memberId} ${p.unit}`.toLowerCase().includes(search.trim().toLowerCase()))
     .slice(0, 30);
   const escalatesTo = committees.find((x) => x.id === C.escalatesToId);
+  const manageActions = (m: CommitteeMember): Array<[string, 'suspend' | 'reinstate' | 'revoke' | 'replace' | 'expire']> => {
+    if (m.status === 'active') return [['Suspend', 'suspend'], ['Mark replaced', 'replace'], ['End term (expire)', 'expire'], ['Revoke', 'revoke']];
+    if (m.status === 'suspended') return [['Reinstate', 'reinstate'], ['Revoke', 'revoke']];
+    if (m.status === 'pending') return [['Reject nomination', 'revoke']];
+    return [];
+  };
 
   return (
     <Screen>
@@ -169,7 +164,7 @@ export default function Committee() {
               {m.statusReason ? <Txt variant="bodyS" color={colors.textMuted}>{'Reason: ' + m.statusReason}</Txt> : null}
             </View>
             {canAdmin && m.status === 'pending' ? <Button size="sm" variant="secondary" onPress={() => void setAppointmentStatus(m.id, 'approve')}>Approve</Button> : null}
-            {canAdmin && ['active', 'suspended', 'pending'].includes(m.status) ? <IconButton size="sm" icon="ellipsis" label={'Manage ' + m.name} onPress={() => manage(m)} /> : null}
+            {canAdmin && ['active', 'suspended', 'pending'].includes(m.status) ? <IconButton size="sm" icon="ellipsis" label={'Manage ' + m.name} onPress={() => setManageFor(m)} /> : null}
           </View>
         ))}
       </ListCard>
@@ -201,6 +196,23 @@ export default function Committee() {
           </Card>
         </>
       ) : null}
+
+      <Sheet visible={!!manageFor} onClose={() => setManageFor(null)} title={manageFor ? `Manage · ${manageFor.name}` : 'Manage'}>
+        <View style={{ gap: 8, paddingHorizontal: 16, paddingBottom: 16 }}>
+          {manageFor ? manageActions(manageFor).map(([label, action]) => (
+            <Button key={action} variant="secondary" block onPress={() => {
+              if (['reinstate'].includes(action)) { void setAppointmentStatus(manageFor.id, action); setManageFor(null); }
+              else { setReasonText(manageFor.statusReason || ''); setReasonFor({ m: manageFor, action }); }
+            }}>{label}</Button>
+          )) : null}
+          <Button variant="ghost" block onPress={() => setManageFor(null)}>Cancel</Button>
+        </View>
+      </Sheet>
+
+      <Dialog visible={!!reasonFor} onClose={() => setReasonFor(null)} title={reasonFor ? `${reasonFor.action[0].toUpperCase()}${reasonFor.action.slice(1)} — reason required` : ''} description={reasonFor ? `Provide a reason for ${reasonFor.action} ${reasonFor.m.name}.` : undefined}
+        actions={<><Button variant="secondary" onPress={() => setReasonFor(null)}>Cancel</Button><Button disabled={!reasonText.trim()} onPress={confirmStatus}>Confirm</Button></>}>
+        <Field label="Reason" required><TextArea value={reasonText} onChangeText={setReasonText} placeholder="Enter reason…" autoFocus /></Field>
+      </Dialog>
 
       <Sheet visible={addOpen} onClose={() => setAddOpen(false)} title="Add committee member">
         <View style={{ gap: 14, paddingHorizontal: 16, paddingBottom: 8 }}>

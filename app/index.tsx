@@ -1,20 +1,24 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, ScrollView, KeyboardAvoidingView, Platform, Pressable, Share } from 'react-native';
 import { Redirect, router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Button,
   Card,
   Field,
+  Icon,
+  IconButton,
+  IconTile,
   Input,
+  LoadingState,
   Notice,
   Screen,
   Txt,
-  Badge,
-  Icon,
-  IconTile,
 } from '../src/components';
-import { colors, palette } from '../src/theme';
+import { supabase } from '../src/services/supabase';
+import { colors, palette, radius } from '../src/theme';
 import { useStore, Tenant } from '../src/store/AppStore';
+import { autofillFromDevice } from '../src/lib/location';
 
 type OnboardingStep =
   | 'phone'
@@ -26,6 +30,45 @@ type OnboardingStep =
   | 'member_q1'
   | 'member_q2'
   | 'member_q3';
+
+function ProgressBar({ value, total }: { value: number; total: number }) {
+  const pct = Math.round((value / total) * 100);
+  return (
+    <View style={{ height: 4, borderRadius: 999, backgroundColor: palette.paper200, overflow: 'hidden' }}>
+      <View style={{ width: `${pct}%`, height: '100%', backgroundColor: colors.accent, borderRadius: 999 }} />
+    </View>
+  );
+}
+
+function BackHeader({ onBack, title, subtitle }: { onBack: () => void; title?: string; subtitle?: string }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 8, paddingBottom: 4 }}>
+      <IconButton icon="chevron-left" label="Back" size="md" onPress={onBack} />
+      {(title || subtitle) ? (
+        <View style={{ flex: 1, gap: 2 }}>
+          {title ? <Txt variant="titleS" numberOfLines={1}>{title}</Txt> : null}
+          {subtitle ? <Txt variant="bodyS" color={colors.textMuted} numberOfLines={1}>{subtitle}</Txt> : null}
+        </View>
+      ) : <View style={{ flex: 1 }} />}
+    </View>
+  );
+}
+
+const ADMIN_TOTAL = 3;
+const MEMBER_TOTAL = 3;
+function adminProgress(step: OnboardingStep) {
+  if (step === 'admin_q1') return 1;
+  if (step === 'admin_q2') return 2;
+  if (step === 'admin_q3') return 3;
+  if (step === 'admin_share') return 3;
+  return 0;
+}
+function memberProgress(step: OnboardingStep) {
+  if (step === 'member_q1') return 1;
+  if (step === 'member_q2') return 2;
+  if (step === 'member_q3') return 3;
+  return 0;
+}
 
 export default function Index() {
   const {
@@ -45,13 +88,18 @@ export default function Index() {
 
   const [step, setStep] = useState<OnboardingStep>('phone');
   const [busy, setBusy] = useState(false);
+  const [locBusy, setLocBusy] = useState(false);
 
   // Step 1 & 2: Phone + OTP State
   const [phoneInput, setPhoneInput] = useState('');
   const [normalizedPhone, setNormalizedPhone] = useState('');
   const [otpInput, setOtpInput] = useState('');
+  const scrollRef = useRef<ScrollView>(null);
+  const insets = useSafeAreaInsets();
+  const [pendingPhone, setPendingPhone] = useState<string | null>(null);
+  const isPending = pendingPhone !== null;
 
-  // Admin Wizard State (1–2 questions per screen)
+  // Admin Wizard State
   const [orgName, setOrgName] = useState('');
   const [orgCode, setOrgCode] = useState('');
   const [orgDesc, setOrgDesc] = useState('');
@@ -63,7 +111,7 @@ export default function Index() {
   const [adminRegion, setAdminRegion] = useState('');
   const [createdTenant, setCreatedTenant] = useState<Tenant | null>(null);
 
-  // Member Wizard State (1–2 questions per screen)
+  // Member Wizard State
   const [joinOrgCode, setJoinOrgCode] = useState('');
   const [matchedOrg, setMatchedOrg] = useState<Tenant | null>(null);
   const [memberName, setMemberName] = useState('');
@@ -71,29 +119,29 @@ export default function Index() {
   const [memberUnit, setMemberUnit] = useState('');
   const [memberRegion, setMemberRegion] = useState('');
   const [memberGroup, setMemberGroup] = useState('');
+  // ── Loader gate: never render a wizard until the server truth is known.
+  // While Supabase is verifying phone + checking platform_admins, show a branded loader
+  // instead of flashing member_q1 briefly before correcting to admin_q1.
+  // This early return is placed AFTER all useState declarations and the effect below
+  // (violating that order triggers "Rendered fewer hooks" on native).
 
-  // A restored session with no membership yet continues onboarding where it left off.
+  // A restored session with no membership yet continues onboarding where it left off
+  // — but only after authReady, never while pendingPhone resolves.
   React.useEffect(() => {
     if (authReady && signedIn && memberships.length === 0 && (step === 'phone' || step === 'otp')) {
       setStep(isPlatformSuperAdmin ? 'admin_q1' : 'member_q1');
     }
   }, [authReady, signedIn, memberships.length, isPlatformSuperAdmin, step]);
 
-  if (!authReady) {
-    return (
-      <Screen>
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
-          <Txt variant="body" color={colors.textSecondary}>Loading…</Txt>
-        </View>
-      </Screen>
-    );
+  // Render gate — must be the last thing before handlers so all hooks have run.
+  if (isPending || !authReady) {
+    return <LoadingState title="Union" subtitle="Signing you in…" />;
   }
 
   // Signed in with a membership: the main layout decides (pending / verified).
   if (signedIn && activeMember && step !== 'admin_share') {
     return <Redirect href="/main" />;
   }
-
   const handleSendOtp = async () => {
     if (!phoneInput.trim() || busy) return;
     setBusy(true);
@@ -111,11 +159,12 @@ export default function Index() {
 
   const handleVerifyOtp = async () => {
     if (!otpInput.trim() || busy) return;
+    const phone = normalizedPhone || phoneInput.trim();
+    // Hold a loader gate so neither member_q1 nor admin_q1 flashes before the answer arrives.
+    setPendingPhone(phone);
     setBusy(true);
     try {
-      // Supabase Auth verifies the SMS code server-side; admin status comes from the
-      // server (platform_admins), never from anything typed into the app.
-      const res = await verifyOtp(normalizedPhone || phoneInput.trim(), otpInput.trim());
+      const res = await verifyOtp(phone, otpInput.trim());
       if (!res.ok) return;
       if (res.memberships.length > 0) {
         router.replace('/main');
@@ -123,6 +172,7 @@ export default function Index() {
       }
       setStep(res.isPlatformAdmin ? 'admin_q1' : 'member_q1');
     } finally {
+      setPendingPhone(null);
       setBusy(false);
     }
   };
@@ -192,7 +242,6 @@ export default function Index() {
         group: memberGroup.trim(),
         orgCode: matchedOrg.code,
       });
-      // Pending applicants land on the "awaiting approval" screen via the main layout gate.
       if (saved) router.replace('/main');
     } finally {
       setBusy(false);
@@ -207,15 +256,83 @@ export default function Index() {
     });
   };
 
+  const useMyLocationForAdmin = async () => {
+    setLocBusy(true);
+    try {
+      const loc = await autofillFromDevice();
+      if (!loc) {
+        toast({ title: 'Location unavailable', description: 'Please enter city and state manually, or allow location access.' });
+        return;
+      }
+      if (loc.city) setAdminUnit(loc.city);
+      if (loc.state) setAdminRegion(loc.state);
+    } catch {
+      toast({ title: 'Location unavailable', description: 'Please enter city and state manually, or allow location access.' });
+    } finally {
+      setLocBusy(false);
+    }
+  };
+
+  const useMyLocationForMember = async () => {
+    setLocBusy(true);
+    try {
+      const loc = await autofillFromDevice();
+      if (!loc) {
+        toast({ title: 'Location unavailable', description: 'Please enter city and state manually, or allow location access.' });
+        return;
+      }
+      if (loc.city) setMemberUnit(loc.city);
+      if (loc.state) setMemberRegion(loc.state);
+    } catch {
+      toast({ title: 'Location unavailable', description: 'Please enter city and state manually, or allow location access.' });
+    } finally {
+      setLocBusy(false);
+    }
+  };
+
+  const isWizard = step !== 'phone' && step !== 'otp';
+  const backFor = (): (() => void) | null => {
+    if (step === 'otp') return () => setStep('phone');
+    if (step === 'admin_q1') return () => setStep('phone');
+    if (step === 'admin_q2') return () => setStep('admin_q1');
+    if (step === 'admin_q3') return () => setStep('admin_q2');
+    if (step === 'admin_share') return null;
+    if (step === 'member_q1') return () => setStep('phone');
+    if (step === 'member_q2') return () => setStep('member_q1');
+    if (step === 'member_q3') return () => setStep('member_q2');
+    return null;
+  };
+  const backFn = backFor();
+
   return (
     <Screen>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 8 : 0}
         style={{ flex: 1 }}
       >
-        <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 42, gap: 18 }}>
-          {/* Brand Header */}
-          <View style={{ alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <ScrollView
+          ref={scrollRef}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          automaticallyAdjustKeyboardInsets
+          contentContainerStyle={{ padding: 20, paddingTop: 12, paddingBottom: Math.max(insets.bottom, 16) + 24, gap: 14 }}
+        >
+          {/* Back chevron — replaces Change number on Welcome; always where users expect it */}
+          {backFn ? (
+            <BackHeader
+              onBack={backFn}
+              title={
+                step === 'otp' ? 'Verify your number'
+                  : step.startsWith('admin_') ? 'Organization Setup'
+                    : 'Member Setup'
+              }
+              subtitle={step === 'otp' ? normalizedPhone : undefined}
+            />
+          ) : null}
+
+          {/* Brand Header — phone never overflows: mono text truncates + numberOfLines=1 */}
+          <View style={{ alignItems: 'center', gap: 8, marginBottom: 2 }}>
             <View
               style={{
                 flexDirection: 'row',
@@ -228,11 +345,7 @@ export default function Index() {
               }}
             >
               <Icon name="shield-check" size={16} color={colors.accent} />
-              <Txt
-                variant="mono"
-                style={{ fontSize: 11, fontWeight: '700' }}
-                color={colors.textSecondary}
-              >
+              <Txt variant="mono" style={{ fontSize: 11, fontWeight: '700' }} color={colors.textSecondary}>
                 UNION
               </Txt>
             </View>
@@ -248,16 +361,24 @@ export default function Index() {
               {step === 'phone'
                 ? 'Verify your mobile number to sign in or set up your membership.'
                 : step === 'otp'
-                  ? `Enter the 6-digit verification code for ${normalizedPhone}`
+                  ? `Enter the 6-digit code sent to ${normalizedPhone}`
                   : step === 'admin_share'
                     ? 'Share this code with members so they can join your organization.'
                     : step.startsWith('admin_')
-                      ? 'Founding administrator wizard · 2 questions per step'
-                      : 'Complete a few quick questions to join your organization.'}
+                      ? 'A few quick details to launch your organization.'
+                      : 'A few quick details to join your organization.'}
             </Txt>
           </View>
 
-          {/* STEP 1: MOBILE NUMBER ENTRY ONLY */}
+          {/* Progress bar — replaces Step X of 3 badge */}
+          {step.startsWith('admin_') && step !== 'admin_share' ? (
+            <ProgressBar value={adminProgress(step)} total={ADMIN_TOTAL} />
+          ) : null}
+          {step.startsWith('member_') ? (
+            <ProgressBar value={memberProgress(step)} total={MEMBER_TOTAL} />
+          ) : null}
+
+          {/* STEP: MOBILE NUMBER ENTRY */}
           {step === 'phone' && (
             <Card style={{ padding: 20, gap: 16 }}>
               <Field label="Mobile number" required>
@@ -276,13 +397,7 @@ export default function Index() {
                 </Notice>
               )}
 
-              <Button
-                size="lg"
-                block
-                icon="shield-check"
-                disabled={phoneInput.replace(/[^0-9]/g, '').length < 10 || busy}
-                onPress={handleSendOtp}
-              >
+              <Button size="lg" block icon="shield-check" disabled={phoneInput.replace(/[^0-9]/g, '').length < 10 || busy} onPress={handleSendOtp}>
                 {busy ? 'Sending code…' : 'Send verification code'}
               </Button>
 
@@ -292,244 +407,125 @@ export default function Index() {
             </Card>
           )}
 
-          {/* STEP 2: OTP VERIFICATION */}
+          {/* STEP: OTP VERIFICATION — no Change number link; Back header handles it */}
           {step === 'otp' && (
             <Card style={{ padding: 20, gap: 16 }}>
               <Field label="6-digit verification code" required>
-                <Input
-                  value={otpInput}
-                  onChangeText={setOtpInput}
-                  placeholder="6-digit code"
-                  keyboardType="number-pad"
-                  maxLength={6}
-                />
+                <Input value={otpInput} onChangeText={setOtpInput} placeholder="6-digit code" keyboardType="number-pad" maxLength={6} />
               </Field>
 
-              <Button
-                size="lg"
-                block
-                icon="check"
-                disabled={otpInput.trim().length < 6 || busy}
-                onPress={handleVerifyOtp}
-              >
+              <Button size="lg" block icon="check" disabled={otpInput.trim().length < 6 || busy} onPress={handleVerifyOtp}>
                 {busy ? 'Verifying…' : 'Verify & continue'}
               </Button>
 
-              <View
-                style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  paddingTop: 4,
-                }}
-              >
-                <Pressable onPress={() => setStep('phone')}>
-                  <Txt variant="bodyS" color={colors.accent}>
-                    Change mobile number
-                  </Txt>
-                </Pressable>
-                <Pressable onPress={handleSendOtp}>
-                  <Txt variant="bodyS" color={colors.textSecondary}>
-                    Resend code
-                  </Txt>
-                </Pressable>
-              </View>
+              <Button variant="ghost" size="sm" icon="refresh-cw" disabled={busy} onPress={handleSendOtp} block>
+                Resend code
+              </Button>
             </Card>
           )}
 
-          {/* ADMIN WIZARD STEP 1 OF 3 (2 Questions: Org Name & Org Code) */}
+          {/* ADMIN Q1 — 2 clean questions; code auto-fills initials; info tips */}
           {step === 'admin_q1' && (
             <Card style={{ padding: 20, gap: 16 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Badge tone="info" dot>
-                  Admin Setup · Step 1 of 3
-                </Badge>
-                <Txt variant="mono" color={colors.textMuted}>
-                  {normalizedPhone}
-                </Txt>
-              </View>
-
               <Txt variant="titleM">Name your organization & choose its code</Txt>
 
-              <Field
-                label="1. What is your organization’s official name?"
-                required
-                hint="e.g. National Healthcare Workers Union"
-              >
+              <Field label="Organization name" required infoText="Official name shown across the app and member invites.">
                 <Input
                   value={orgName}
                   onChangeText={(val) => {
                     setOrgName(val);
                     if (!orgCode && val.trim().length >= 3) {
-                      const initials = val
-                        .trim()
-                        .split(/\s+/)
-                        .map((w) => w[0])
-                        .join('')
-                        .toUpperCase()
-                        .slice(0, 6);
+                      const initials = val.trim().split(/\s+/).map((w) => w[0]).join('').toUpperCase().slice(0, 6);
                       if (initials.length >= 2) setOrgCode(initials);
                     }
                   }}
-                  placeholder="Enter official organization name"
+                  placeholder="National Healthcare Workers Union"
                 />
               </Field>
 
-              <Field
-                label="2. Choose a unique Organization Code"
-                required
-                hint="Members will enter this code after OTP login to join your organization."
-              >
-                <Input
-                  value={orgCode}
-                  onChangeText={(t) => setOrgCode(t.toUpperCase())}
-                  placeholder="e.g. NHWU"
-                  autoCapitalize="characters"
-                />
+              <Field label="Organization Code" required infoText="Short code members enter after OTP to join this organization. Must be unique.">
+                <Input value={orgCode} onChangeText={(t) => setOrgCode(t.toUpperCase())} placeholder="NHWU" autoCapitalize="characters" />
               </Field>
 
-              <Button
-                size="lg"
-                block
-                icon="chevron-right"
-                disabled={!orgName.trim() || !orgCode.trim()}
-                onPress={() => setStep('admin_q2')}
-              >
+              <Button size="lg" block icon="chevron-right" disabled={!orgName.trim() || !orgCode.trim()} onPress={() => setStep('admin_q2')}>
                 Continue
               </Button>
+
+              <Pressable onPress={async () => { await supabase.auth.signOut(); setStep('phone'); }} style={{ alignItems: 'center', paddingTop: 8 }}>
+                <Txt variant="bodyS" color={colors.textMuted}>Sign out · use a different number</Txt>
+              </Pressable>
             </Card>
           )}
 
-          {/* ADMIN WIZARD STEP 2 OF 3 (2 Questions: Mission & Terminology) */}
+          {/* ADMIN Q2 — description + terminology; no 2a/2b numbering */}
           {step === 'admin_q2' && (
             <Card style={{ padding: 20, gap: 16 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Badge tone="info" dot>
-                  Admin Setup · Step 2 of 3
-                </Badge>
-                <Txt variant="mono" color={colors.textMuted}>
-                  Code: {orgCode.toUpperCase()}
-                </Txt>
-              </View>
-
               <Txt variant="titleM">Purpose & governance terms</Txt>
 
-              <Field
-                label="1. Briefly describe your organization"
-                hint="Shown to members in the organization directory"
-              >
-                <Input
-                  value={orgDesc}
-                  onChangeText={setOrgDesc}
-                  placeholder="e.g. Representing healthcare workers across regional chapters"
-                />
+              <Field label="Brief description" infoText="Shown to members browsing the organization directory.">
+                <Input value={orgDesc} onChangeText={setOrgDesc} placeholder="Representing healthcare workers across regional chapters" />
               </Field>
 
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <View style={{ flex: 1 }}>
-                  <Field label="2a. Case / Issue label">
-                    <Input
-                      value={caseLabel}
-                      onChangeText={setCaseLabel}
-                      placeholder="Grievance"
-                    />
+                  <Field label="Case label" infoText="What a complaint/case is called in this organization.">
+                    <Input value={caseLabel} onChangeText={setCaseLabel} placeholder="Grievance" />
                   </Field>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Field label="2b. Group label">
-                    <Input
-                      value={groupLabel}
-                      onChangeText={setGroupLabel}
-                      placeholder="Trade Sector"
-                    />
+                  <Field label="Group label" infoText="What a functional or trade group is called here.">
+                    <Input value={groupLabel} onChangeText={setGroupLabel} placeholder="Trade Sector" />
                   </Field>
                 </View>
               </View>
 
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <View style={{ flex: 1 }}>
-                  <Button variant="secondary" block onPress={() => setStep('admin_q1')}>
-                    Back
-                  </Button>
+                  <Button variant="secondary" block onPress={() => setStep('admin_q1')}>Back</Button>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Button block icon="chevron-right" onPress={() => setStep('admin_q3')}>
-                    Continue
-                  </Button>
+                  <Button block icon="chevron-right" onPress={() => setStep('admin_q3')}>Continue</Button>
                 </View>
               </View>
             </Card>
           )}
 
-          {/* ADMIN WIZARD STEP 3 OF 3 (2 Questions: Admin Name & HQ Unit) */}
+          {/* ADMIN Q3 — founding admin profile + HQ location autofill */}
           {step === 'admin_q3' && (
             <Card style={{ padding: 20, gap: 16 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Badge tone="info" dot>
-                  Admin Setup · Step 3 of 3
-                </Badge>
-                <Txt variant="mono" color={colors.textMuted}>
-                  Code: {orgCode.toUpperCase()}
-                </Txt>
-              </View>
-
               <Txt variant="titleM">Founding administrator profile</Txt>
 
-              <Field label="1. What is your full name?" required>
-                <Input
-                  value={adminName}
-                  onChangeText={setAdminName}
-                  placeholder="e.g. Dr. Sarah Chen"
-                />
+              <Field label="Full name" required>
+                <Input value={adminName} onChangeText={setAdminName} placeholder="Dr. Sarah Chen" />
+              </Field>
+
+              <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-end' }}>
+                <View style={{ flex: 1 }}>
+                  <Field label="Headquarters city" required>
+                    <Input value={adminUnit} onChangeText={setAdminUnit} placeholder="Hyderabad" />
+                  </Field>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Field label="State / region">
+                    <Input value={adminRegion} onChangeText={setAdminRegion} placeholder="Telangana" />
+                  </Field>
+                </View>
+              </View>
+
+              <Button variant="ghost" size="sm" icon="map-pin" disabled={locBusy} onPress={useMyLocationForAdmin} block>
+                {locBusy ? 'Locating…' : 'Use my location'}
+              </Button>
+
+              <Field label="Work email" infoText="Used for admin notices. Can be left blank.">
+                <Input value={adminEmail} onChangeText={setAdminEmail} placeholder="admin@org.in" keyboardType="email-address" autoCapitalize="none" />
               </Field>
 
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <View style={{ flex: 1 }}>
-                  <Field label="2a. Headquarters city" required>
-                    <Input
-                      value={adminUnit}
-                      onChangeText={setAdminUnit}
-                      placeholder="e.g. Hyderabad"
-                    />
-                  </Field>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Field label="2b. Headquarters state / region">
-                    <Input
-                      value={adminRegion}
-                      onChangeText={setAdminRegion}
-                      placeholder="e.g. Telangana"
-                    />
-                  </Field>
-                </View>
-              </View>
-
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={{ flex: 1 }}>
-                  <Field label="3. Work email">
-                    <Input
-                      value={adminEmail}
-                      onChangeText={setAdminEmail}
-                      placeholder="admin@org.in"
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                    />
-                  </Field>
-                </View>
-              </View>
-
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={{ flex: 1 }}>
-                  <Button variant="secondary" block onPress={() => setStep('admin_q2')}>
-                    Back
-                  </Button>
+                  <Button variant="secondary" block onPress={() => setStep('admin_q2')}>Back</Button>
                 </View>
                 <View style={{ flex: 2 }}>
-                  <Button
-                    block
-                    icon="check"
-                    disabled={!adminName.trim() || !adminUnit.trim() || busy}
-                    onPress={handleCompleteAdminSetup}
-                  >
+                  <Button block icon="check" disabled={!adminName.trim() || !adminUnit.trim() || busy} onPress={handleCompleteAdminSetup}>
                     {busy ? 'Saving…' : 'Create Organization'}
                   </Button>
                 </View>
@@ -537,226 +533,106 @@ export default function Index() {
             </Card>
           )}
 
-          {/* ADMIN STEP 4: SHARE ORGANIZATION CODE WITH MEMBERS */}
+          {/* ADMIN SHARE — invite code */}
           {step === 'admin_share' && (
             <Card style={{ padding: 22, gap: 16, alignItems: 'center' }}>
               <IconTile icon="badge-check" tone="committee" />
-              <Badge tone="success" dot>
-                Organization Ready
-              </Badge>
-              <Txt variant="displayM" align="center">
-                {createdTenant?.name || orgName} is Live
-              </Txt>
+              <Txt variant="displayM" align="center">{createdTenant?.name || orgName} is Live</Txt>
               <Txt variant="bodyS" color={colors.textSecondary} align="center">
-                Share this Organization Code with your members. When they verify their mobile number
-                on Union, they will enter this code to join {createdTenant?.name || orgName}.
+                Share this Organization Code with your members. They enter it after verifying their mobile number.
               </Txt>
-
-              <View
-                style={{
-                  width: '100%',
-                  paddingVertical: 18,
-                  paddingHorizontal: 16,
-                  borderRadius: 12,
-                  backgroundColor: colors.bgSunken,
-                  borderWidth: 1,
-                  borderColor: palette.paper300,
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <Txt variant="overline" color={colors.textMuted}>
-                  ORGANIZATION INVITE CODE
-                </Txt>
-                <Txt variant="displayL" style={{ letterSpacing: 3 }} color={colors.accent}>
-                  {createdTenant?.code || orgCode.toUpperCase()}
-                </Txt>
+              <View style={{ width: '100%', paddingVertical: 18, paddingHorizontal: 16, borderRadius: 12, backgroundColor: colors.bgSunken, borderWidth: 1, borderColor: palette.paper300, alignItems: 'center', gap: 6 }}>
+                <Txt variant="overline" color={colors.textMuted}>ORGANIZATION INVITE CODE</Txt>
+                <Txt variant="displayL" style={{ letterSpacing: 3 }} color={colors.accent}>{createdTenant?.code || orgCode.toUpperCase()}</Txt>
               </View>
-
-              <Button
-                size="lg"
-                variant="secondary"
-                block
-                icon="share-2"
-                onPress={handleShareOrgCode}
-              >
-                Share organization code
-              </Button>
-
-              <Button size="lg" block icon="chevron-right" onPress={() => router.replace('/main')}>
-                Continue to Union Dashboard
-              </Button>
+              <Button size="lg" variant="secondary" block icon="share-2" onPress={handleShareOrgCode}>Share organization code</Button>
+              <Button size="lg" block icon="chevron-right" onPress={() => router.replace('/main')}>Continue to Union Dashboard</Button>
             </Card>
           )}
 
-          {/* MEMBER WIZARD STEP 1 OF 3 (1 Question: Enter Shared Org Code) */}
+          {/* MEMBER Q1 — org code entry; header Back handles navigation */}
           {step === 'member_q1' && (
             <Card style={{ padding: 20, gap: 16 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Badge tone="info" dot>
-                  Member Setup · Step 1 of 3
-                </Badge>
-                <Txt variant="mono" color={colors.textMuted}>
-                  {normalizedPhone}
-                </Txt>
-              </View>
-
               <Txt variant="titleM">Enter your organization code</Txt>
-              <Txt variant="bodyS" color={colors.textSecondary}>
-                Ask your organization administrator or steward for your organization’s invite code.
-              </Txt>
+              <Txt variant="bodyS" color={colors.textSecondary}>Ask your organization administrator for your invite code.</Txt>
 
-              <Field label="Organization code" required hint="e.g. NHWU">
-                <Input
-                  value={joinOrgCode}
-                  onChangeText={(t) => setJoinOrgCode(t.toUpperCase())}
-                  placeholder="Enter organization code"
-                  autoCapitalize="characters"
-                />
+              <Field label="Organization code" required infoText="Invite code shared by your organization's admin or steward.">
+                <Input value={joinOrgCode} onChangeText={(t) => setJoinOrgCode(t.toUpperCase())} placeholder="NHWU" autoCapitalize="characters" />
               </Field>
 
-              <Button
-                size="lg"
-                block
-                icon="chevron-right"
-                disabled={!joinOrgCode.trim() || busy}
-                onPress={handleVerifyOrgCode}
-              >
+              <Button size="lg" block icon="chevron-right" disabled={!joinOrgCode.trim() || busy} onPress={handleVerifyOrgCode}>
                 {busy ? 'Checking code…' : 'Verify code & continue'}
               </Button>
 
+              <Pressable onPress={async () => { await supabase.auth.signOut(); setStep('phone'); }} style={{ alignItems: 'center', paddingTop: 8 }}>
+                <Txt variant="bodyS" color={colors.textMuted}>Sign out · use a different number</Txt>
+              </Pressable>
+
               {isPlatformSuperAdmin && (
-                <Pressable
-                  onPress={() => setStep('admin_q1')}
-                  style={{ alignItems: 'center', paddingTop: 4 }}
-                >
-                  <Txt variant="bodyS" color={colors.accent}>
-                    Create a new organization instead (Admin)
-                  </Txt>
+                <Pressable onPress={() => setStep('admin_q1')} style={{ alignItems: 'center', paddingTop: 4 }}>
+                  <Txt variant="bodyS" color={colors.accent}>Create a new organization instead (Admin)</Txt>
                 </Pressable>
               )}
             </Card>
           )}
 
-          {/* MEMBER WIZARD STEP 2 OF 3 (2 Questions: Full Name & Email) */}
+          {/* MEMBER Q2 — name + email */}
           {step === 'member_q2' && matchedOrg && (
             <Card style={{ padding: 20, gap: 16 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Badge tone="info" dot>
-                  Member Setup · Step 2 of 3
-                </Badge>
-                <Badge size="sm" tone="success">
-                  {matchedOrg.code}
-                </Badge>
-              </View>
-
-              <Notice tone="info" title={`Joining ${matchedOrg.name}`}>
-                {matchedOrg.description || 'Verified organization on Union'}
-              </Notice>
-
+              <Notice tone="info" title={`Joining ${matchedOrg.name}`}>{matchedOrg.description || 'Verified organization on Union'}</Notice>
               <Txt variant="titleM">Tell us about yourself</Txt>
 
-              <Field label="1. What is your full name?" required>
-                <Input
-                  value={memberName}
-                  onChangeText={setMemberName}
-                  placeholder="Your full legal name"
-                />
+              <Field label="Full name" required>
+                <Input value={memberName} onChangeText={setMemberName} placeholder="Your full name" />
               </Field>
 
-              <Field label="2. What is your email address?" hint="Optional — used for formal notices">
-                <Input
-                  value={memberEmail}
-                  onChangeText={setMemberEmail}
-                  placeholder="name@workplace.org"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
+              <Field label="Email address" infoText="For formal notices. Optional.">
+                <Input value={memberEmail} onChangeText={setMemberEmail} placeholder="name@workplace.org" keyboardType="email-address" autoCapitalize="none" />
               </Field>
 
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <View style={{ flex: 1 }}>
-                  <Button variant="secondary" block onPress={() => setStep('member_q1')}>
-                    Back
-                  </Button>
+                  <Button variant="secondary" block onPress={() => setStep('member_q1')}>Back</Button>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Button
-                    block
-                    icon="chevron-right"
-                    disabled={!memberName.trim()}
-                    onPress={() => setStep('member_q3')}
-                  >
-                    Continue
-                  </Button>
+                  <Button block icon="chevron-right" disabled={!memberName.trim()} onPress={() => setStep('member_q3')}>Continue</Button>
                 </View>
               </View>
             </Card>
           )}
 
-          {/* MEMBER WIZARD STEP 3 OF 3 (2 Questions: Local Unit & Functional Group) */}
+          {/* MEMBER Q3 — city/state autofill + trade group */}
           {step === 'member_q3' && matchedOrg && (
             <Card style={{ padding: 20, gap: 16 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Badge tone="info" dot>
-                  Member Setup · Step 3 of 3
-                </Badge>
-                <Badge size="sm" tone="success">
-                  {matchedOrg.code}
-                </Badge>
-              </View>
-
               <Txt variant="titleM">Your workplace & unit</Txt>
 
-              <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-end' }}>
                 <View style={{ flex: 1 }}>
-                  <Field
-                    label={`1a. ${matchedOrg.terminology.level1Label || 'City / Branch'}`}
-                    required
-                  >
-                    <Input
-                      value={memberUnit}
-                      onChangeText={setMemberUnit}
-                      placeholder="e.g. Hyderabad"
-                    />
+                  <Field label={matchedOrg.terminology.level1Label || 'City'} required>
+                    <Input value={memberUnit} onChangeText={setMemberUnit} placeholder="Hyderabad" />
                   </Field>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Field label={`1b. ${matchedOrg.terminology.level2Label || 'State / Region'}`}>
-                    <Input
-                      value={memberRegion}
-                      onChangeText={setMemberRegion}
-                      placeholder="e.g. Telangana"
-                    />
+                  <Field label={matchedOrg.terminology.level2Label || 'State'}>
+                    <Input value={memberRegion} onChangeText={setMemberRegion} placeholder="Telangana" />
                   </Field>
                 </View>
               </View>
 
-              <Field
-                label={`2. Your ${matchedOrg.terminology.groupLabel || 'Trade Sector / Group'}`}
-                required
-                hint="Routes your issues to the right committee"
-              >
-                <Input
-                  value={memberGroup}
-                  onChangeText={setMemberGroup}
-                  placeholder="e.g. IT Workers, Nursing, Transport"
-                />
+              <Button variant="ghost" size="sm" icon="map-pin" disabled={locBusy} onPress={useMyLocationForMember} block>
+                {locBusy ? 'Locating…' : 'Use my location'}
+              </Button>
+
+              <Field label={matchedOrg.terminology.groupLabel || 'Trade Sector'} required infoText="Routes your issues to the right committee.">
+                <Input value={memberGroup} onChangeText={setMemberGroup} placeholder="IT Workers, Nursing, Transport" />
               </Field>
 
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <View style={{ flex: 1 }}>
-                  <Button variant="secondary" block onPress={() => setStep('member_q2')}>
-                    Back
-                  </Button>
+                  <Button variant="secondary" block onPress={() => setStep('member_q2')}>Back</Button>
                 </View>
                 <View style={{ flex: 2 }}>
-                  <Button
-                    block
-                    icon="check"
-                    disabled={!memberUnit.trim() || !memberGroup.trim() || busy}
-                    onPress={handleCompleteMemberSetup}
-                  >
+                  <Button block icon="check" disabled={!memberUnit.trim() || !memberGroup.trim() || busy} onPress={handleCompleteMemberSetup}>
                     {busy ? 'Joining…' : 'Complete Setup'}
                   </Button>
                 </View>

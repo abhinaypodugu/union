@@ -30,6 +30,7 @@ const MUTED_KEY = 'union.mutedSources';
 interface Store {
   // Session
   authReady: boolean;
+  tenantLoading: boolean;
   signedIn: boolean;
   isLiveDatabase: boolean;
   requestOtp: (phone: string) => Promise<{ ok: boolean; phone: string; error?: string }>;
@@ -209,33 +210,38 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
 
   // ------------------------------------------------------------------ tenant workspace
   const isOrgAdmin = Boolean(activeMember?.roles.includes('org_admin'));
+  const [tenantLoading, setTenantLoading] = React.useState(false);
   const loadTenant = React.useCallback(async (tenantId: string, me: Persona | null, admin: boolean) => {
     if (!me || me.status !== 'verified') { clearTenantData(); return; }
-    const results = await Promise.allSettled([
-      dbService.getMembers(tenantId),
-      dbService.getGeoUnits(tenantId),
-      dbService.getFunctionalGroups(tenantId),
-      dbService.getCommittees(tenantId),
-      dbService.getRoutingRules(tenantId),
-      dbService.getPosts(tenantId),
-      dbService.getMyLikes(me.id),
-      dbService.getIssues(tenantId),
-      dbService.getNotifications(tenantId),
-      admin ? dbService.getAuditLogs(tenantId) : Promise.resolve([] as AuditEntry[]),
-    ]);
-    const v = <T,>(i: number, fallback: T): T => (results[i].status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<T>).value : fallback);
-    setAllMembers(v(0, []));
-    setGeoUnits(v(1, []));
-    setFunctionalGroups(v(2, []));
-    setCommittees(v(3, []));
-    setRoutingRules(v(4, []));
-    setPosts(v(5, []));
-    setLiked(Object.fromEntries(v<string[]>(6, []).map((id) => [id, true])));
-    setIssues(v(7, []));
-    setNotifications(v(8, []));
-    setAuditLogs(v(9, []));
+    setTenantLoading(true);
+    try {
+      const results = await Promise.allSettled([
+        dbService.getMembers(tenantId),
+        dbService.getGeoUnits(tenantId),
+        dbService.getFunctionalGroups(tenantId),
+        dbService.getCommittees(tenantId),
+        dbService.getRoutingRules(tenantId),
+        dbService.getPosts(tenantId),
+        dbService.getMyLikes(me.id),
+        dbService.getIssues(tenantId),
+        dbService.getNotifications(tenantId),
+        admin ? dbService.getAuditLogs(tenantId) : Promise.resolve([] as AuditEntry[]),
+      ]);
+      const v = <T,>(i: number, fallback: T): T => (results[i].status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<T>).value : fallback);
+      setAllMembers(v(0, []));
+      setGeoUnits(v(1, []));
+      setFunctionalGroups(v(2, []));
+      setCommittees(v(3, []));
+      setRoutingRules(v(4, []));
+      setPosts(v(5, []));
+      setLiked(Object.fromEntries(v<string[]>(6, []).map((id) => [id, true])));
+      setIssues(v(7, []));
+      setNotifications(v(8, []));
+      setAuditLogs(v(9, []));
+    } finally {
+      setTenantLoading(false);
+    }
   }, []);
-
   const meKey = activeMember ? `${activeMember.id}:${activeMember.status}:${activeMember.roles.join(',')}` : '';
   React.useEffect(() => {
     if (!currentTenantId || !activeMember) { clearTenantData(); return; }
@@ -593,6 +599,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
 
   const store: Store = {
     authReady,
+    tenantLoading,
     signedIn: Boolean(userId),
     isLiveDatabase: dbService.isLive,
     requestOtp,
