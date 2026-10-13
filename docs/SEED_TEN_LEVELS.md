@@ -9,8 +9,9 @@
 --    paste supabase/schema.sql
 -- 2. Ensure at least one platform admin exists:
 INSERT INTO platform_admins (phone, name) VALUES ('+917995731200', 'Abhinay') ON CONFLICT DO NOTHING;
--- 3. (Optional) bulk-seed without OTP — run as service_role / postgres:
---    paste supabase/seed-ten-levels.sql
+-- 3. (Optional, STAGING/TEST projects only) bulk-seed without OTP — run as postgres:
+--    SET app.allow_test_seed = 'on';
+--    then paste supabase/seed-ten-levels.sql   (it refuses to run without the setting)
 --    OR create every account manually via OTP as described in §3.
 ```
 
@@ -44,7 +45,7 @@ SU: su-country-india → su-state-maharashtra → su-city-maharashtra-pune
 
 | id (TU) | name | level | functional_group | geo_unit | escalates_to |
 |---|---|---|---|---|---|
-| `200d68f4-27a2-4210-afda-ea6264b75d13` | Test union Executive Committee | 3 | NULL (general) | NULL | NULL (top) |
+| existing Executive, or `tu-exec` if none | Test union Executive Committee | 3 | NULL (general) | NULL | NULL (top) |
 | `tu-l1-hyd-it` | Hyderabad IT Workers Committee | 1 | IT Workers | `tu-city-telangana-hyderabad` | `tu-l2-tg-it` |
 | `tu-l2-tg-it` | Telangana IT Workers Committee | 2 | IT Workers | `tu-state-telangana` | Executive (L3) |
 
@@ -64,20 +65,20 @@ Default `routing_rules` (seeded by `create_organization`):
 
 ## 2. Roster — 10 users across every level
 
-Phones use the `91900…` test block so they never collide with real users. `digits_only` matching means `+91 9000000101`, `919000000101` and `9000000101` are equivalent.
+Phones are in the reserved fictional range **+1 555-555-0101…0109** (NANP 555-01xx), so no real person can receive their OTP and take over a seeded admin account. To sign in as them on a staging project, add them under **Auth → Providers → Phone → Test phone numbers** with a fixed OTP.
 
 | # | persona | phone (normalized) | tenant | profile status | tenant roles (`profiles.roles`) | committee appointment (`committee_members.role`) | groups | unit / region |
 |---|---|---|---|---|---|---|---:|---|
 | 1 | **Platform Super Admin / Org Admin (TU founding)** — Abhinay | `+917995731200` | `tu` | verified | `member` `org_admin` | **Chair** of Executive L3 (platform-admin override, founding) | Administration | Hyderabad / Telangana |
-| 2 | **Org Admin #2 (TU)** — Priya Rao | `+919000000101` | `tu` | verified | `member` `org_admin` | — (pure org admin, no committee needed) | Administration | Hyderabad / Telangana |
-| 3 | **Org Admin (SU)** — Vikram Singh | `+919000000102` | `su` | verified | `member` `org_admin` | Chair of SU Executive L3 | Administration | Pune / Maharashtra |
-| 4 | **Committee Chair L1 City** — Anita Desai | `+919000000103` | `tu` | verified | `member` | **Chair** of Hyderabad IT Workers L1 | IT Workers | Hyderabad / Telangana |
-| 5 | **Issue Handler L3 National** — Ramesh Kumar | `+919000000104` | `tu` | verified | `member` | **Issue handler** of Executive L3 | IT Workers | Hyderabad / Telangana |
-| 6 | **Moderator** — Suresh Moderator | `+919000000105` | `tu` | verified | `member` `moderator` | — | IT Workers | Hyderabad / Telangana |
-| 7 | **Membership Admin** — Lakshmi Admin | `+919000000106` | `tu` | verified | `member` `membership_admin` | — | IT Workers | Hyderabad / Telangana |
-| 8 | **Verified Member (core)** — Asha Member | `+919000000107` | `tu` | verified | `member` | — | IT Workers | Hyderabad / Telangana |
-| 9 | **Verified Member (other group = negative-test)** — Omar Other | `+919000000108` | `tu` | verified | `member` | — | **Transport** | Hyderabad / Telangana |
-| 10 | **Pending Applicant** — Late Joiner | `+919000000109` | `tu` | **pending** | `member` | — | IT Workers | Hyderabad / Telangana |
+| 2 | **Org Admin #2 (TU)** — Priya Rao | `+15555550101` | `tu` | verified | `member` `org_admin` | — (pure org admin, no committee needed) | Administration | Hyderabad / Telangana |
+| 3 | **Org Admin (SU)** — Vikram Singh | `+15555550102` | `su` | verified | `member` `org_admin` | Chair of SU Executive L3 | Administration | Pune / Maharashtra |
+| 4 | **Committee Chair L1 City** — Anita Desai | `+15555550103` | `tu` | verified | `member` | **Chair** of Hyderabad IT Workers L1 | IT Workers | Hyderabad / Telangana |
+| 5 | **Issue Handler L3 National** — Ramesh Kumar | `+15555550104` | `tu` | verified | `member` | **Issue handler** of Executive L3 | IT Workers | Hyderabad / Telangana |
+| 6 | **Moderator** — Suresh Moderator | `+15555550105` | `tu` | verified | `member` `moderator` | — | IT Workers | Hyderabad / Telangana |
+| 7 | **Membership Admin** — Lakshmi Admin | `+15555550106` | `tu` | verified | `member` `membership_admin` | — | IT Workers | Hyderabad / Telangana |
+| 8 | **Verified Member (core)** — Asha Member | `+15555550107` | `tu` | verified | `member` | — | IT Workers | Hyderabad / Telangana |
+| 9 | **Verified Member (other group = negative-test)** — Omar Other | `+15555550108` | `tu` | verified | `member` | — | **Transport** | Hyderabad / Telangana |
+| 10 | **Pending Applicant** — Late Joiner | `+15555550109` | `tu` | **pending** | `member` | — | IT Workers | Hyderabad / Telangana |
 
 > **TU member_numbers:** `TU-0001` (Abhinay) then `TU-0101` … `TU-0109`. SU founder is `SU-0001`.
 
@@ -111,28 +112,28 @@ Phones use the `91900…` test block so they never collide with real users. `dig
 
 ### Flow B — Org Admin approves a pending member
 
-1. Sign in as **Pending Late Joiner** `919000000109`: OTP → org code `TU` → name `Late Joiner` → city `Hyderabad` → region `Telangana` → group `IT Workers` → `register_member` → status `pending`. The app shows `pending.tsx` (Application under review). Confirm: Issues feed is empty, Home feed returns 0 `posts`, `create_issue` disabled.
-2. **Switch persona:** sign out, sign in as **Membership Admin** `919000000106` (or Org Admin `919000000101`). Open `Manage → Members`.
+1. Sign in as **Pending Late Joiner** `15555550109`: OTP → org code `TU` → name `Late Joiner` → city `Hyderabad` → region `Telangana` → group `IT Workers` → `register_member` → status `pending`. The app shows `pending.tsx` (Application under review). Confirm: Issues feed is empty, Home feed returns 0 `posts`, `create_issue` disabled.
+2. **Switch persona:** sign out, sign in as **Membership Admin** `15555550106` (or Org Admin `15555550101`). Open `Manage → Members`.
 3. **Approve:** tap `Late Joiner` → `Approve`. Under the hood: `SELECT set_member_status($1,'verified')`. Expect toast + audit row `Membership Verified`.
 4. **Re-login as Late Joiner** (same OTP): now verified — `get_my_memberships` shows `tu:verified`, Home/Issues/Groups load, `create_issue` enabled.
-5. **Negative:** sign in as **Verified Member Asha** `919000000107` and try to approve another pending — `set_member_status` throws `Not authorized to change memberships`.
+5. **Negative:** sign in as **Verified Member Asha** `15555550107` and try to approve another pending — `set_member_status` throws `Not authorized to change memberships`.
 
 ### Flow C — Verified member posts; search isolation
 
-1. Sign in as **Asha** `919000000107` (IT Workers, Hyderabad): Home → `Member post` composer → body `Hello IT folks` → audience `Hyderabad · City` or `IT Workers · Cadre` → Publish. Expect: `publish_post('member', ...)` succeeds; `can_publish` passes `in_audience`.
+1. Sign in as **Asha** `15555550107` (IT Workers, Hyderabad): Home → `Member post` composer → body `Hello IT folks` → audience `Hyderabad · City` or `IT Workers · Cadre` → Publish. Expect: `publish_post('member', ...)` succeeds; `can_publish` passes `in_audience`.
 2. Try to publish as member to `Transport`: `publish_post('member', scope='group', value='Transport')` → rejected `not authorized` (you are not in Transport — `in_audience` false).
 3. **Search isolation:** open `Search` → filter Members by `Transport` — Omar appears, Asha does not when filtering `Transport, Hyderabad` with group=Transport. Search for posts: `Hello IT folks` appears for Asha and other IT Workers, **not** for Omar when his feed is Group-filtered (policy `can_view_post` checks `in_audience`). Try `SELECT * FROM posts WHERE tenant_id='su'` as Asha — 0 rows.
 
 ### Flow D — Official announcement (org admin + chair) with audience dedup
 
-1. Sign in as **Priya (Org Admin)** `919000000101`: `Manage → New announcement` → Title `IT meeting` → Body `Sunday 10am` → Audiences `IT Workers` + `Hyderabad` (two overlapping) → Toggle `Notify audience` **on** → `Publish & notify`. Expect: two `posts` rows (one per audience) + `publish_post` dedup: each IT/Hyderabad member gets **one** `notifications` row + one `notification_outbox` row despite two audiences. Check: `SELECT count(*) FROM notifications WHERE event_key = 'announcement-' || md5(...)` = 1 per recipient.
-2. Sign in as **Omar (Transport)** `919000000108`: `posts WHERE title='IT meeting'` → 1 row (because Hyderabad local matches). Sign in as **Anita (Chair L1)** `919000000103`: can also publish official to `IT Workers` (her committee's group) — succeeds; try to publish to `org` → rejected (only L3 general chair or org_admin can do `scope='org'`).
+1. Sign in as **Priya (Org Admin)** `15555550101`: `Manage → New announcement` → Title `IT meeting` → Body `Sunday 10am` → Audiences `IT Workers` + `Hyderabad` (two overlapping) → Toggle `Notify audience` **on** → `Publish & notify`. Expect: two `posts` rows (one per audience) + `publish_post` dedup: each IT/Hyderabad member gets **one** `notifications` row + one `notification_outbox` row despite two audiences. Check: `SELECT count(*) FROM notifications WHERE event_key = 'announcement-' || md5(...)` = 1 per recipient.
+2. Sign in as **Omar (Transport)** `15555550108`: `posts WHERE title='IT meeting'` → 1 row (because Hyderabad local matches). Sign in as **Anita (Chair L1)** `15555550103`: can also publish official to `IT Workers` (her committee's group) — succeeds; try to publish to `org` → rejected (only L3 general chair or org_admin can do `scope='org'`).
 
 ### Flow E — Issue raise → handler assign → internal note vs member reply → escalation → audit
 
-1. **Raise:** sign in as **Asha** `919000000107`: `Issues → + Raise` → Category `Wages` → Title `Night shift unpaid` → Details `3 nights in Sep` → Priority `high` → Submit. Expect `create_issue` returns `TU-1xxx`; row has `committee_id = Hyderabad IT Workers L1`, `status=submitted`, `due_at = NOW()+48h`, notification to committee.
-2. **Negative routing:** sign in as **Omar** `919000000108` (Transport): raise with category `Wages` (Transport has no L1 committee) → `status=triage`, `committee_id=NULL`, notification to `notify_org_admins` only — handler cannot see it (`SELECT * FROM issues WHERE id=$1` as Anita returns 0).
-3. **Handler flow:** sign in as **Anita (Chair L1)** `919000000103`: `Manage → Issue queue` shows `Night shift unpaid`. `Assign` → choose self or Ramesh? Actually Ramesh is L3, not eligible for L1 confidential — choose Anita (Chair). `issue_action('assign', {profile_id: anitaProfileId})` → status `assigned`. Then `Request info` → text `Attach payslips` → status `awaiting_member`.
+1. **Raise:** sign in as **Asha** `15555550107`: `Issues → + Raise` → Category `Wages` → Title `Night shift unpaid` → Details `3 nights in Sep` → Priority `high` → Submit. Expect `create_issue` returns `TU-1xxx`; row has `committee_id = Hyderabad IT Workers L1`, `status=submitted`, `due_at = NOW()+48h`, notification to committee.
+2. **Negative routing:** sign in as **Omar** `15555550108` (Transport): raise with category `Wages` (Transport has no L1 committee) → `status=triage`, `committee_id=NULL`, notification to `notify_org_admins` only — handler cannot see it (`SELECT * FROM issues WHERE id=$1` as Anita returns 0).
+3. **Handler flow:** sign in as **Anita (Chair L1)** `15555550103`: `Manage → Issue queue` shows `Night shift unpaid`. `Assign` → choose self or Ramesh? Actually Ramesh is L3, not eligible for L1 confidential — choose Anita (Chair). `issue_action('assign', {profile_id: anitaProfileId})` → status `assigned`. Then `Request info` → text `Attach payslips` → status `awaiting_member`.
 4. **Internal note isolation:** still as Anita: `Add note` → `Employer history of late pay` → `SELECT * FROM internal_notes WHERE issue_id=$1` as Anita = 1 row; as **Asha** = 0 rows (policy `can_handle_issue`).
 5. **Member reply:** sign in as **Asha**: `Reply` → `Payslips attached` → status back to `in_progress`. Anita sees the reply in `member_replies`.
 6. **Escalate:** sign in as **Anita**: `Escalate` → reason `Employer refuses to engage` → level `2`, committee becomes `Telangana IT Workers L2`, previous committee kept in `handled_committee_ids`, timeline gets new stage with `reason`. Try duplicate `escalate_issue(..., p_expected_level=1)` → rejected `already escalated to level 2`.
@@ -140,14 +141,14 @@ Phones use the `91900…` test block so they never collide with real users. `dig
 
 ### Flow F — Moderation & security invariants
 
-1. As **Suresh (Moderator)** `919000000105`: open the `IT meeting` post → `Moderate → Remove` with reason → `posts` hidden for Asha (`can_view_post` now false due to `removed`).
+1. As **Suresh (Moderator)** `15555550105`: open the `IT meeting` post → `Moderate → Remove` with reason → `posts` hidden for Asha (`can_view_post` now false due to `removed`).
 2. As **Asha** (member): try `moderate_post('pin')` → rejected `Not authorized`.
-3. As **Lakshmi (Membership Admin)** `919000000106`: `set_member_roles` → rejected `Only organization admins can change roles`; `admin_list_members('tu')` succeeds (sees phone/email); `admin_list_members('su')` returns 0 (not a member).
+3. As **Lakshmi (Membership Admin)** `15555550106`: `set_member_roles` → rejected `Only organization admins can change roles`; `admin_list_members('tu')` succeeds (sees phone/email); `admin_list_members('su')` returns 0 (not a member).
 4. As **Anita**: suspend test — Org Admin suspends Omar: `set_member_status(omarId,'suspended','Conduct review')` → Omar's `posts/issues` become 0 rows (RLS `is_member` requires `status='verified'`), his committee appointment (if any) becomes `suspended`.
 
 ### Flow G — Cross-tenant isolation (SU)
 
-1. Sign in as **Vikram (Org Admin SU)** `919000000102`: `tenants` list shows only `su`; `profiles WHERE tenant_id='tu'` returns 0; `create_issue('tu', ...)` rejected `Only verified members can raise issues in this organization` (not a member of TU).
+1. Sign in as **Vikram (Org Admin SU)** `15555550102`: `tenants` list shows only `su`; `profiles WHERE tenant_id='tu'` returns 0; `create_issue('tu', ...)` rejected `Only verified members can raise issues in this organization` (not a member of TU).
 2. Create an issue in SU, confirm it never appears in TU's `Manage → Issue queue` when signed in as Priya (TU org admin).
 
 ---
@@ -157,15 +158,15 @@ Phones use the `91900…` test block so they never collide with real users. `dig
 | persona | phone | OTP note |
 |---|---|---|
 | Platform Super Admin | 7995731200 | Real OTP via Supabase Auth |
-| Priya Rao (Org Admin TU) | 919000000101 | PGlite: `createUser(db,'919000000101')`; Live: obtain OTP |
-| Vikram Singh (Org Admin SU) | 919000000102 | same |
-| Anita Desai (Chair L1) | 919000000103 | same |
-| Ramesh Kumar (Handler L3) | 919000000104 | same |
-| Suresh Moderator | 919000000105 | same |
-| Lakshmi Membership Admin | 919000000106 | same |
-| Asha Member | 919000000107 | same |
-| Omar Other | 919000000108 | same |
-| Late Joiner (pending) | 919000000109 | stays pending until Flow B |
+| Priya Rao (Org Admin TU) | 15555550101 | PGlite: `createUser(db,'15555550101')`; Live: obtain OTP |
+| Vikram Singh (Org Admin SU) | 15555550102 | same |
+| Anita Desai (Chair L1) | 15555550103 | same |
+| Ramesh Kumar (Handler L3) | 15555550104 | same |
+| Suresh Moderator | 15555550105 | same |
+| Lakshmi Membership Admin | 15555550106 | same |
+| Asha Member | 15555550107 | same |
+| Omar Other | 15555550108 | same |
+| Late Joiner (pending) | 15555550109 | stays pending until Flow B |
 
 All `auth.users.phone_confirmed_at = NOW()` in the seed so `is_platform_admin()` passes.
 

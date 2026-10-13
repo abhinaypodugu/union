@@ -57,6 +57,8 @@ export default function CaseDetail() {
 
   if (!isHandler) return <Restricted what="Case handling" />;
   if (c === undefined) return <LoadingState subtitle="Loading case…" />;
+  // RLS returned nothing: no access, deleted, or a stale notification link.
+  if (c === null) return <Screen><StackHeader onBack={() => router.back()} /><View style={{ padding: 16 }}><Notice tone="private" title="Not available">Case not found or outside your scope.</Notice></View></Screen>;
 
   const committee = committees.find((x) => x.id === c.committeeId);
   const eligible = (committee?.members || []).filter((m) => m.status === 'active' && m.profileId && (!c.confidential || m.role === 'Chair' || m.role === 'Issue handler'));

@@ -66,7 +66,8 @@ export default function GroupSpace() {
      {groupPosts.length === 0 ? <Txt variant="bodyS" color={colors.textMuted} style={{ padding: 8 }}>No posts in this space yet.</Txt> : groupPosts.map((p) => (
       <PostCard key={p.id} kind={p.kind} pinned={p.pinned} author={p.author} source={p.source} time={p.time} title={p.title} body={p.body}
        audience={{ scope: p.audience.scope, label: p.audience.label }} liked={!!liked[p.id]} likes={p.likes} comments={p.comments}
-       onLike={() => toggleLike(p.id)} onComment={() => router.push(('/post?id=' + encodeURIComponent(p.id)) as never)} />
+       onLike={() => toggleLike(p.id)} onComment={() => router.push(('/post?id=' + encodeURIComponent(p.id)) as never)}
+       bodyLines={6} onOpen={() => router.push(('/post?id=' + encodeURIComponent(p.id)) as never)} />
      ))}
     </View>
    ) : (

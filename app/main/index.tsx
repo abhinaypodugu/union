@@ -94,6 +94,7 @@ export default function Home() {
             liked={!!liked[p.id]} likes={p.likes} comments={p.comments}
             onLike={() => toggleLike(p.id)}
             onComment={() => router.push(('/post?id=' + encodeURIComponent(p.id)) as never)}
+            bodyLines={6} onOpen={() => router.push(('/post?id=' + encodeURIComponent(p.id)) as never)}
             onMore={() => setActionSheet(p)} />
         ))}
       </View>
@@ -129,9 +130,6 @@ export default function Home() {
           <Field label="Audience" required hint="Only members of this audience will see your post">
             <Select label="Audience" value={target?.label || ''} onChange={(v) => setTarget(audienceOptions.member.find((o) => o.label === v) || null)} options={audienceOptions.member.map((o) => o.label)} />
           </Field>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            {audienceOptions.member.map((o) => <Tag key={o.label} selected={target?.label === o.label} onPress={() => setTarget(o)}>{o.label}</Tag>)}
-          </View>
           <Field label="What would you like to share?" required>
             <TextArea value={draft} onChangeText={setDraft} placeholder="Write a post for your group…" />
           </Field>

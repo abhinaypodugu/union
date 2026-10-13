@@ -21,11 +21,10 @@ export default function IssueDetail() {
  const [text, setText] = React.useState('');
  const [mode, setMode] = React.useState<'reply' | 'reopen' | null>(null);
  const [busy, setBusy] = React.useState(false);
- if (!authReady) return <LoadingState subtitle="Signing you in…" />;
- if (!signedIn || !activeMember) return <Redirect href="/" />;
- if (activeMember.status !== 'verified') return <Redirect href="/pending" />;
+ // All hooks run before any early return (rules of hooks): the access gate is below.
+ const verified = activeMember?.status === 'verified';
  const load = React.useCallback(async () => {
-  if (!id) return;
+  if (!id || !signedIn || !verified) return;
   try {
    const i = await dbService.getIssue(String(id));
    setIssue(i);
@@ -37,11 +36,14 @@ export default function IssueDetail() {
   } catch {
    setIssue(null);
   }
- }, [id, activeMember?.id]);
+ }, [id, signedIn, verified, activeMember?.id]);
  // Reload when the store's copy changes (realtime updates).
  const storeVersion = issues.find((i) => i.id === id)?.updatedAt;
  React.useEffect(() => { void load(); }, [load, storeVersion]);
 
+ if (!authReady) return <LoadingState subtitle="Signing you in…" />;
+ if (!signedIn || !activeMember) return <Redirect href="/" />;
+ if (!verified) return <Redirect href="/pending" />;
  if (issue === undefined) return <LoadingState subtitle="Loading case…" />;
  if (issue === null) {
   return (

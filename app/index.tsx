@@ -15,7 +15,6 @@ import {
   Screen,
   Txt,
 } from '../src/components';
-import { supabase } from '../src/services/supabase';
 import { colors, palette, radius } from '../src/theme';
 import { useStore, Tenant } from '../src/store/AppStore';
 import { autofillFromDevice } from '../src/lib/location';
@@ -84,6 +83,7 @@ export default function Index() {
     registerMember,
     isLiveDatabase,
     toast,
+    logout,
   } = useStore();
 
   const [step, setStep] = useState<OnboardingStep>('phone');
@@ -97,6 +97,9 @@ export default function Index() {
   const scrollRef = useRef<ScrollView>(null);
   const insets = useSafeAreaInsets();
   const [pendingPhone, setPendingPhone] = useState<string | null>(null);
+  // Set when the user goes Back from the first wizard step: they want a different
+  // number, so the restored-session effect below must not push them forward again.
+  const leftWizard = useRef(false);
   const isPending = pendingPhone !== null;
 
   // Admin Wizard State
@@ -128,6 +131,7 @@ export default function Index() {
   // A restored session with no membership yet continues onboarding where it left off
   // — but only after authReady, never while pendingPhone resolves.
   React.useEffect(() => {
+    if (leftWizard.current) return;
     if (authReady && signedIn && memberships.length === 0 && (step === 'phone' || step === 'otp')) {
       setStep(isPlatformSuperAdmin ? 'admin_q1' : 'member_q1');
     }
@@ -144,6 +148,7 @@ export default function Index() {
   }
   const handleSendOtp = async () => {
     if (!phoneInput.trim() || busy) return;
+    leftWizard.current = false;
     setBusy(true);
     try {
       const res = await requestOtp(phoneInput.trim());
@@ -290,14 +295,19 @@ export default function Index() {
     }
   };
 
-  const isWizard = step !== 'phone' && step !== 'otp';
+  // Back from the first wizard step = sign out and use a different number.
+  const backToPhone = async () => {
+    leftWizard.current = true;
+    setStep('phone');
+    await logout();
+  };
   const backFor = (): (() => void) | null => {
     if (step === 'otp') return () => setStep('phone');
-    if (step === 'admin_q1') return () => setStep('phone');
+    if (step === 'admin_q1') return () => { void backToPhone(); };
     if (step === 'admin_q2') return () => setStep('admin_q1');
     if (step === 'admin_q3') return () => setStep('admin_q2');
     if (step === 'admin_share') return null;
-    if (step === 'member_q1') return () => setStep('phone');
+    if (step === 'member_q1') return () => { void backToPhone(); };
     if (step === 'member_q2') return () => setStep('member_q1');
     if (step === 'member_q3') return () => setStep('member_q2');
     return null;
@@ -305,7 +315,7 @@ export default function Index() {
   const backFn = backFor();
 
   return (
-    <Screen>
+    <Screen avoidKeyboard={false}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 8 : 0}
@@ -350,14 +360,14 @@ export default function Index() {
               </Txt>
             </View>
 
-            <Txt variant="displayL" align="center">
+            <Txt variant="displayL" align="center" numberOfLines={1} adjustsFontSizeToFit>
               {step === 'phone' || step === 'otp'
                 ? 'Welcome to Union'
                 : step.startsWith('admin_')
                   ? 'Organization Setup'
                   : 'Member Setup'}
             </Txt>
-            <Txt variant="body" color={colors.textSecondary} align="center">
+            <Txt variant="body" color={colors.textSecondary} align="center" numberOfLines={2}>
               {step === 'phone'
                 ? 'Verify your mobile number to sign in or set up your membership.'
                 : step === 'otp'
@@ -371,7 +381,7 @@ export default function Index() {
           </View>
 
           {/* Progress bar — replaces Step X of 3 badge */}
-          {step.startsWith('admin_') && step !== 'admin_share' ? (
+          {step.startsWith('admin_') ? (
             <ProgressBar value={adminProgress(step)} total={ADMIN_TOTAL} />
           ) : null}
           {step.startsWith('member_') ? (
@@ -439,7 +449,7 @@ export default function Index() {
                       if (initials.length >= 2) setOrgCode(initials);
                     }
                   }}
-                  placeholder="National Healthcare Workers Union"
+                 
                 />
               </Field>
 
@@ -451,9 +461,6 @@ export default function Index() {
                 Continue
               </Button>
 
-              <Pressable onPress={async () => { await supabase.auth.signOut(); setStep('phone'); }} style={{ alignItems: 'center', paddingTop: 8 }}>
-                <Txt variant="bodyS" color={colors.textMuted}>Sign out · use a different number</Txt>
-              </Pressable>
             </Card>
           )}
 
@@ -463,30 +470,23 @@ export default function Index() {
               <Txt variant="titleM">Purpose & governance terms</Txt>
 
               <Field label="Brief description" infoText="Shown to members browsing the organization directory.">
-                <Input value={orgDesc} onChangeText={setOrgDesc} placeholder="Representing healthcare workers across regional chapters" />
+                <Input value={orgDesc} onChangeText={setOrgDesc} />
               </Field>
 
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 <View style={{ flex: 1 }}>
                   <Field label="Case label" infoText="What a complaint/case is called in this organization.">
-                    <Input value={caseLabel} onChangeText={setCaseLabel} placeholder="Grievance" />
+                    <Input value={caseLabel} onChangeText={setCaseLabel} />
                   </Field>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Field label="Group label" infoText="What a functional or trade group is called here.">
-                    <Input value={groupLabel} onChangeText={setGroupLabel} placeholder="Trade Sector" />
+                    <Input value={groupLabel} onChangeText={setGroupLabel} />
                   </Field>
                 </View>
               </View>
 
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={{ flex: 1 }}>
-                  <Button variant="secondary" block onPress={() => setStep('admin_q1')}>Back</Button>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Button block icon="chevron-right" onPress={() => setStep('admin_q3')}>Continue</Button>
-                </View>
-              </View>
+              <Button block icon="chevron-right" onPress={() => setStep('admin_q3')}>Continue</Button>
             </Card>
           )}
 
@@ -496,40 +496,32 @@ export default function Index() {
               <Txt variant="titleM">Founding administrator profile</Txt>
 
               <Field label="Full name" required>
-                <Input value={adminName} onChangeText={setAdminName} placeholder="Dr. Sarah Chen" />
+                <Input value={adminName} onChangeText={setAdminName} />
               </Field>
-
-              <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-end' }}>
-                <View style={{ flex: 1 }}>
-                  <Field label="Headquarters city" required>
-                    <Input value={adminUnit} onChangeText={setAdminUnit} placeholder="Hyderabad" />
-                  </Field>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Field label="State / region">
-                    <Input value={adminRegion} onChangeText={setAdminRegion} placeholder="Telangana" />
-                  </Field>
-                </View>
-              </View>
 
               <Button variant="ghost" size="sm" icon="map-pin" disabled={locBusy} onPress={useMyLocationForAdmin} block>
                 {locBusy ? 'Locating…' : 'Use my location'}
               </Button>
-
-              <Field label="Work email" infoText="Used for admin notices. Can be left blank.">
-                <Input value={adminEmail} onChangeText={setAdminEmail} placeholder="admin@org.in" keyboardType="email-address" autoCapitalize="none" />
-              </Field>
-
-              <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-end' }}>
                 <View style={{ flex: 1 }}>
-                  <Button variant="secondary" block onPress={() => setStep('admin_q2')}>Back</Button>
+                  <Field label="Headquarters city" required>
+                    <Input value={adminUnit} onChangeText={setAdminUnit} />
+                  </Field>
                 </View>
-                <View style={{ flex: 2 }}>
-                  <Button block icon="check" disabled={!adminName.trim() || !adminUnit.trim() || busy} onPress={handleCompleteAdminSetup}>
-                    {busy ? 'Saving…' : 'Create Organization'}
-                  </Button>
+                <View style={{ flex: 1 }}>
+                  <Field label="State / region">
+                    <Input value={adminRegion} onChangeText={setAdminRegion} />
+                  </Field>
                 </View>
               </View>
+
+              <Field label="Work email" infoText="Used for admin notices. Can be left blank.">
+                <Input value={adminEmail} onChangeText={setAdminEmail} keyboardType="email-address" autoCapitalize="none" />
+              </Field>
+
+              <Button block icon="check" disabled={!adminName.trim() || !adminUnit.trim() || busy} onPress={handleCompleteAdminSetup}>
+                {busy ? 'Saving…' : 'Create Organization'}
+              </Button>
             </Card>
           )}
 
@@ -564,10 +556,6 @@ export default function Index() {
                 {busy ? 'Checking code…' : 'Verify code & continue'}
               </Button>
 
-              <Pressable onPress={async () => { await supabase.auth.signOut(); setStep('phone'); }} style={{ alignItems: 'center', paddingTop: 8 }}>
-                <Txt variant="bodyS" color={colors.textMuted}>Sign out · use a different number</Txt>
-              </Pressable>
-
               {isPlatformSuperAdmin && (
                 <Pressable onPress={() => setStep('admin_q1')} style={{ alignItems: 'center', paddingTop: 4 }}>
                   <Txt variant="bodyS" color={colors.accent}>Create a new organization instead (Admin)</Txt>
@@ -583,21 +571,14 @@ export default function Index() {
               <Txt variant="titleM">Tell us about yourself</Txt>
 
               <Field label="Full name" required>
-                <Input value={memberName} onChangeText={setMemberName} placeholder="Your full name" />
+                <Input value={memberName} onChangeText={setMemberName} />
               </Field>
 
               <Field label="Email address" infoText="For formal notices. Optional.">
-                <Input value={memberEmail} onChangeText={setMemberEmail} placeholder="name@workplace.org" keyboardType="email-address" autoCapitalize="none" />
+                <Input value={memberEmail} onChangeText={setMemberEmail} keyboardType="email-address" autoCapitalize="none" />
               </Field>
 
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={{ flex: 1 }}>
-                  <Button variant="secondary" block onPress={() => setStep('member_q1')}>Back</Button>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Button block icon="chevron-right" disabled={!memberName.trim()} onPress={() => setStep('member_q3')}>Continue</Button>
-                </View>
-              </View>
+              <Button block icon="chevron-right" disabled={!memberName.trim()} onPress={() => setStep('member_q3')}>Continue</Button>
             </Card>
           )}
 
@@ -606,37 +587,29 @@ export default function Index() {
             <Card style={{ padding: 20, gap: 16 }}>
               <Txt variant="titleM">Your workplace & unit</Txt>
 
+              <Button variant="ghost" size="sm" icon="map-pin" disabled={locBusy} onPress={useMyLocationForMember} block>
+                {locBusy ? 'Locating…' : 'Use my location'}
+              </Button>
               <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-end' }}>
                 <View style={{ flex: 1 }}>
                   <Field label={matchedOrg.terminology.level1Label || 'City'} required>
-                    <Input value={memberUnit} onChangeText={setMemberUnit} placeholder="Hyderabad" />
+                    <Input value={memberUnit} onChangeText={setMemberUnit} />
                   </Field>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Field label={matchedOrg.terminology.level2Label || 'State'}>
-                    <Input value={memberRegion} onChangeText={setMemberRegion} placeholder="Telangana" />
+                    <Input value={memberRegion} onChangeText={setMemberRegion} />
                   </Field>
                 </View>
               </View>
 
-              <Button variant="ghost" size="sm" icon="map-pin" disabled={locBusy} onPress={useMyLocationForMember} block>
-                {locBusy ? 'Locating…' : 'Use my location'}
-              </Button>
-
               <Field label={matchedOrg.terminology.groupLabel || 'Trade Sector'} required infoText="Routes your issues to the right committee.">
-                <Input value={memberGroup} onChangeText={setMemberGroup} placeholder="IT Workers, Nursing, Transport" />
+                <Input value={memberGroup} onChangeText={setMemberGroup} />
               </Field>
 
-              <View style={{ flexDirection: 'row', gap: 10 }}>
-                <View style={{ flex: 1 }}>
-                  <Button variant="secondary" block onPress={() => setStep('member_q2')}>Back</Button>
-                </View>
-                <View style={{ flex: 2 }}>
-                  <Button block icon="check" disabled={!memberUnit.trim() || !memberGroup.trim() || busy} onPress={handleCompleteMemberSetup}>
-                    {busy ? 'Joining…' : 'Complete Setup'}
-                  </Button>
-                </View>
-              </View>
+              <Button block icon="check" disabled={!memberUnit.trim() || !memberGroup.trim() || busy} onPress={handleCompleteMemberSetup}>
+                {busy ? 'Joining…' : 'Complete Setup'}
+              </Button>
             </Card>
           )}
         </ScrollView>

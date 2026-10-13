@@ -63,12 +63,12 @@ export default function Raise() {
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: colors.bgApp }}>
+    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 8 : 0} style={{ flex: 1, backgroundColor: colors.bgApp }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 16, paddingRight: 6, paddingTop: top }}>
         <Txt variant="displayS" style={{ flex: 1 }}>{'Raise ' + (/^[aeiou]/i.test(terminology.caseLabel) ? 'an ' : 'a ') + terminology.caseLabel.toLowerCase()}</Txt>
         <IconButton icon="x" label="Close" size="lg" onPress={() => router.back()} />
       </View>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 16, padding: 16, paddingBottom: insets.bottom + 24 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" automaticallyAdjustKeyboardInsets contentContainerStyle={{ gap: 16, padding: 16, paddingBottom: Math.max(insets.bottom, 16) + 24 }}>
         <Notice tone="info" title="You don’t need to know who handles it">Your organization’s routing rules send it to the right committee from your location, group and category.</Notice>
         <Field label="Category" required error={tried && !v.category ? 'Choose a category' : null}>
           <Select label="Category" value={v.category} onChange={(category) => setV({ ...v, category })} options={options} placeholder="Choose a category" invalid={tried && !v.category} />

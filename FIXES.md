@@ -276,3 +276,28 @@ Key files: `supabase/schema.sql` (rewritten, idempotent, migrates the old versio
 - **Direct messages**: optional in the PRD and not enabled.
 - **Load testing, localization, accessibility audit** (PRD Phase 4).
 - TypeScript `strict` is still off (repo convention); the new code is typed but strict mode would surface older issues.
+
+---
+
+# Round 2 — review of `main` @ `b829be4` (2026-10-14)
+
+Fixes for the findings in the review of the four commits merged after PR #1. Verified:
+`npm run lint` ✅ · `npm test` ✅ 66/66 (12 new) · `npx expo export --platform android` ✅.
+
+| # | Problem | Fix | Verified by |
+|---|---|---|---|
+| R1 | `app/issue.tsx` returned early **before** `useCallback`/`useEffect` → "Rendered more hooks" crash when auth state changes (e.g. opening a push deep link during sign-in) | All hooks run first; the auth/verified gate moved below them; `load` no-ops until signed in & verified | new `test/hooks-order.test.mjs` (scans every screen; confirmed it fails on the old file) |
+| R2 | `app/manage/case.tsx` lost its `c === null` branch → `TypeError` on a forbidden/deleted case or stale notification | "Not available" screen restored | typecheck + manual read |
+| R3 | `supabase/seed-ten-levels.sql` could not run anywhere: 11-char UUID groups, and a hard-coded live committee id broke an FK on any other project. The test claiming to be its companion never loaded it | Valid UUIDs; Executive committee looked up per tenant (created only if missing); idempotent | new `test/seed.test.mjs` executes the real file: fresh project, existing TU, re-run, RLS isolation, routing |
+| R4 | Seed created confirmed auth users for real-format Indian numbers and made one **org admin**; no audit rows | Refuses to run unless `SET app.allow_test_seed = 'on'`; fictional **+1 555-555-0101…0109** numbers (use Supabase *Test phone numbers* for OTP); `aud/role` set on real Supabase; audit row for every seeded membership & appointment | `test/seed.test.mjs` (guard, phone range, 12 audit rows, no duplicates on re-run) |
+| R5 | Push notifications stubbed out (`src/services/push.ts` no-ops) → no tokens, no delivery, no deep links (PRD §11, AC #22/#23) | Real implementation restored; native modules loaded defensively (`require` in `try`) so a binary without them gets no-ops instead of a crash; cold-start deep link via `getLastNotificationResponseAsync`; `pushSupported` flag | typecheck + Android bundle |
+| R6 | Session storage wrote the refresh token to SecureStore **and** AsyncStorage **and** a plaintext JSON file; SecureStore's ~2 KB limit not handled | New `src/lib/chunkedStore.ts`: value lives in exactly one place — SecureStore (chunked below 2 KB) when available; plaintext copies from older builds are migrated then deleted; single plaintext fallback only when no encrypted store exists | new `test/chunked-store.test.mjs` |
+| R7 | `is_platform_admin()` required an exact digit match, so a `7995731200` entry no longer matched `+917995731200` (docs said it would) | `e164_digits()` applies the app's rule (10 digits ⇒ +91); other country codes still don't match | new `test/admin-phone.test.mjs`; `docs/OPERATIONS.md` §1 updated |
+| R8 | §14.4: in-card **Back** buttons alongside the header chevron | Removed; header is the single navigation control; "Sign out · use a different number" links removed (Back on step 1 does that) | — |
+| R9 | §14.4: Back on the first admin/member step bounced forward (restored-session effect) | Back on step 1 signs out (via store `logout`, which also unregisters push) and a ref stops the effect from re-entering the wizard | — |
+| R10 | §14.4: example-data placeholders (Hyderabad, Telangana, Dr. Sarah Chen, …) | Removed; kept only non-obvious formats (phone, OTP, organization code) | grep |
+| R11 | §14.4: progress bar hidden on `admin_share`; "Use my location" below fields; title/phone could overflow | Full bar on share step; location button above city/state; `numberOfLines` on title and subtitle | — |
+| R12 | §14.4: keyboard covered inputs on post comments, group chat, case reply, profile and manage forms | `Screen` now wraps content in the PRD's keyboard stack (KAV `padding`/`height`, `keyboardVerticalOffset`, `automaticallyAdjustKeyboardInsets`, interactive dismiss, safe-area bottom padding) — every screen gets it; `Sheet`/`Dialog` handle Android; raise screen aligned; onboarding opts out (has its own) | typecheck + bundle |
+| R13 | Post bodies capped at 6 lines everywhere, including post detail — full text unreadable | `PostCard` `bodyLines` + "Read more" in feed and group lists; detail shows the full body | — |
+| R14 | Compose sheet showed the audience twice (Select + Tags) | Tags removed | — |
+| R15 | Docs: mobile-only PRD vs web-admin note | `docs/OPERATIONS.md` §6 now states the mobile target, web build as convenience; §7 documents the guarded test seed. PRD §15.1 still mentions Next.js — product decision left to you | — |

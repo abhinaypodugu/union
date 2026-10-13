@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, RefreshControl, ScrollView, ScrollViewProps, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, RefreshControl, ScrollView, ScrollViewProps, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, palette } from '../theme';
 import { Icon } from './Icon';
@@ -7,25 +7,38 @@ import { IconButton } from './IconButton';
 import { Txt } from './Txt';
 
 /** Scrollable screen on paper-50 with safe-area top padding. */
-export function Screen({ children, header, stickyHeaderIndices, refreshing, onRefresh, ...rest }: ScrollViewProps & { header?: React.ReactNode; refreshing?: boolean; onRefresh?: () => void }) {
+export function Screen({ children, header, stickyHeaderIndices, refreshing, onRefresh, avoidKeyboard = true, ...rest }: ScrollViewProps & { header?: React.ReactNode; refreshing?: boolean; onRefresh?: () => void; avoidKeyboard?: boolean }) {
   const insets = useSafeAreaInsets();
+  const scroll = (
+    <ScrollView
+      {...rest}
+      stickyHeaderIndices={stickyHeaderIndices}
+      keyboardShouldPersistTaps="handled"
+      // Keyboard must never cover the focused field (PRD §14.4): standard iOS/Android stack.
+      keyboardDismissMode={avoidKeyboard ? 'interactive' : rest.keyboardDismissMode}
+      automaticallyAdjustKeyboardInsets={avoidKeyboard ? true : rest.automaticallyAdjustKeyboardInsets}
+      contentContainerStyle={[{ paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 16) + 24 }, rest.contentContainerStyle]}
+      refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} /> : undefined}
+    >
+      {header}
+      {children}
+    </ScrollView>
+  );
   return (
     <View style={{ flex: 1, backgroundColor: colors.bgApp }}>
-      <ScrollView
-        {...rest}
-        stickyHeaderIndices={stickyHeaderIndices}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={[{ paddingTop: insets.top, paddingBottom: 32 }, rest.contentContainerStyle]}
-        refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} /> : undefined}
-      >
-        {header}
-        {children}
-      </ScrollView>
+      {avoidKeyboard ? (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 8 : 0}
+          style={{ flex: 1 }}
+        >
+          {scroll}
+        </KeyboardAvoidingView>
+      ) : scroll}
     </View>
   );
 }
 
-/** Large serif title header used on tab screens. */
 export function ScreenHeader({ title, overline, right }: { title: string; overline?: string; right?: React.ReactNode }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10, backgroundColor: colors.bgApp }}>
