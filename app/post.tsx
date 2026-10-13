@@ -1,8 +1,8 @@
 import React from 'react';
-import { View } from 'react-native';
+import { TextInput, View } from 'react-native';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
-import { Avatar, Button, Card, LoadingState, Notice, PostCard, Screen, SectionLabel, StackHeader, TextArea, Txt } from '../src/components';
-import { colors } from '../src/theme';
+import { Avatar, IconButton, LoadingState, Notice, PostCard, Screen, SectionLabel, StackHeader, Txt } from '../src/components';
+import { colors, fonts, palette, radius } from '../src/theme';
 import { useStore, Post, Comment } from '../src/store/AppStore';
 import { dbService } from '../src/services/db';
 import { errorMessage } from '../src/lib/format';
@@ -68,21 +68,26 @@ export default function PostDetail() {
      onLike={() => { toggleLike(post.id); setTimeout(load, 400); }}
     />
    </View>
-   <SectionLabel>{`Comments · ${comments.length}`}</SectionLabel>
-   <Card style={{ marginHorizontal: 12, gap: 12 }}>
-    {comments.length === 0 ? <Txt variant="bodyS" color={colors.textMuted}>No comments yet.</Txt> : comments.map((c) => (
+   <SectionLabel>{comments.length ? `Comments · ${comments.length}` : 'Comments'}</SectionLabel>
+   <View style={{ paddingHorizontal: 16, gap: 18 }}>
+    {comments.length === 0 ? <Txt variant="bodyS" color={colors.textMuted}>No comments yet. Start the conversation.</Txt> : comments.map((c) => (
      <View key={c.id} style={{ flexDirection: 'row', gap: 10 }}>
-      <Avatar name={c.authorName} size={28} />
-      <View style={{ flex: 1, gap: 2 }}>
-       <Txt variant="bodySStrong">{c.authorName} <Txt variant="bodyS" color={colors.textMuted}>{c.time}</Txt></Txt>
-       <Txt variant="body">{c.text}</Txt>
+      <Avatar name={c.authorName} size={32} />
+      <View style={{ flex: 1, gap: 4 }}>
+       <View style={{ alignSelf: 'flex-start', maxWidth: '100%', paddingVertical: 9, paddingHorizontal: 12, borderRadius: radius.l, borderTopLeftRadius: 4, backgroundColor: colors.surfaceCard, borderWidth: 1, borderColor: colors.borderSubtle, gap: 2 }}>
+        <Txt variant="bodySStrong" numberOfLines={1}>{c.authorName}</Txt>
+        <Txt style={{ fontFamily: fonts.sans400, fontSize: 15, lineHeight: 21 }} color={palette.ink800}>{c.text}</Txt>
+       </View>
+       <Txt variant="caption" color={colors.textMuted} style={{ paddingLeft: 12 }}>{c.time}</Txt>
       </View>
      </View>
     ))}
-   </Card>
-   <View style={{ padding: 12, gap: 8 }}>
-    <TextArea value={text} onChangeText={setText} placeholder="Add a comment…" />
-    <Button icon="send" disabled={!text.trim() || busy} onPress={send}>{busy ? 'Sending…' : 'Comment'}</Button>
+   </View>
+   <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 20, marginHorizontal: 12, padding: 6, paddingLeft: 8, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.borderDefault, backgroundColor: colors.surfaceCard }}>
+    <Avatar name={activeMember?.name || 'You'} size={30} />
+    <TextInput value={text} onChangeText={setText} placeholder="Add a comment…" placeholderTextColor={colors.textPlaceholder} multiline selectionColor={colors.accent}
+     style={{ flex: 1, minHeight: 36, maxHeight: 120, paddingTop: 8, paddingBottom: 8, fontFamily: fonts.sans400, fontSize: 15, color: colors.textPrimary }} />
+    <IconButton icon="send" label={busy ? 'Sending' : 'Post comment'} variant={text.trim() ? 'primary' : 'ghost'} onPress={busy || !text.trim() ? undefined : send} />
    </View>
   </Screen>
  );
