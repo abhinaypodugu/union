@@ -1,11 +1,12 @@
 import React from 'react';
-import { Image, Pressable, View } from 'react-native';
+import { Image, Platform, Pressable, View } from 'react-native';
 import { colors, fonts, palette, radius } from '../../theme';
+import { compactCount } from '../../lib/format';
 import { Avatar } from '../Avatar';
 import { Icon } from '../Icon';
 import { IconButton } from '../IconButton';
 import { Txt } from '../Txt';
-import { AudienceLabel, AudienceScope } from './AudienceLabel';
+import { AudienceScope } from './AudienceLabel';
 
 export interface PostCardProps {
   /** member = ordinary post · official = announcement · committee = private channel */
@@ -28,56 +29,89 @@ export interface PostCardProps {
   onMore?: () => void;
   /** Cap the body in lists; omit to show the full text (post detail). */
   bodyLines?: number;
-  /** Opens the full post; shown as "Read more" when the body is truncated. */
+  /** Opens the full post (tap on body / "Read more"). */
   onOpen?: () => void;
 }
 
-/** Instagram-familiar feed card. Official / committee-private / member are visually distinct (PRD §14.4). */
+const AUDIENCE_ICON: Record<AudienceScope, string> = { org: 'globe', region: 'map-pin', local: 'map-pin', group: 'users-round', committee: 'lock', private: 'lock', public: 'globe' };
+
+// Android draws dashed borders badly on rounded views (gaps/solid fallback), so private cards use a solid ink border there.
+const DASHED = Platform.OS === 'ios' ? 'dashed' : 'solid';
+
+/** Feed card. Official / committee-private / member must stay visually distinct (PRD §14.4). */
 export function PostCard(p: PostCardProps) {
   const { kind = 'member', author, source, audience, time, title, body, media, pinned, likes = 0, comments = 0, liked } = p;
   const official = kind === 'official';
   const committee = kind === 'committee';
-  const flag = (icon: string, text: string, priv?: boolean) => (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 9, backgroundColor: priv ? 'transparent' : colors.officialBg, borderBottomWidth: 1, borderStyle: priv ? 'dashed' : 'solid', borderBottomColor: priv ? colors.privateBorder : colors.officialBorder }}>
-      <Icon name={icon} size={14} strokeWidth={2} color={priv ? colors.privateFg : colors.officialFg} />
-      <Txt variant="overline" color={priv ? colors.privateFg : colors.officialFg} style={{ flex: 1 }} numberOfLines={1}>{text}</Txt>
-      {pinned ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><Icon name="pin" size={13} strokeWidth={2} color={colors.officialFg} /><Txt variant="overline" color={colors.officialFg}>Pinned</Txt></View> : null}
-    </View>
-  );
-  const isUri = media && /^(https?:|file:|data:)/.test(media);
+  const isUri = !!media && /^(https?:|file:|data:)/.test(media);
+  const scope = audience?.scope ?? 'org';
+  const priv = committee || scope === 'committee' || scope === 'private';
+  const metaColor = priv ? colors.privateFg : colors.textMuted;
+  const where = source || audience?.label;
+
   return (
     <View style={{
-      borderRadius: radius.l, overflow: 'hidden', borderWidth: 1,
-      backgroundColor: committee ? colors.surfacePrivate : colors.surfaceCard,
+      borderRadius: radius.xl, overflow: 'hidden',
+      borderWidth: official ? 1.5 : 1,
+      borderStyle: committee ? DASHED : 'solid',
       borderColor: official ? colors.officialBorder : committee ? colors.privateBorder : colors.borderSubtle,
-      borderStyle: committee ? 'dashed' : 'solid',
-      boxShadow: official ? '0px 0px 0px 3px ' + colors.officialBg : undefined,
+      backgroundColor: committee ? colors.surfacePrivate : colors.surfaceCard,
     }}>
-      {official ? flag('badge-check', 'Official announcement') : null}
-      {committee ? flag('lock', 'Committee-private · not visible to members', true) : null}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 14 }}>
-        <Avatar name={author.name} size={40} official={official || author.official} />
-        <View style={{ flex: 1, gap: 3 }}>
-          <Txt style={{ fontFamily: fonts.sans600, fontSize: 14.5, lineHeight: 18 }} numberOfLines={1}>
-            {author.name}{author.role ? <Txt style={{ fontFamily: fonts.sans400, fontSize: 14.5 }} color={colors.textMuted}>{' · ' + author.role}</Txt> : null}
-          </Txt>
-          <Txt style={{ fontFamily: fonts.sans400, fontSize: 12.5 }} color={colors.textMuted} numberOfLines={1}>{[source, time].filter(Boolean).join('  ·  ')}</Txt>
+      {official ? (
+        <Band bg={colors.officialBg} fg={colors.officialFg} border={colors.officialBorder} icon="badge-check" text="Official announcement" pinned={pinned} />
+      ) : committee ? (
+        <Band bg="transparent" fg={colors.privateFg} border={colors.privateBorder} borderStyle={DASHED} icon="lock" text="Committee only · not visible to members" />
+      ) : null}
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingLeft: 16, paddingRight: 6, paddingTop: 14 }}>
+        <Avatar name={author.name} size={42} official={official || author.official} />
+        <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Txt style={{ fontFamily: fonts.sans600, fontSize: 15, lineHeight: 20, flexShrink: 1 }} numberOfLines={1}>{author.name}</Txt>
+            {author.role ? <Txt style={{ fontFamily: fonts.sans400, fontSize: 13, lineHeight: 20, flexShrink: 2 }} color={colors.textMuted} numberOfLines={1}>{author.role}</Txt> : null}
+            {pinned && !official ? <Icon name="pin" size={13} color={colors.textMuted} strokeWidth={2} /> : null}
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }} accessible accessibilityLabel={(where ? 'Posted to ' + where + '. ' : '') + (audience ? 'Visible to ' + audience.label + '. ' : '') + (time || '')}>
+            <Icon name={AUDIENCE_ICON[scope]} size={12} color={metaColor} strokeWidth={2.25} />
+            {where ? <Txt style={{ fontFamily: fonts.sans500, fontSize: 12.5, lineHeight: 16, flexShrink: 1 }} color={metaColor} numberOfLines={1}>{where}</Txt> : null}
+            {where && time ? <View style={{ width: 3, height: 3, borderRadius: 2, backgroundColor: colors.textMuted }} /> : null}
+            {time ? <Txt style={{ fontFamily: fonts.sans400, fontSize: 12.5, lineHeight: 16 }} color={colors.textMuted}>{time}</Txt> : null}
+          </View>
         </View>
-        <IconButton icon="ellipsis" label="Post options" size="sm" onPress={p.onMore} />
+        <IconButton icon="ellipsis" label="Post options" onPress={p.onMore} color={palette.ink500} />
       </View>
-      {title ? <Txt variant="displayS" numberOfLines={2} style={{ marginHorizontal: 16, marginTop: 12, flexShrink: 1 }}>{title}</Txt> : null}
-      {body ? <PostBody body={body} lines={p.bodyLines} onOpen={p.onOpen} /> : null}
+
+      <Pressable disabled={!p.onOpen} onPress={p.onOpen} style={{ paddingHorizontal: 16, paddingTop: title ? 14 : 10, gap: 6 }}>
+        {title ? <Txt variant="displayS" color={palette.ink900}>{title}</Txt> : null}
+        {body ? <PostBody body={body} lines={p.bodyLines} canOpen={!!p.onOpen} /> : null}
+      </Pressable>
+
       {media ? (
-        <View style={{ marginTop: 12, aspectRatio: 4 / 3, backgroundColor: palette.paper150, alignItems: 'center', justifyContent: 'center', borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.borderSubtle }}>
-          {isUri ? <Image source={{ uri: media }} style={{ width: '100%', height: '100%' }} resizeMode="cover" /> : <Txt variant="mono" color={palette.ink500}>{media}</Txt>}
+        <View style={{ marginTop: 14, marginHorizontal: 12, borderRadius: radius.l, overflow: 'hidden', aspectRatio: 4 / 3, backgroundColor: palette.paper150, alignItems: 'center', justifyContent: 'center' }}>
+          {isUri ? <Image source={{ uri: media }} style={{ width: '100%', height: '100%' }} resizeMode="cover" accessibilityIgnoresInvertColors /> : <Txt variant="mono" color={palette.ink500}>{media}</Txt>}
         </View>
       ) : null}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, paddingHorizontal: 8, paddingTop: 6, paddingBottom: 8, marginTop: 4 }}>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, marginHorizontal: 8, paddingVertical: 4, borderTopWidth: 1, borderTopColor: committee ? palette.paper200 : colors.borderSubtle }}>
         <Action icon="heart" count={likes} on={liked} onPress={p.onLike} label={liked ? 'Unlike' : 'Like'} />
-        <Action icon="message-circle" count={comments} onPress={p.onComment} label="Comment" />
-        {!committee ? <Action icon="share-2" onPress={p.onShare} label="Share" /> : null}
-        <View style={{ marginLeft: 'auto', paddingRight: 8, flexShrink: 1 }}>{audience ? <AudienceLabel {...audience} /> : null}</View>
+        <Action icon="message-circle" count={comments} onPress={p.onComment ?? p.onOpen} label={comments ? comments + ' comments' : 'Comment'} />
+        {!committee && p.onShare ? <Action icon="share-2" onPress={p.onShare} label="Share" /> : null}
       </View>
+    </View>
+  );
+}
+
+function Band({ bg, fg, border, borderStyle = 'solid', icon, text, pinned }: { bg: string; fg: string; border: string; borderStyle?: 'solid' | 'dashed'; icon: string; text: string; pinned?: boolean }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 16, height: 34, backgroundColor: bg, borderBottomWidth: 1, borderStyle, borderBottomColor: border }}>
+      <Icon name={icon} size={14} strokeWidth={2.25} color={fg} />
+      <Txt variant="overline" color={fg} style={{ flex: 1 }} numberOfLines={1}>{text}</Txt>
+      {pinned ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+          <Icon name="pin" size={12} strokeWidth={2.25} color={fg} />
+          <Txt variant="overline" color={fg}>Pinned</Txt>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -85,33 +119,34 @@ export function PostCard(p: PostCardProps) {
 function Action({ icon, count, on, onPress, label }: { icon: string; count?: number; on?: boolean; onPress?: () => void; label: string }) {
   const c = on ? palette.redSolid : palette.ink700;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, height: 40, paddingHorizontal: 10, borderRadius: 20, backgroundColor: pressed ? colors.surfaceHover : 'transparent', transform: [{ scale: pressed ? 0.94 : 1 }] })}>
-      <Icon name={icon} size={20} color={c} fill={on ? c : 'none'} />
-      {count ? <Txt style={{ fontFamily: fonts.sans600, fontSize: 13 }} color={c}>{String(count)}</Txt> : null}
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected: !!on }} onPress={onPress} hitSlop={4}
+      style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 64, height: 44, paddingHorizontal: 10, borderRadius: radius.pill, backgroundColor: pressed ? colors.surfaceHover : 'transparent' })}>
+      {({ pressed }) => (
+        <>
+          <View style={{ transform: [{ scale: pressed ? 0.88 : 1 }] }}><Icon name={icon} size={21} color={c} fill={on ? c : 'none'} strokeWidth={1.9} /></View>
+          {count ? <Txt style={{ fontFamily: fonts.sans600, fontSize: 13.5, lineHeight: 18, fontVariant: ['tabular-nums'] }} color={on ? c : palette.ink700}>{compactCount(count)}</Txt> : null}
+        </>
+      )}
     </Pressable>
   );
 }
 
-/** Body text; when capped and actually truncated, offers "Read more" (PRD §8.1: posts must stay readable). */
-function PostBody({ body, lines, onOpen }: { body: string; lines?: number; onOpen?: () => void }) {
+/** Body text; when capped and actually truncated, shows "Read more" (PRD §8.1: posts must stay readable). */
+function PostBody({ body, lines, canOpen }: { body: string; lines?: number; canOpen: boolean }) {
   const [truncated, setTruncated] = React.useState(false);
+  const heuristic = !!lines && (body.length > lines * 55 || body.split('\n').length > lines);
   return (
-    <View style={{ marginHorizontal: 16, marginTop: 8 }}>
+    <View>
       <Txt
-        variant="body"
+        style={{ fontFamily: fonts.sans400, fontSize: 15.5, lineHeight: 23 }}
         color={palette.ink800}
         numberOfLines={lines}
-        style={{ flexShrink: 1 }}
-        // iOS reports every line, Android only the visible ones — so also use a length heuristic below.
+        // iOS reports every line, Android only the visible ones — hence the length heuristic too.
         onTextLayout={lines ? (e) => setTruncated(e.nativeEvent.lines.length > lines) : undefined}
       >
         {body}
       </Txt>
-      {lines && onOpen && (truncated || body.length > lines * 60 || body.split('\n').length > lines) ? (
-        <Pressable onPress={onOpen} accessibilityRole="link" hitSlop={8} style={{ marginTop: 4, alignSelf: 'flex-start' }}>
-          <Txt variant="bodySStrong" color={colors.accent}>Read more</Txt>
-        </Pressable>
-      ) : null}
+      {lines && canOpen && (truncated || heuristic) ? <Txt variant="bodySStrong" color={colors.accent} style={{ marginTop: 4 }}>Read more</Txt> : null}
     </View>
   );
 }

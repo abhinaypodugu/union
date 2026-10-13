@@ -68,3 +68,10 @@ export function errorMessage(err: unknown): string {
   const msg = typeof err === 'string' ? err : (err as { message?: string }).message || String(err);
   return msg.replace(/^.*?ERROR:\s*/, '').slice(0, 200);
 }
+
+/** 950 → "950", 1240 → "1.2k", 18400 → "18k", 1200000 → "1.2M". */
+export function compactCount(n: number): string {
+  if (!Number.isFinite(n) || n < 1000) return String(Math.max(0, Math.round(n || 0)));
+  const fmt = (v: number, s: string) => (v < 10 ? v.toFixed(1).replace(/\.0$/, '') : String(Math.round(v))) + s;
+  return n < 1e6 ? fmt(n / 1e3, 'k') : fmt(n / 1e6, 'M');
+}
