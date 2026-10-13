@@ -367,6 +367,17 @@ UPDATE posts SET audience_scope = 'org' WHERE audience_scope NOT IN ('local', 'g
 ALTER TABLE posts ADD CONSTRAINT posts_audience_scope_check
   CHECK (audience_scope IN ('local', 'group', 'region', 'org', 'committee'));
 
+-- Migrate comments: earlier schema created comments without tenant_id.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'comments') THEN
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS tenant_id TEXT REFERENCES tenants(id) ON DELETE CASCADE;
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS author_id TEXT;
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS removed BOOLEAN NOT NULL DEFAULT FALSE;
+    UPDATE comments c SET tenant_id = p.tenant_id FROM posts p WHERE c.post_id = p.id AND c.tenant_id IS NULL;
+    DELETE FROM comments WHERE tenant_id IS NULL;
+  END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS comments (
   id TEXT PRIMARY KEY DEFAULT ('c-' || gen_random_uuid()::text),
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,

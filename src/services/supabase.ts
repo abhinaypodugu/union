@@ -1,6 +1,56 @@
-import { AppState, Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState, Platform, NativeModules } from 'react-native';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+
+// Safe storage adapter that checks for native AsyncStorage module availability
+// before accessing it, falling back cleanly to an in-memory store so native shells
+// without the RNCAsyncStorage module never crash on startup.
+const memoryStore = new Map<string, string>();
+
+export const safeStorage = {
+  getItem: async (key: string): Promise<string | null> => {
+    try {
+      if (Platform.OS === 'web') {
+        if (typeof localStorage !== 'undefined') return localStorage.getItem(key);
+        return memoryStore.get(key) ?? null;
+      }
+      if (NativeModules && (NativeModules.RNCAsyncStorage || NativeModules.PlatformLocalStorage)) {
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        return await AsyncStorage.getItem(key);
+      }
+    } catch { }
+    return memoryStore.get(key) ?? null;
+  },
+  setItem: async (key: string, value: string): Promise<void> => {
+    try {
+      if (Platform.OS === 'web') {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(key, value);
+          return;
+        }
+      } else if (NativeModules && (NativeModules.RNCAsyncStorage || NativeModules.PlatformLocalStorage)) {
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        await AsyncStorage.setItem(key, value);
+        return;
+      }
+    } catch { }
+    memoryStore.set(key, value);
+  },
+  removeItem: async (key: string): Promise<void> => {
+    try {
+      if (Platform.OS === 'web') {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.removeItem(key);
+          return;
+        }
+      } else if (NativeModules && (NativeModules.RNCAsyncStorage || NativeModules.PlatformLocalStorage)) {
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        await AsyncStorage.removeItem(key);
+        return;
+      }
+    } catch { }
+    memoryStore.delete(key);
+  },
+};
 
 // EXPO_PUBLIC_* values are inlined at build time only when referenced statically
 // (process.env.EXPO_PUBLIC_X), so they are read one by one here.
@@ -19,8 +69,7 @@ export const isSupabaseConfigured = Boolean(
 
 export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    // Sessions survive app restarts (PRD §12.3 secure sessions); web uses localStorage.
-    storage: Platform.OS === 'web' ? undefined : AsyncStorage,
+    storage: safeStorage,
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: false,

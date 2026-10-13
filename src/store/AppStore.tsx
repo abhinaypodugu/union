@@ -1,6 +1,6 @@
 import React from 'react';
 import { View } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { safeStorage as AsyncStorage } from '../services/supabase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Toast, ToastData } from '../components/Toast';
 import { dbService } from '../services/db';
