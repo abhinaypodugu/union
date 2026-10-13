@@ -20,19 +20,19 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
-      - name: Build Web Application
-        run: npm run build
+      - name: Lint & Typecheck
+        run: npm run lint
+
+      - name: Export Expo Bundle
+        run: npx expo export --platform android
 
       - name: Set up Java JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
-
-      - name: Sync Capacitor Android Project
-        run: npx cap sync android
 
       - name: Grant Execute Permission to Gradlew
         run: chmod +x android/gradlew
@@ -45,5 +45,5 @@ jobs:
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: commons-mobile-apk
+          name: union-mobile-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk

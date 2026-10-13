@@ -17,13 +17,17 @@ export default function Raise() {
   const top = Platform.OS === 'ios' ? 8 : insets.top;
 
   const submit = () => {
-    setTried(true);
     if (!ok) return;
-    const issue = addIssue(v);
+    const issue = addIssue({
+      title: v.title,
+      category: v.category,
+      desc: v.desc,
+      affectsOthers: v.others,
+      confidential: v.category.toLowerCase().includes('confidential') || v.category.toLowerCase().includes('harassment'),
+    });
     router.back();
     toast({ title: 'Issue submitted', description: 'Routed to ' + issue.committee, action: 'View', onAction: () => router.push('/issue?id=' + issue.id) });
   };
-
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: colors.bgApp }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 16, paddingRight: 6, paddingTop: top }}>

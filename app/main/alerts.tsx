@@ -6,19 +6,18 @@ import { colors } from '../../src/theme';
 import { useStore } from '../../src/store/AppStore';
 
 export default function Alerts() {
-  const { readIds, markRead, markAllRead } = useStore();
-  const notifications: Array<{
-    id: string;
-    group: 'Today' | 'Earlier';
-    kind: any;
-    title: any;
-    context?: string;
-    time: string;
-    mandatory?: boolean;
-    unread?: boolean;
-    href?: string;
-  }> = [];
-
+  const { notifications: storeNotifications, readIds, markRead, markAllRead } = useStore();
+  const notifications = storeNotifications.map((n) => ({
+    id: n.id,
+    group: (n.group_name === 'Earlier' ? 'Earlier' : 'Today') as 'Today' | 'Earlier',
+    kind: (n.kind || 'status') as 'status' | 'announcement' | 'reply' | 'escalation' | 'security' | 'appointment',
+    title: n.title,
+    context: n.context || undefined,
+    time: n.time_ago || 'Recent',
+    mandatory: Boolean(n.mandatory),
+    unread: n.unread !== false && !readIds.has(n.id),
+    href: n.go_target ? (n.go_target.startsWith('CASE') ? `/issue?id=${n.go_target}` : `/main`) : undefined,
+  }));
   return (
     <Screen>
       <ScreenHeader

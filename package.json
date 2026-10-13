@@ -8,12 +8,14 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
+    "build": "expo export",
+    "test": "node --test",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@expo-google-fonts/ibm-plex-mono": "*",
-    "@expo-google-fonts/public-sans": "*",
-    "@expo-google-fonts/source-serif-4": "*",
+    "@expo-google-fonts/ibm-plex-mono": "^0.2.3",
+    "@expo-google-fonts/public-sans": "^0.2.3",
+    "@expo-google-fonts/source-serif-4": "^0.2.3",
     "@supabase/supabase-js": "^2.117.3",
     "expo": "~57.0.0",
     "expo-asset": "~57.0.19",

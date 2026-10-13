@@ -1,11 +1,12 @@
 {
   "expo": {
-    "name": "Commons",
+    "name": "Union",
     "slug": "union",
     "owner": "abhinaypodugu200s-team",
-    "scheme": "commons",
+    "scheme": "union",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "bundleIdentifier": "org.commons.union",
@@ -16,7 +17,11 @@
     },
     "android": {
       "package": "org.commons.union",
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1E40AF"
+      }
     },
     "splash": {
       "backgroundColor": "#FAF8F5"

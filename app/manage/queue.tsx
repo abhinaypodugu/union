@@ -6,7 +6,27 @@ import { colors } from '../../src/theme';
 import { useStore } from '../../src/store/AppStore';
 
 export default function Queue() {
-  const { cases } = useStore();
+  const { cases, activeMember, isPlatformSuperAdmin } = useStore();
+  const isAuthorized = Boolean(
+    activeMember?.isLeader ||
+    isPlatformSuperAdmin ||
+    activeMember?.roles?.some((r) => ['super_admin', 'org_admin', 'chair', 'handler'].includes(r))
+  );
+
+  if (!isAuthorized) {
+    return (
+      <Screen>
+        <StackHeader onBack={() => router.back()} title="Issue queue" />
+        <View style={{ padding: 24, alignItems: 'center', gap: 12, marginTop: 40 }}>
+          <IconTile icon="lock" tone="committee" />
+          <Txt variant="titleM" align="center">Access Restricted</Txt>
+          <Txt variant="bodyS" color={colors.textSecondary} align="center">
+            Only assigned issue handlers and committee chairs may access the triage queue.
+          </Txt>
+        </View>
+      </Screen>
+    );
+  }
   const [tab, setTab] = React.useState('all');
   const list = cases.filter((c) => tab === 'all' ? true : tab === 'un' ? !c.assignee : tab === 'overdue' ? c.dueState === 'overdue' : c.status === 'escalated');
   return (
@@ -35,6 +55,6 @@ export default function Queue() {
           </Card>
         ) : null}
       </View>
-    </Screen>
+    </Screen >
   );
 }

@@ -11,35 +11,25 @@ export default function Home() {
   const { liked, toggleLike, posts: storePosts, tenant, activeMember, isPlatformSuperAdmin } = useStore();
   const [filter, setFilter] = React.useState(FILTERS[0]);
   const [refreshing, setRefreshing] = React.useState(false);
-  const posts = storePosts.filter((p) => filter === 'For you' ? true : filter === 'Announcements' ? p.kind === 'official' : p.mine && p.kind !== 'official');
+  const posts = storePosts.filter((p) => {
+    if (filter === 'For you') return true;
+    if (filter === 'Announcements') return p.kind === 'official';
+    if (p.audience?.scope === 'group') {
+      return (activeMember?.groups || []).some((g) => (p.audience?.label || '').includes(g));
+    }
+    if (p.audience?.scope === 'local') {
+      return (p.audience?.label || '').includes(activeMember?.unit || '');
+    }
+    return p.mine || p.author.name === activeMember?.name;
+  });
   const refresh = () => { setRefreshing(true); setTimeout(() => setRefreshing(false), 800); };
-  const stories = activeMember
-    ? [
-      { name: activeMember.unit || 'Local Unit' },
-      ...(activeMember.groups || []).map((g) => ({ name: g })),
-    ]
-    : [];
   return (
-    <Screen stickyHeaderIndices={[2]} refreshing={refreshing} onRefresh={refresh}>
+    <Screen stickyHeaderIndices={[1]} refreshing={refreshing} onRefresh={refresh}>
       <ScreenHeader overline={tenant?.name || 'Organization'} title="Home" right={<>
         <IconButton icon="search" label="Search" size="lg" />
         {(activeMember?.isLeader || isPlatformSuperAdmin) ? <IconButton icon="shield" label="Management" size="lg" onPress={() => router.push('/manage')} /> : null}
         <Pressable accessibilityLabel="Your profile" onPress={() => router.push('/profile')} style={{ marginLeft: 4 }}><Avatar name={activeMember?.name || 'User'} size={34} /></Pressable>
       </>} />
-
-      {stories.length > 0 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingHorizontal: 16, paddingTop: 6, paddingBottom: 14 }}>
-          {stories.map((g) => (
-            <Pressable key={g.name} onPress={() => router.push('/main/groups')} style={{ width: 66, alignItems: 'center', gap: 6 }}>
-              <View style={{ padding: 2.5, borderRadius: 40, borderWidth: 1, borderColor: palette.paper300 }}>
-                <Avatar name={g.name} size={54} />
-              </View>
-              <Txt style={{ fontFamily: fonts.sans600, fontSize: 11.5 }} color={palette.ink800} numberOfLines={1}>{g.name}</Txt>
-            </Pressable>
-          ))}
-        </ScrollView>
-      )}
-
       <View style={{ paddingHorizontal: 16, paddingBottom: 12, backgroundColor: colors.bgApp }}>
         <SegmentedControl items={FILTERS} value={filter} onChange={setFilter} />
       </View>

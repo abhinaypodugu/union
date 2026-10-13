@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Commons Platform — User & Testing Guide</title>
+  <title>Union — User & Testing Guide</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap" rel="stylesheet">
@@ -95,16 +95,6 @@
       font-weight: 600;
       color: var(--ink-900);
     }
-    .badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 12px;
-      font-size: 12px;
-      font-weight: 600;
-    }
-    .badge-blue { background: #e6f4ff; color: var(--accent); }
-    .badge-green { background: #f6ffed; color: var(--green); }
-    .badge-purple { background: #f9f0ff; color: var(--violet); }
     .print-btn {
       float: right;
       background: var(--accent);
@@ -125,71 +115,60 @@
 <body>
   <div class="container">
     <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
-    <h1>Commons Platform — User & Testing Guide</h1>
-    <p>Complete navigation flows, persona testing guide, and feature specifications for everyday members and leadership.</p>
+    <h1>Union — User & Testing Guide</h1>
+    <p>Complete navigation flows, Mobile + OTP onboarding, Admin Organization Setup, and Member Join guide for the <b>Union</b> platform.</p>
 
     <blockquote>
       "Geography determines jurisdiction. Functional groups determine membership. Committees determine responsibility. Permissions determine access. Issues follow a configured resolution workflow." — PRD §1.3
     </blockquote>
 
-    <h2>1. Quick Start & Access Methods</h2>
-    <ul>
-      <li><b>Option A (Android .apk):</b> Download from GitHub Actions artifacts and install directly on Android.</li>
-      <li><b>Option B (Expo Go on iPhone):</b> Run <code>npx expo start</code>, scan QR code with Camera app.</li>
-      <li><b>Option C (PWA on iPhone):</b> Open in Safari &rarr; Tap Share &rarr; <b>Add to Home Screen</b>.</li>
-    </ul>
+    <h2>1. Mobile + OTP Welcome & Setup Flows</h2>
+    <p>The Welcome screen asks <b>only</b> for a <b>Mobile Number</b> followed by <b>6-digit OTP verification</b> persisted in Supabase.</p>
 
-    <h2>2. User Personas for Testing</h2>
-    <table>
-      <thead>
-        <tr><th>Persona</th><th>Organization</th><th>Role & Remit</th><th>Key Capabilities</th></tr>
-      </thead>
-      <tbody>
-        <tr><td><b>Priya Nair</b></td><td>Deccan Workers' Federation</td><td>Member & Issue Handler (IT Workers, Hyderabad)</td><td>Feed, raises issues, views local cases, accesses management tools.</td></tr>
-        <tr><td><b>Anita Desai</b></td><td>Deccan Workers' Federation</td><td>Secretary & Handler (Hyderabad IT Workers)</td><td>Assigns handlers, claims L1 complaints, updates timelines.</td></tr>
-        <tr><td><b>Imran Sheikh</b></td><td>Deccan Workers' Federation</td><td>Committee Chair (Level 2 · Telangana IT Workers)</td><td>Reviews statewide escalations, oversees caseload, receives SLA alerts.</td></tr>
-        <tr><td><b>Lakshmi Rao</b></td><td>Deccan Workers' Federation</td><td>State Admin (Telangana State Committee)</td><td>Executive oversight, statewide metrics, manages appointments, broadcasts.</td></tr>
-        <tr><td><b>Dr. Vikram Patel</b></td><td>Commons Platform</td><td><b>Platform Super Admin</b></td><td>Unrestricted cross-tenant oversight, privileged committee overrides, audit trail.</td></tr>
-        <tr><td><b>Maya Sen</b></td><td>National Educators Alliance</td><td>Member (Higher Ed, Bangalore Branch)</td><td><b>Tenant isolation proof:</b> Sees NEA faculty grievances, zero DWF data.</td></tr>
-      </tbody>
-    </table>
+    <h3>Path A: Founding Administrator (Create Organization & Share Code)</h3>
+    <p><i>Regular members do not see the organization creation flow. Only a whitelisted admin phone number (e.g. <code>9999999999</code>) or an account entering the Admin Setup Key (<code>UNION-ADMIN</code>) can create an organization.</i></p>
+    <ol>
+      <li><b>Mobile + OTP Verification:</b> Enter an admin phone number (or tap <i>"Founding administrator? Enter admin key"</i> and enter <code>UNION-ADMIN</code>), then verify the 6-digit OTP code.</li>
+      <li><b>Step 1 of 3 (2 Questions):</b> Enter the official <b>Organization Name</b> and choose a unique <b>Organization Code</b> (e.g. <code>NHWU</code>).</li>
+      <li><b>Step 2 of 3 (2 Questions):</b> Enter the <b>Organization Description</b> and configure governance terms (<b>Case label</b> &amp; <b>Group label</b>).</li>
+      <li><b>Step 3 of 3 (2 Questions):</b> Enter the <b>Founding Administrator Name</b>, <b>Headquarters City</b>, and <b>Work Email</b>.</li>
+      <li><b>Share Invite Code Screen:</b> Once saved to Supabase, Union displays the <b>Organization Invite Code</b> with a <b>Share organization code</b> button so you can send the code to members.</li>
+    </ol>
 
-    <h2>3. Member Application Flows</h2>
-    <h3>Flow 1: Home Feed & Official Announcements</h3>
-    <p>Explore the Instagram-inspired feed. View circular group stories for Hyderabad, Telangana, and IT Workers. Switch between <b>For You</b>, <b>My groups</b>, and <b>Announcements</b> filters. Official announcements feature verified check-seals, serif display titles, and blue flag headers.</p>
+    <h3>Path B: Member Setup (Join via Shared Organization Code)</h3>
+    <ol>
+      <li><b>Mobile + OTP Verification:</b> Enter your 10-digit mobile number and verify the 6-digit OTP code.</li>
+      <li><b>Step 1 of 3 (1 Question):</b> Enter the <b>Organization Code</b> shared by your administrator (validated live against Supabase).</li>
+      <li><b>Step 2 of 3 (2 Questions):</b> Enter your <b>Full Name</b> and <b>Email Address</b>.</li>
+      <li><b>Step 3 of 3 (2 Questions):</b> Enter your <b>City / Branch</b> and <b>Trade Sector / Group</b>, then tap <b>Complete Setup</b> to persist your profile to Supabase and open the Home screen.</li>
+    </ol>
+
+    <h3>Returning Users</h3>
+    <p>Verifying an already-registered mobile number via OTP automatically restores the user's profile and organization from Supabase and signs directly into the Home screen.</p>
+
+    <h2>2. Member Application Flows</h2>
+    <h3>Flow 1: Clean Home Feed & Official Announcements</h3>
+    <p>Switch between <b>For you</b>, <b>My groups</b>, and <b>Announcements</b> filters pinned directly below the header. Official announcements feature verified check-seals, serif display titles, and blue flag headers.</p>
 
     <h3>Flow 2: Groups & Communities</h3>
-    <p>Displays enrolled geographic places (City, State, National) and trade functional groups with real-time unread counts. Notice the privacy notice card confirming private committee channels are separated by governance.</p>
+    <p>Displays enrolled geographic places (City, State, National) and trade functional groups. Private committee channels remain isolated by governance permissions.</p>
 
     <h3>Flow 3: Raising an Issue (Automated Routing)</h3>
-    <p>Tap <code>+ Raise</code> on the Issues tab. Fill in Category, Title, Description, and the "Affects other members" checkbox. The routing engine assigns it to the accountable committee based on category rules:</p>
-    <ul>
-      <li><i>Harassment / Retaliation:</i> Directly routed to Confidential Handlers at Tier 2 (State).</li>
-      <li><i>Facilities:</i> Routed to General Committee.</li>
-      <li><i>Wages / Health & Safety:</i> Routed to City Sector Committee (L1).</li>
-    </ul>
+    <p>Tap <code>+ Raise</code> on the Issues tab. Fill in Category, Title, Description, and the "Affects other members" checkbox. The routing engine assigns it to the accountable committee and persists it to Supabase.</p>
 
     <h3>Flow 4: Tracking Grievances & Escalation Timeline</h3>
-    <p>Tap any case card to view the status badge, deadline timer, and three-stage progress timeline (City L1 &rarr; State L2 &rarr; National L3). When the committee requests info, an amber alert appears allowing direct replies.</p>
+    <p>Tap any case card to view the status badge, deadline timer, and three-stage progress timeline (City L1 &rarr; State L2 &rarr; National L3).</p>
 
-    <h2>4. Leadership & Administration Flows</h2>
-    <h3>Flow 8: Accessing Management Tools</h3>
-    <p>Tap the <b>Shield icon (🛡️)</b> in the top-right header on the Home screen or go to Profile &rarr; Leadership tools.</p>
+    <h2>3. Leadership & Administration Flows</h2>
+    <ul>
+      <li><b>Management Overview (<code>/manage</code>):</b> Displays your <b>Member Invite Code</b> with a one-tap <b>Share code</b> button, open case metrics, and pending approvals.</li>
+      <li><b>Issue Queue (<code>/manage/queue</code>):</b> Filter by All open, Unassigned, Overdue, and Escalated. Claim, assign handlers, escalate with mandatory justification, or resolve cases.</li>
+      <li><b>Committees &amp; Appointments (<code>/manage/committee</code>):</b> Manage committee rosters, terms, and Platform Super Admin overrides.</li>
+      <li><b>Broadcast Announcements (<code>/manage/announce</code>):</b> Publish official announcements to targeted audiences persisted in Supabase.</li>
+    </ul>
 
-    <h3>Flow 9: Issue Queue & Case Management</h3>
-    <p>In <code>/manage/queue</code>, filter by All open, Unassigned, Overdue, and Escalated. Tap any case to claim it, assign an officer, or escalate.</p>
-
-    <h3>Flow 10: Tiered Escalation with Mandatory Reason</h3>
-    <p>Tap <b>Escalate</b>. Enter the mandatory reason (e.g. <i>"Local employer refused to engage in 14-day SLA window"</i>). Tier increments L1 &rarr; L2 with an audit log record and complainant notification.</p>
-
-    <h3>Flow 11: Platform Super Admin Override</h3>
-    <p>Switch persona to Dr. Vikram Patel. In Committees & appointments, tap <code>+ Add</code>. Toggle <b>Platform Super Admin override</b>, provide justification reason, and save. The member receives a distinct red <code>Platform-admin override</code> badge.</p>
-
-    <h3>Flow 12: Organization Creation via UI</h3>
-    <p>In Profile &rarr; Organization context &rarr; tap <code>+ Create new organization (PRD §5.11)</code>. Establish a new isolated organization boundary with custom terminology mapping directly from the app.</p>
-
-    <h2>5. Database & Supabase Mode</h2>
-    <p>When <code>EXPO_PUBLIC_SUPABASE_URL</code> is configured in <code>.env</code>, the app runs in 100% Live Database Mode using PostgreSQL tables defined in <code>supabase/schema.sql</code> with real-time subscriptions and Row Level Security.</p>
+    <h2>4. Live Supabase Persistence</h2>
+    <p>All OTP sessions, organizations (<code>tenants</code>), member profiles (<code>profiles</code>), committees (<code>committees</code>, <code>committee_members</code>), geographic units (<code>geo_units</code>), functional groups (<code>functional_groups</code>), grievances (<code>issues</code>), posts (<code>posts</code>), and audit logs (<code>audit_logs</code>) are persisted live to Supabase PostgreSQL.</p>
   </div>
 </body>
 </html>

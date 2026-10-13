@@ -7,11 +7,13 @@ import { useStore } from '../../src/store/AppStore';
 
 export default function CaseDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { cases, assignCase, escalateCase, resolveCase, members, activeMember } = useStore();
+  const { cases, assignCase, escalateCase, resolveCase, requestMemberInfo, members, activeMember } = useStore();
   const c = cases.find((x) => x.id === id);
   const [assignOpen, setAssignOpen] = React.useState(false);
   const [escOpen, setEscOpen] = React.useState(false);
+  const [requestOpen, setRequestOpen] = React.useState(false);
   const [reason, setReason] = React.useState('');
+  const [question, setQuestion] = React.useState('');
   if (!c) return <Screen><StackHeader onBack={() => router.back()} /><Txt style={{ padding: 16 }}>Case not found or outside your scope.</Txt></Screen>;
 
   const local = c.group === 'IT Workers' ? 'Hyderabad IT Workers Committee' : 'Hyderabad ' + c.group + ' Committee';
@@ -37,10 +39,11 @@ export default function CaseDetail() {
           <Fact icon="file-text">{c.category}</Fact><Fact icon="map-pin">{c.location}</Fact><Fact icon="briefcase">{c.group}</Fact>
         </View>
       </View>
-      <View style={{ flexDirection: 'row', gap: 8, paddingHorizontal: 12, paddingTop: 16 }}>
-        <Button size="sm" icon="user-plus" variant={c.assignee ? 'secondary' : 'primary'} style={{ flex: 1 }} onPress={() => setAssignOpen(true)}>{c.assignee ? 'Reassign' : 'Assign'}</Button>
-        <Button size="sm" icon="chevrons-up" variant="secondary" style={{ flex: 1 }} disabled={c.level === 3} onPress={() => { setReason(''); setEscOpen(true); }}>Escalate</Button>
-        <Button size="sm" icon="circle-check" variant="secondary" style={{ flex: 1 }} disabled={c.status === 'resolved'} onPress={() => resolveCase(c.id)}>Resolve</Button>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingTop: 16 }}>
+        <Button size="sm" icon="user-plus" variant={c.assignee ? 'secondary' : 'primary'} style={{ flex: 1, minWidth: 100 }} onPress={() => setAssignOpen(true)}>{c.assignee ? 'Reassign' : 'Assign'}</Button>
+        <Button size="sm" icon="help-circle" variant="secondary" style={{ flex: 1, minWidth: 100 }} disabled={c.status === 'awaiting_member' || c.status === 'resolved'} onPress={() => { setQuestion(''); setRequestOpen(true); }}>Request info</Button>
+        <Button size="sm" icon="chevrons-up" variant="secondary" style={{ flex: 1, minWidth: 100 }} disabled={c.level === 3} onPress={() => { setReason(''); setEscOpen(true); }}>Escalate</Button>
+        <Button size="sm" icon="circle-check" variant="secondary" style={{ flex: 1, minWidth: 100 }} disabled={c.status === 'resolved'} onPress={() => resolveCase(c.id)}>Resolve</Button>
       </View>
       <Card padding={14} style={{ marginHorizontal: 12, marginTop: 14, paddingVertical: 2 }}>
         <KeyValue first k="Assignee" v={c.assignee ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}><Avatar name={c.assignee} size={22} /><Txt variant="bodyStrong">{c.assignee}</Txt></View> : <Txt variant="body" color={palette.redFg}>Unassigned</Txt>} />
@@ -71,6 +74,14 @@ export default function CaseDetail() {
         actions={<><Button variant="secondary" onPress={() => setEscOpen(false)}>Cancel</Button><Button icon="chevrons-up" disabled={!reason.trim()} onPress={() => { escalateCase(c.id, reason); setEscOpen(false); }}>Escalate</Button></>}>
         <Field label="Reason" required hint="Recorded in the audit trail and shown to the next committee.">
           <TextArea value={reason} onChangeText={setReason} placeholder="e.g. Employer refuses to engage at city level" />
+        </Field>
+      </Dialog>
+
+      <Dialog visible={requestOpen} onClose={() => setRequestOpen(false)} title="Request member details"
+        description="The complainant will be notified on their issue screen to provide information."
+        actions={<><Button variant="secondary" onPress={() => setRequestOpen(false)}>Cancel</Button><Button icon="send" disabled={!question.trim()} onPress={() => { requestMemberInfo(c.id, question.trim()); setRequestOpen(false); }}>Ask member</Button></>}>
+        <Field label="Question / Request" required hint="e.g. Please clarify exact dates or attach your work schedule.">
+          <TextArea value={question} onChangeText={setQuestion} placeholder="What details are needed?" />
         </Field>
       </Dialog>
     </Screen>

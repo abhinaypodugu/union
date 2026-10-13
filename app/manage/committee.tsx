@@ -9,12 +9,13 @@ import { useStore } from '../../src/store/AppStore';
 const STATUS: Record<MemberStatus, ['success' | 'warning' | 'neutral', string]> = { active: ['success', 'Active'], suspended: ['warning', 'Suspended'], pending: ['neutral', 'Pending approval'] };
 
 export default function Committee() {
-  const { members, setMembers, toast, committee } = useStore();
+  const { members, setMembers, toast, committee, addCommitteeMember, isPlatformSuperAdmin } = useStore();
   const [open, setOpen] = React.useState(false);
   const [memberName, setMemberName] = React.useState('');
   const [method, setMethod] = React.useState<'appoint' | 'nominate'>('appoint');
   const [position, setPosition] = React.useState('Member');
   const [override, setOverride] = React.useState(false);
+  const [overrideReason, setOverrideReason] = React.useState('');
   const C = committee || {
     name: 'Executive Committee',
     scope: 'Organization-wide',
@@ -32,18 +33,17 @@ export default function Committee() {
   const add = () => {
     const name = memberName.trim() || 'Committee Member';
     const active = method === 'appoint' || override;
-    const added: CommitteeMember = {
+    addCommitteeMember({
       name,
       role: position,
-      since: active ? 'Today' : 'Pending',
-      method: override ? 'Platform admin assignment' : method === 'appoint' ? 'Appointed by you' : 'Nominated · awaiting approval',
-      status: active ? 'active' : 'pending',
+      method: override ? 'Platform admin override' : method === 'appoint' ? 'Appointment' : 'Nomination & approval',
       override,
-    };
-    setMembers([...members, added]);
+      overrideReason: override ? overrideReason.trim() : undefined,
+    });
     setMemberName('');
+    setOverrideReason('');
+    setOverride(false);
     setOpen(false);
-    toast({ title: override ? 'Assigned as platform admin' : active ? 'Member appointed' : 'Nomination sent', description: 'Recorded in the appointment history' });
   };
 
   return (
@@ -68,7 +68,7 @@ export default function Committee() {
               </View>
             </View>
             {m.status === 'pending'
-              ? <Button size="sm" variant="secondary" onPress={() => { setMembers(members.map((x): CommitteeMember => x === m ? { ...x, status: 'active', since: '11 Oct 2026', method: 'Nominated · approved by you' } : x)); toast({ title: m.name + ' approved' }); }}>Approve</Button>
+              ? <Button size="sm" variant="secondary" onPress={() => { setMembers(members.map((x): CommitteeMember => x === m ? { ...x, status: 'active', since: 'Today', method: 'Nominated · approved by you' } : x)); toast({ title: m.name + ' approved' }); }}>Approve</Button>
               : <IconButton size="sm" icon="ellipsis" label={'Manage ' + m.name} />}
           </View>
         ))}
@@ -101,9 +101,20 @@ export default function Committee() {
             <Radio checked={method === 'appoint'} onChange={() => setMethod('appoint')} label="Appointment" description="You hold appointment authority for this committee." />
             <Radio checked={method === 'nominate'} onChange={() => setMethod('nominate')} label="Nomination & approval" description="State Executive approves before permissions apply." />
           </View>
-          <Checkbox checked={override} onChange={setOverride} label="Platform admin override" description="Bypasses the organization’s appointment workflow." />
-          {override ? <Notice tone="danger" title="Recorded as a platform-admin action">The audit trail will show this as an override — not an organization-approved appointment.</Notice> : null}
-          <Button size="lg" block variant={override ? 'danger' : 'primary'} icon={override ? 'shield' : 'user-plus'} onPress={add}>{override ? 'Assign as platform admin' : method === 'appoint' ? 'Appoint member' : 'Send nomination'}</Button>
+          {isPlatformSuperAdmin && (
+            <>
+              <Checkbox checked={override} onChange={setOverride} label="Platform admin override" description="Bypasses the organization’s appointment workflow." />
+              {override ? (
+                <View style={{ gap: 8 }}>
+                  <Notice tone="danger" title="Recorded as a platform-admin action">The audit trail will show this as an override — not an organization-approved appointment.</Notice>
+                  <Field label="Override reason" required>
+                    <Input value={overrideReason} onChangeText={setOverrideReason} placeholder="Enter mandatory override justification" />
+                  </Field>
+                </View>
+              ) : null}
+            </>
+          )}
+          <Button size="lg" block variant={override ? 'danger' : 'primary'} icon={override ? 'shield' : 'user-plus'} disabled={override && !overrideReason.trim()} onPress={add}>{override ? 'Assign as platform admin' : method === 'appoint' ? 'Appoint member' : 'Send nomination'}</Button>
         </View>
       </Sheet>
     </Screen>

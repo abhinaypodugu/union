@@ -1,8 +1,6 @@
-# Commons Platform — User & Testing Guide
+# Union — User & Testing Guide
 
-Welcome to the **Commons Multi-Tenant Membership, Community & Issue-Management Platform**. This guide provides a complete walkthrough of all features, user personas, navigation flows, and step-by-step test scenarios for both everyday members and organizational leaders.
-
----
+Welcome to **Union**, the multi-tenant membership, community, and issue-management platform. This guide covers the Mobile + OTP authentication flow, Admin Organization Creation & Invite Code sharing, the 1–2 question per screen Member Setup wizard, and live Supabase persistence.
 
 ## Table of Contents
 
@@ -74,18 +72,27 @@ You can access and test the app using any of the following methods:
 
 ---
 
-## 3. User Personas & Testing Accounts
+## 3. Mobile + OTP Authentication & Onboarding Flows
 
-The app includes pre-configured personas representing every organizational tier defined in the PRD. You can switch between them anytime from **Profile $\rightarrow$ Switch test persona**.
+The Welcome screen (`app/index.tsx`) asks **only** for a **Mobile Number** followed by **6-digit OTP verification** persisted in Supabase.
 
-| Persona | Organization | Role & Remit | What They See & Can Do |
-|---|---|---|---|
-| **Priya Nair** | Deccan Workers' Federation | Member & Local Issue Handler (IT Workers, Hyderabad) | Everyday feed, raises issues, views assigned local cases, accesses management tools. |
-| **Anita Desai** | Deccan Workers' Federation | Secretary & Issue Handler (Hyderabad IT Workers) | Handles Level 1 complaints, assigns handlers, manages committee communications. |
-| **Imran Sheikh** | Deccan Workers' Federation | Committee Chair (Level 2 · Telangana IT Workers) | Reviews Level 2 escalations, oversees statewide workload, receives SLA notifications. |
-| **Lakshmi Rao** | Deccan Workers' Federation | State Admin (Telangana State Committee) | Executive oversight, statewide metrics, manages appointments, publishes regional broadcasts. |
-| **Dr. Vikram Patel** | Commons Platform | **Platform Super Admin** (Platform-wide authority) | Unrestricted cross-tenant oversight, privileged committee overrides, immutable audit ledger access. |
-| **Maya Sen** | National Educators Alliance | Member (Higher Ed, Bangalore Branch) | **Tenant isolation proof:** Sees NEA branch groups, faculty grievances, and zero DWF data. |
+### Path A: Founding Administrator (Create Organization & Share Code)
+*Regular members cannot see or access the organization creation path. Only a whitelisted admin phone number (e.g. `9999999999`) or an account entering the Admin Setup Key (`UNION-ADMIN`) can create an organization.*
+
+1. **Mobile + Admin Verification:** Enter an admin mobile number (or tap *"Founding administrator? Enter admin key"* and enter `UNION-ADMIN`), then verify the 6-digit OTP code.
+2. **Step 1 of 3 (2 Questions):** Enter the **Organization Name** and choose a unique **Organization Code** (e.g. `NHWU`).
+3. **Step 2 of 3 (2 Questions):** Enter the **Organization Description** and configure governance nouns (**Case label** & **Group label**).
+4. **Step 3 of 3 (2 Questions):** Enter the **Founding Administrator Name**, **Headquarters City**, and **Email**.
+5. **Share Invite Code Screen:** Once created and persisted to Supabase, Union displays the **Organization Invite Code** with a **Share organization code** button so the admin can share it with members.
+
+### Path B: Member Onboarding (Join via Shared Organization Code)
+1. **Mobile + OTP Verification:** Enter your 10-digit mobile number and verify the 6-digit OTP code.
+2. **Step 1 of 3 (1 Question):** Enter the **Organization Code** shared by your administrator (verified live against Supabase).
+3. **Step 2 of 3 (2 Questions):** Enter your **Full Name** and **Email Address**.
+4. **Step 3 of 3 (2 Questions):** Enter your **City / Branch** (`level1Label`) and **Trade Sector / Group** (`groupLabel`), then tap **Complete Setup** to save your profile to Supabase and launch the Home screen.
+
+### Returning Users (Admin or Member)
+- Verifying your mobile number via OTP automatically detects your existing profile in Supabase and signs you directly into your organization's Home screen.
 
 ---
 
@@ -93,18 +100,16 @@ The app includes pre-configured personas representing every organizational tier 
 
 ### Flow 1: Home Feed & Official Announcements
 1. Tap the **Home** tab in the bottom bar.
-2. **Stories Row:** View circular badges for your enrolled geographic units (*Hyderabad*, *Telangana*, *India*) and trade groups (*IT Workers*, *Women in Tech*). Tap any story badge to jump to its group.
-3. **Filter Segment:**
-   - **For You:** Blended feed of updates and notices relevant to your location and sector.
-   - **My Groups:** Routine member discussions from your enrolled channels.
+2. **Filter Segment:**
+   - **For you:** Blended feed of updates and notices relevant to your location and sector.
+   - **My groups:** Routine member discussions from your enrolled channels.
    - **Announcements:** Verified official announcements published by leadership.
-4. **Visual Content Types (PRD §14.4):**
+3. **Visual Content Types (PRD §14.4):**
    - **Official Announcement:** Distinguished by a civic blue flag band, mono overline (`OFFICIAL ANNOUNCEMENT`), check-seal on the avatar, serif headline, and pale-blue highlight.
    - **Member Post:** Warm paper card with hairline border.
-5. **Engagement:**
-   - Tap the **Heart icon** to like/unlike (counter updates in real time).
-   - Tap **Share** to share via native system share sheet.
-
+4. **Engagement:**
+   - Tap the **Heart icon** to like/unlike.
+   - Tap **Share** to share via the native system share sheet.
 ---
 
 ### Flow 2: Groups & Trade Communities
@@ -177,19 +182,15 @@ Members do not need to guess which committee handles their complaint—the platf
 
 ---
 
-### Flow 7: Profile, Settings & Member Application
+### Flow 7: Profile, Settings & Admin Invite Code Sharing
 1. On the **Home** tab, tap your **Avatar** in the top-right.
-2. View your member hero with verified badge and ID number (`DWF-104582`).
-3. **Notification Preferences:**
+2. View your member hero with verified badge, verified mobile number, and ID number.
+3. **Admin Invite Code Card (Admins Only):**
+   - Administrators see the **Shareable Organization Code** card displaying the organization's code (e.g. `NHWU`) with a **Share code with members** button (`Share.share`) and a shortcut to the **Admin console**.
+   - Regular members only see their organization badge and cannot access organization creation.
+4. **Notification Preferences:**
    - Toggle *Official announcements*, *Replies & mentions*, and *Group activity*.
-   - *Case & Grievance updates* toggle is **locked on** with the note *"Mandated by organization constitution"* (PRD §11.3).
-4. **Apply for New Membership (PRD §6.1):**
-   - Tap **Apply for new membership**.
-   - Enter Name, Email, City, and Trade Sector $\rightarrow$ Tap **Submit application**.
-   - Member is placed in **`Pending verification`** status until an administrator approves them.
-
----
-
+   - *Case updates* toggle is **locked on** with the note *"Mandated by organization constitution"* (PRD §11.3).
 ## 5. Leadership & Administration Flows
 
 ### Flow 8: Accessing Management Tools
@@ -296,41 +297,27 @@ To resolve deadlocks or make emergency governance adjustments (**PRD §5.11, §1
 
 ---
 
-### Flow 17: Multi-Tenant Switching & Organization Creation
-1. Open **Profile** $\rightarrow$ tap the **Organization context** card.
-2. **Test Tenant Isolation:**
-   - Tap **National Educators Alliance (NEA)**.
-   - The app instantly switches to NEA:
-     - Feeds show academic council announcements.
-     - Issues show faculty grievances (`GRV-102`).
-     - Groups show Bangalore and Higher Education sectors.
-     - All DWF workplace cases and members are completely invisible.
-3. **Create a Brand-New Organization via the UI (PRD §5.11, §17.1):**
-   - In the organization sheet, tap **`+ Create new organization (PRD §5.11)`**.
-   - Enter Organization Name (e.g., *"Healthcare Workers Guild"*), Code (`HWG`), Short label (`HWG`), Description, Case noun (`Grievance`), and Sector noun (`Trade`).
-   - Tap **Establish organization**.
-   - A new isolated tenant is established immediately, custom terminology is applied across all tabs, and the event is logged to the audit trail.
+### Flow 17: Multi-Tenant Switching & Organization Creation (Admin Only)
+1. Open **Profile** as an Administrator $\rightarrow$ tap the **Organization** card.
+2. **Switch or Create Organizations:**
+   - Switch between active organizations in Supabase, or tap **`+ Create new organization`** to establish a new isolated tenant boundary and generate its shareable member invite code.
 
 ---
 
 ## 6. Live Database & Supabase Integration
 
-The app supports two database modes:
-
-### Mode 1: Local Offline Sandbox (Default)
-When no `.env` file is present, the app uses its reactive state store with synthetic seed data. All actions (creating cases, assignments, escalations, creating organizations) work in memory and persist across app sessions.
-
-### Mode 2: Live Supabase PostgreSQL Database (Production)
-When configured with your Supabase credentials in `.env`:
+All data in **Union** is persisted directly to your live Supabase PostgreSQL database (`supabase/schema.sql`):
 ```env
 EXPO_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOi...
+EXPO_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
+EXPO_PUBLIC_SUPABASE_SERVICE_KEY=sb_secret_...
+EXPO_PUBLIC_ADMIN_SETUP_KEY=UNION-ADMIN
+EXPO_PUBLIC_ADMIN_PHONES=9999999999,+919999999999
 ```
-- The app automatically switches to **100% Live Database Mode** (`dbService.isLive() = true`).
-- Reads and writes execute directly against the live PostgreSQL tables defined in `supabase/schema.sql`.
-- PostgreSQL Row Level Security (RLS) policies enforce multi-tenant isolation and hide internal notes from complainants at the database layer.
-- Realtime subscriptions keep all connected mobile devices synchronized in real time.
+- **Mobile OTP Verification:** Generates and persists 6-digit OTP codes in Supabase (`auth.users` metadata and `otp_verifications`).
+- **Organizations & Profiles:** Every organization (`tenants`), member/admin (`profiles`), committee (`committees`, `committee_members`), geographic unit (`geo_units`), trade group (`functional_groups`), grievance (`issues`), announcement (`posts`), and audit event (`audit_logs`) is stored in Supabase and hydrated automatically on launch.
+- **Realtime Sync:** Changes to issues and announcements stream live across connected devices.
 
 ---
 
-*Commons Platform · Built with Expo SDK 57, React Native, and Supabase · Conforming to PRD v1.2*
+*Union · Built with Expo SDK 57, React Native, and Supabase · Conforming to PRD v1.2*

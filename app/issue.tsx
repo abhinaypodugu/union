@@ -40,7 +40,7 @@ export default function IssueDetail() {
               <TextArea value={reply} onChangeText={setReply} placeholder="Add a note for the committee…" />
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <Button variant="secondary" icon="paperclip" style={{ flex: 1 }}>Attach</Button>
-                <Button icon="send" style={{ flex: 1 }} disabled={!reply.trim()} onPress={() => { replyToIssue(issue.id); setReply(''); toast({ title: 'Reply sent', description: 'The committee has been notified' }); }}>Send reply</Button>
+                <Button icon="send" style={{ flex: 1 }} disabled={!reply.trim()} onPress={() => { replyToIssue(issue.id, reply); setReply(''); toast({ title: 'Reply sent', description: 'The committee has been notified' }); }}>Send reply</Button>
               </View>
             </View>
           ) : null}

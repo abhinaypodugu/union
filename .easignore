@@ -1,0 +1,10 @@
+node_modules
+.expo
+dist
+dist-ssr
+web_backup
+*.apk
+*.log
+.git
+Design system react native
+Design system setup form

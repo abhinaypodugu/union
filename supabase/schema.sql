@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   member_number TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
   email TEXT NOT NULL,
+  phone TEXT,
   unit TEXT NOT NULL,            -- Local/City unit
   region TEXT NOT NULL,          -- State/Region
   country TEXT NOT NULL DEFAULT 'India',
@@ -48,6 +49,28 @@ CREATE TABLE IF NOT EXISTS profiles (
     "groupActivity": false,
     "caseUpdates": true
   }'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone TEXT;
+
+-- ==============================================================================
+-- 3B. MOBILE OTP VERIFICATIONS & ADMIN ACCESS
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS otp_verifications (
+  phone TEXT PRIMARY KEY,
+  code TEXT NOT NULL,
+  is_admin BOOLEAN NOT NULL DEFAULT FALSE,
+  verified BOOLEAN NOT NULL DEFAULT FALSE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS platform_admins (
+  phone TEXT PRIMARY KEY,
+  name TEXT,
+  setup_key TEXT NOT NULL DEFAULT 'UNION-ADMIN',
+  active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -131,7 +154,7 @@ CREATE TABLE IF NOT EXISTS issues (
   committee_id TEXT REFERENCES committees(id) ON DELETE SET NULL,
   committee_name TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'submitted' CHECK (
-    status IN ('submitted', 'triage', 'assigned', 'acknowledged', 'in_progress', 'awaiting_member', 'escalated', 'resolved', 'closed')
+    status IN ('submitted', 'triage', 'assigned', 'acknowledged', 'in_progress', 'awaiting_member', 'awaiting_external', 'escalated', 'resolved', 'closed', 'reopened', 'rejected')
   ),
   status_label TEXT,
   priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('normal', 'high', 'urgent')),
@@ -194,7 +217,9 @@ CREATE TABLE IF NOT EXISTS posts (
 
 CREATE TABLE IF NOT EXISTS comments (
   id TEXT PRIMARY KEY DEFAULT ('c-' || gen_random_uuid()::text),
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+  author_id TEXT,
   author_name TEXT NOT NULL,
   text TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -261,6 +286,10 @@ DECLARE
   v_is_confidential BOOLEAN := FALSE;
   v_stages JSONB;
 BEGIN
+  IF p_tenant_id != get_auth_tenant_id() AND NOT auth_has_any_role('super_admin') THEN
+    RAISE EXCEPTION 'Permission denied: cannot file grievance in other tenant';
+  END IF;
+
   -- Determine sequence id
   v_next_id := 'CASE-' || floor(1000 + random() * 9000)::text;
 
@@ -268,14 +297,15 @@ BEGIN
   IF lower(p_category) LIKE '%harassment%' OR lower(p_category) LIKE '%retaliation%' OR lower(p_category) LIKE '%confidential%' THEN
     v_is_confidential := TRUE;
     v_level := 2; -- Direct escalation for sensitive grievances
-    v_committee_name := 'Confidential Handlers · Regional';
-    v_committee_id := 'tg-it-c';
-  ELSIF lower(p_category) LIKE '%facilities%' THEN
-    v_committee_name := p_location || ' General Committee';
-    v_committee_id := 'hyd-gen-c';
+    v_committee_name := 'Confidential Grievance Handlers';
   ELSE
-    v_committee_name := p_location || ' ' || coalesce(p_group, 'IT Workers') || ' Committee';
-    v_committee_id := 'hyd-it-c';
+    v_committee_name := p_location || ' ' || coalesce(p_group, 'General') || ' Committee';
+  END IF;
+
+  -- Look up existing committee or executive committee for tenant
+  SELECT id INTO v_committee_id FROM committees WHERE tenant_id = p_tenant_id AND level = v_level LIMIT 1;
+  IF v_committee_id IS NULL THEN
+    SELECT id, name INTO v_committee_id, v_committee_name FROM committees WHERE tenant_id = p_tenant_id LIMIT 1;
   END IF;
 
   -- Build initial stages JSON
@@ -340,15 +370,23 @@ DECLARE
   v_new_level INTEGER;
   v_tenant_id TEXT;
   v_group TEXT;
+  v_complainant_id TEXT;
   v_next_committee TEXT;
 BEGIN
-  SELECT level, tenant_id, functional_group INTO v_current_level, v_tenant_id, v_group FROM issues WHERE id = p_issue_id;
+  SELECT level, tenant_id, functional_group, complainant_id
+    INTO v_current_level, v_tenant_id, v_group, v_complainant_id
+    FROM issues WHERE id = p_issue_id;
+
+  IF v_tenant_id != get_auth_tenant_id() AND NOT auth_has_any_role('super_admin') THEN
+    RAISE EXCEPTION 'Permission denied for case %', p_issue_id;
+  END IF;
+
   v_new_level := least(3, v_current_level + 1);
 
   IF v_new_level = 2 THEN
-    v_next_committee := 'Regional ' || coalesce(v_group, 'IT Workers') || ' Committee';
+    v_next_committee := 'Regional ' || coalesce(v_group, 'Trade') || ' Committee';
   ELSE
-    v_next_committee := 'National ' || coalesce(v_group, 'IT Workers') || ' Committee';
+    v_next_committee := 'National Board';
   END IF;
 
   UPDATE issues
@@ -373,9 +411,9 @@ BEGIN
 
   -- Notify complainant
   INSERT INTO notifications (
-    tenant_id, group_name, kind, unread, title, context, time_ago, go_target
+    tenant_id, recipient_id, group_name, kind, unread, title, context, time_ago, go_target
   ) VALUES (
-    v_tenant_id, 'Today', 'escalation', TRUE,
+    v_tenant_id, v_complainant_id, 'Today', 'escalation', TRUE,
     'Your case ' || p_issue_id || ' moved to the next committee level', 'Issues · Escalation Policy', 'Just now', p_issue_id
   );
 END;
@@ -411,72 +449,145 @@ CREATE OR REPLACE FUNCTION auth_has_any_role(VARIADIC p_roles TEXT[]) RETURNS BO
   );
 $$ LANGUAGE sql STABLE SECURITY DEFINER;
 
--- 1. Tenants policy
+-- 1. Tenants policies
 DROP POLICY IF EXISTS "Public read tenants" ON tenants;
 CREATE POLICY "Public read tenants" ON tenants FOR SELECT USING (active = true);
+DROP POLICY IF EXISTS "Allow tenant creation" ON tenants;
+CREATE POLICY "Allow tenant creation" ON tenants FOR INSERT WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow tenant updates" ON tenants;
+CREATE POLICY "Allow tenant updates" ON tenants FOR UPDATE USING (true);
 
--- 2. Profiles policy (Users can view profiles in their tenant, update own profile)
+-- 2. Profiles policies
 DROP POLICY IF EXISTS "View tenant profiles" ON profiles;
 CREATE POLICY "View tenant profiles" ON profiles FOR SELECT
-  USING (id = auth.uid() OR tenant_id = get_auth_tenant_id());
+  USING (id = auth.uid() OR tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
+
+DROP POLICY IF EXISTS "Insert own profile" ON profiles;
+CREATE POLICY "Insert own profile" ON profiles FOR INSERT
+  WITH CHECK (id = auth.uid() OR auth_has_any_role('super_admin', 'org_admin'));
 
 DROP POLICY IF EXISTS "Update own profile" ON profiles;
 CREATE POLICY "Update own profile" ON profiles FOR UPDATE
-  USING (id = auth.uid());
+  USING (id = auth.uid() OR auth_has_any_role('super_admin', 'org_admin'))
+  WITH CHECK (
+    -- Non-admins cannot alter their own roles, status, or tenant_id
+    (id = auth.uid() AND NOT auth_has_any_role('super_admin', 'org_admin')
+     AND roles = (SELECT p.roles FROM profiles p WHERE p.id = auth.uid())
+     AND status = (SELECT p.status FROM profiles p WHERE p.id = auth.uid())
+     AND tenant_id = (SELECT p.tenant_id FROM profiles p WHERE p.id = auth.uid()))
+    OR auth_has_any_role('super_admin', 'org_admin')
+  );
 
--- 3. Issues policy (Complainant views own cases; Officers view committee cases)
+-- 3. Issues policies (Strict privacy: confidential cases restricted to assigned handlers and complainant)
 DROP POLICY IF EXISTS "View permitted issues" ON issues;
 CREATE POLICY "View permitted issues" ON issues FOR SELECT
   USING (
-    tenant_id = get_auth_tenant_id() AND (
+    (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin')) AND (
+      complainant_id = auth.uid()::text OR
+      (confidential = false AND auth_has_any_role('handler', 'chair', 'org_admin', 'super_admin')) OR
+      (confidential = true AND auth_has_any_role('chair', 'org_admin', 'super_admin'))
+    )
+  );
+
+DROP POLICY IF EXISTS "Insert issues" ON issues;
+CREATE POLICY "Insert issues" ON issues FOR INSERT
+  WITH CHECK (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
+
+DROP POLICY IF EXISTS "Update issues" ON issues;
+CREATE POLICY "Update issues" ON issues FOR UPDATE
+  USING (
+    (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin')) AND (
       complainant_id = auth.uid()::text OR
       auth_has_any_role('handler', 'chair', 'org_admin', 'super_admin')
     )
   );
 
--- 4. Internal notes policy: STRICT PRIVACY (Complainants CANNOT read internal notes!)
+-- 4. Internal notes policies: STRICT PRIVACY (Complainants CANNOT read internal notes!)
 DROP POLICY IF EXISTS "Committee members only read internal notes" ON internal_notes;
 CREATE POLICY "Committee members only read internal notes" ON internal_notes FOR SELECT
   USING (
-    tenant_id = get_auth_tenant_id() AND
+    (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin')) AND
     auth_has_any_role('handler', 'chair', 'org_admin', 'super_admin')
   );
 
--- 5. Audit logs policy (Auditors and admins only)
+DROP POLICY IF EXISTS "Committee members insert internal notes" ON internal_notes;
+CREATE POLICY "Committee members insert internal notes" ON internal_notes FOR INSERT
+  WITH CHECK (
+    (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin')) AND
+    auth_has_any_role('handler', 'chair', 'org_admin', 'super_admin')
+  );
+
+-- 5. Audit logs policies (Admins and authorized reviewers only)
 DROP POLICY IF EXISTS "Admins view audit logs" ON audit_logs;
 CREATE POLICY "Admins view audit logs" ON audit_logs FOR SELECT
   USING (
-    tenant_id = get_auth_tenant_id() OR
-    auth_has_any_role('super_admin')
+    auth_has_any_role('super_admin') OR
+    (auth_has_any_role('org_admin') AND tenant_id = get_auth_tenant_id())
   );
+
+DROP POLICY IF EXISTS "Insert audit logs" ON audit_logs;
+CREATE POLICY "Insert audit logs" ON audit_logs FOR INSERT
+  WITH CHECK (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin', 'org_admin'));
 
 -- 6. Geographic units and functional groups policies
 DROP POLICY IF EXISTS "View tenant geo_units" ON geo_units;
-CREATE POLICY "View tenant geo_units" ON geo_units FOR SELECT
-  USING (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
+CREATE POLICY "View tenant geo_units" ON geo_units FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Insert tenant geo_units" ON geo_units;
+CREATE POLICY "Insert tenant geo_units" ON geo_units FOR INSERT WITH CHECK (true);
 
 DROP POLICY IF EXISTS "View tenant functional_groups" ON functional_groups;
-CREATE POLICY "View tenant functional_groups" ON functional_groups FOR SELECT
-  USING (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
+CREATE POLICY "View tenant functional_groups" ON functional_groups FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Insert tenant functional_groups" ON functional_groups;
+CREATE POLICY "Insert tenant functional_groups" ON functional_groups FOR INSERT WITH CHECK (true);
 
 -- 7. Committees and appointments
 DROP POLICY IF EXISTS "View tenant committees" ON committees;
-CREATE POLICY "View tenant committees" ON committees FOR SELECT
-  USING (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
+CREATE POLICY "View tenant committees" ON committees FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Insert tenant committees" ON committees;
+CREATE POLICY "Insert tenant committees" ON committees FOR INSERT WITH CHECK (true);
 
 DROP POLICY IF EXISTS "View tenant committee_members" ON committee_members;
-CREATE POLICY "View tenant committee_members" ON committee_members FOR SELECT
-  USING (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
+CREATE POLICY "View tenant committee_members" ON committee_members FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Insert tenant committee_members" ON committee_members;
+CREATE POLICY "Insert tenant committee_members" ON committee_members FOR INSERT WITH CHECK (true);
 
--- 8. Social feed posts & comments
+-- 8. Social feed posts & comments (Strict tenant-isolated)
 DROP POLICY IF EXISTS "View tenant posts" ON posts;
 CREATE POLICY "View tenant posts" ON posts FOR SELECT
   USING (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
 
-DROP POLICY IF EXISTS "Public comments read" ON comments;
-CREATE POLICY "Public comments read" ON comments FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Insert tenant posts" ON posts;
+CREATE POLICY "Insert tenant posts" ON posts FOR INSERT
+  WITH CHECK (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
 
--- 9. Notifications
+DROP POLICY IF EXISTS "Update tenant posts" ON posts;
+CREATE POLICY "Update tenant posts" ON posts FOR UPDATE
+  USING (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
+
+DROP POLICY IF EXISTS "Public comments read" ON comments;
+CREATE POLICY "Public comments read" ON comments FOR SELECT
+  USING (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
+
+DROP POLICY IF EXISTS "Public comments insert" ON comments;
+CREATE POLICY "Public comments insert" ON comments FOR INSERT
+  WITH CHECK (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
+
+-- 9. Notifications (Strict recipient & tenant-isolated)
 DROP POLICY IF EXISTS "View own notifications" ON notifications;
 CREATE POLICY "View own notifications" ON notifications FOR SELECT
-  USING (recipient_id IS NULL OR recipient_id = auth.uid()::text);
+  USING (
+    (recipient_id = auth.uid()::text OR (recipient_id IS NULL AND tenant_id = get_auth_tenant_id()))
+    OR auth_has_any_role('super_admin')
+  );
+
+DROP POLICY IF EXISTS "Insert notifications" ON notifications;
+CREATE POLICY "Insert notifications" ON notifications FOR INSERT
+  WITH CHECK (tenant_id = get_auth_tenant_id() OR auth_has_any_role('super_admin'));
+-- 10. OTP & Platform Admins
+ALTER TABLE otp_verifications ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public otp access" ON otp_verifications;
+CREATE POLICY "Public otp access" ON otp_verifications FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE platform_admins ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public read platform_admins" ON platform_admins;
+CREATE POLICY "Public read platform_admins" ON platform_admins FOR SELECT USING (active = true);
