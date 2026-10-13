@@ -28,3 +28,8 @@ web_backup/
 *.sw?
 *.apk
 *.idsig
+phone_*.png
+apk_*.png
+running_*.png
+current_screen.png
+union_live.png
