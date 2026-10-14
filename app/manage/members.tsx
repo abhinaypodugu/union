@@ -129,9 +129,9 @@ export default function Members() {
         {/* Header: Avatar, Name, Member ID, Status Badge & Action Menu */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
          <Avatar name={m.name} size={42} />
-         <View style={{ flex: 1, gap: 2 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-           <Txt variant="titleS" style={{ fontSize: 16, lineHeight: 20 }}>
+         <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+           <Txt variant="titleS" style={{ fontSize: 16, lineHeight: 20, flexShrink: 1 }} numberOfLines={1}>
             {m.name}
            </Txt>
            {isMe ? <Badge size="sm" tone="info">You</Badge> : null}
@@ -141,20 +141,26 @@ export default function Members() {
           </Txt>
          </View>
 
-         <Badge size="sm" dot tone={statusTone}>
-          {m.status[0].toUpperCase() + m.status.slice(1)}
-         </Badge>
+         {/* Right Alignment Cluster: fixed 32px slot ensures the Status Badge never skews/jumps on cards without a menu button */}
+         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Badge size="sm" dot tone={statusTone}>
+           {m.status[0].toUpperCase() + m.status.slice(1)}
+          </Badge>
 
-         {m.status === 'verified' && isOrgAdmin && !isMe ? (
-          <IconButton
-           icon="ellipsis"
-           label="Manage member"
-           size="sm"
-           onPress={() => setSelectedMember(m)}
-          />
-         ) : null}
+          {isOrgAdmin ? (
+           <View style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}>
+            {m.status === 'verified' && !isMe ? (
+             <IconButton
+              icon="ellipsis"
+              label="Manage member"
+              size="sm"
+              onPress={() => setSelectedMember(m)}
+             />
+            ) : null}
+           </View>
+          ) : null}
+         </View>
         </View>
-
         {/* Location & Cadre Tags */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
          {m.unit ? <Tag icon="map-pin">{`${m.unit}, ${m.region}`}</Tag> : null}
