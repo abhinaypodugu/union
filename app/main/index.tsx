@@ -5,7 +5,7 @@ import { Avatar, Button, Card, Dialog, FeedSkeleton, Field, Icon, IconButton, Ic
 import { colors, palette, radius } from '../../src/theme';
 import { useStore, Post, AudienceOption } from '../../src/store/AppStore';
 
-const FILTERS = ['For you', 'My groups', 'Announcements'];
+const FILTERS = ['For you', 'Announcement'];
 
 export default function Home() {
   const {
@@ -31,7 +31,7 @@ export default function Home() {
   const posts = storePosts
     .filter((p) => !p.removed)
     .filter((p) => !(mutedSources.includes(p.source) && !(p.pinned && p.kind === 'official')))
-    .filter((p) => (filter === 'For you' ? true : filter === 'Announcements' ? p.kind === 'official' : mine(p)))
+    .filter((p) => (filter === 'For you' ? true : p.kind === 'official'))
     .sort((a, b) => Number(b.pinned && b.kind === 'official') - Number(a.pinned && a.kind === 'official') || b.createdAt.localeCompare(a.createdAt));
 
   const doRefresh = async () => { setRefreshing(true); await refresh(); setRefreshing(false); };
