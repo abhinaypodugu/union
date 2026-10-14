@@ -150,7 +150,7 @@ export default function Profile() {
       </Card>
 
       <View style={{ padding: 12, paddingTop: 16, gap: 10 }}>
-        <Button variant="ghost" block icon="log-out" onPress={async () => { await logout(); router.replace('/'); }}>Sign out</Button>
+        <Button variant="danger" size="lg" block icon="log-out" onPress={async () => { await logout(); router.replace('/'); }}>Sign out</Button>
       </View>
 
       {/* Your organizations — only memberships you hold (PRD §4.1) */}
