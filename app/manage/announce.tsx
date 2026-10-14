@@ -11,7 +11,7 @@ const EXPIRY = ['Never', '1 day', '7 days', '30 days'];
 
 export default function Announce() {
   // All hooks run before any early return (the old screen violated the rules of hooks).
-  const { addPost, tenant, activeMember, audienceOptions, isOrgAdmin } = useStore();
+  const { addPost, tenant, activeMember, audienceOptions, isOrgAdmin, isPlatformSuperAdmin } = useStore();
   const options = audienceOptions.official;
   const [segs, setSegs] = React.useState<AudienceOption[]>([]);
   const [notify, setNotify] = React.useState(false);
@@ -40,12 +40,12 @@ export default function Announce() {
     if (!title.trim() || !body.trim() || !segs.length) return;
     const days = expiry === 'Never' ? 0 : parseInt(expiry, 10);
     setBusy(true);
+    const kind = isOrgAdmin || isPlatformSuperAdmin || segs.some((s) => s.scope === 'org') ? 'official' : 'committee';
     const ok = await addPost({
-      kind: 'official', title: title.trim(), body: body.trim(), pinned: pin, audiences: segs, notify,
+      kind, title: title.trim(), body: body.trim(), pinned: pin, audiences: segs, notify,
       expiresAt: days ? new Date(Date.now() + days * 86400000).toISOString() : null,
     });
     setBusy(false);
-    if (ok) router.back();
   };
 
   return (
@@ -74,7 +74,7 @@ export default function Announce() {
       </View>
       <SectionLabel>Member preview</SectionLabel>
       <View style={{ paddingHorizontal: 12 }}>
-        <PostCard kind="official" pinned={pin} author={{ name: activeMember?.name || 'Leadership', role: 'Official announcement', official: true }}
+        <PostCard kind={isOrgAdmin || isPlatformSuperAdmin || segs.some((s) => s.scope === 'org') ? 'official' : 'committee'} pinned={pin} author={{ name: activeMember?.name || 'Leadership', role: isOrgAdmin ? 'Organization admin' : 'Committee leadership', official: isOrgAdmin || isPlatformSuperAdmin }}
           source={segs.map((s) => s.label).join(', ') || 'No audience'} time="now" title={title} body={body}
           audience={segs[0] ? { scope: segs[0].scope, label: segs[0].label } : undefined} />
       </View>

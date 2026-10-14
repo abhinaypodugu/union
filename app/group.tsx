@@ -14,10 +14,11 @@ export default function GroupSpace() {
  const params = useLocalSearchParams<{ scope: string; value: string; name: string }>();
  const scope = (params.scope || 'org') as AudienceScope;
  const value = params.value ? String(params.value) : null;
- const { tenant, activeMember, posts, liked, toggleLike, toast, authReady, signedIn } = useStore();
+ const { tenant, activeMember, posts, liked, toggleLike, toast, authReady, signedIn, isOrgAdmin, isPlatformSuperAdmin } = useStore();
  const [tab, setTab] = React.useState('Posts');
  const [messages, setMessages] = React.useState<ChatMessage[]>([]);
  const [draft, setDraft] = React.useState('');
+ const canWriteChat = scope !== 'org' || isOrgAdmin || isPlatformSuperAdmin;
 
  const load = React.useCallback(async () => {
   if (!tenant) return;
@@ -40,6 +41,10 @@ export default function GroupSpace() {
 
  const send = async () => {
   if (!tenant || !activeMember || !draft.trim()) return;
+  if (!canWriteChat) {
+   toast({ title: 'Read-only channel', description: 'Only organization administrators can post messages in the national channel.' });
+   return;
+  }
   try {
    await dbService.sendMessage(tenant.id, scope, value, activeMember, draft.trim());
    setDraft('');
@@ -93,11 +98,19 @@ export default function GroupSpace() {
        </View>
       );
      })}
-     <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 8, padding: 6, paddingLeft: 14, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.borderDefault, backgroundColor: colors.surfaceCard }}>
-      <TextInput value={draft} onChangeText={setDraft} placeholder="Write a message…" placeholderTextColor={colors.textPlaceholder} multiline selectionColor={colors.accent}
-       style={{ flex: 1, minHeight: 36, maxHeight: 120, paddingTop: 8, paddingBottom: 8, fontFamily: fonts.sans400, fontSize: 15, color: colors.textPrimary }} />
-      <IconButton icon="send" label="Send message" variant={draft.trim() ? 'primary' : 'ghost'} onPress={draft.trim() ? send : undefined} />
-     </View>
+     {canWriteChat ? (
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 8, padding: 6, paddingLeft: 14, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.borderDefault, backgroundColor: colors.surfaceCard }}>
+       <TextInput value={draft} onChangeText={setDraft} placeholder="Write a message…" placeholderTextColor={colors.textPlaceholder} multiline selectionColor={colors.accent}
+        style={{ flex: 1, minHeight: 36, maxHeight: 120, paddingTop: 8, paddingBottom: 8, fontFamily: fonts.sans400, fontSize: 15, color: colors.textPrimary }} />
+       <IconButton icon="send" label="Send message" variant={draft.trim() ? 'primary' : 'ghost'} onPress={draft.trim() ? send : undefined} />
+      </View>
+     ) : (
+      <View style={{ padding: 14, alignItems: 'center', borderRadius: radius.l, backgroundColor: colors.bgSunken, borderWidth: 1, borderColor: colors.borderSubtle, marginTop: 8 }}>
+       <Txt variant="bodyS" color={colors.textSecondary} align="center">
+        This is an official broadcast channel. Only organization administrators can post messages here.
+       </Txt>
+      </View>
+     )}
     </View>
    )}
   </Screen>

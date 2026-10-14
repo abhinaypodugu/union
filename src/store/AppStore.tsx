@@ -87,7 +87,7 @@ interface Store {
   posts: Post[];
   liked: Record<string, boolean>;
   toggleLike: (id: string) => void;
-  addPost: (p: { kind: 'official' | 'member'; title?: string; body: string; pinned: boolean; audiences: AudienceOption[]; notify: boolean; expiresAt?: string | null }) => Promise<boolean>;
+  addPost: (p: { kind: 'official' | 'committee' | 'member'; title?: string; body: string; pinned: boolean; audiences: AudienceOption[]; notify: boolean; expiresAt?: string | null }) => Promise<boolean>;
   reportPost: (id: string, reason: string) => Promise<boolean>;
   moderatePost: (id: string, action: 'pin' | 'unpin' | 'remove' | 'restore', reason?: string) => Promise<boolean>;
   mutedSources: string[];
