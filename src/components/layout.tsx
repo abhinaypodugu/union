@@ -17,15 +17,15 @@ export function Screen({ children, header, stickyHeaderIndices, refreshing, onRe
       // Keyboard must never cover the focused field (PRD §14.4): standard iOS/Android stack.
       keyboardDismissMode={avoidKeyboard ? 'interactive' : rest.keyboardDismissMode}
       automaticallyAdjustKeyboardInsets={avoidKeyboard ? true : rest.automaticallyAdjustKeyboardInsets}
-      contentContainerStyle={[{ paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 16) + 24 }, rest.contentContainerStyle]}
+      contentContainerStyle={[{ paddingTop: header ? 8 : insets.top, paddingBottom: Math.max(insets.bottom, 16) + 24 }, rest.contentContainerStyle]}
       refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={colors.accent} colors={[colors.accent]} /> : undefined}
     >
-      {header}
       {children}
     </ScrollView>
   );
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bgApp }}>
+    <View style={{ flex: 1, backgroundColor: colors.bgApp, paddingTop: header ? insets.top : 0 }}>
+      {header}
       {avoidKeyboard ? (
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -92,12 +92,18 @@ export function IconTile({ icon, size = 36, tone = 'geo' }: { icon: string; size
   return <View style={{ width: size, height: size, borderRadius: size / 4, alignItems: 'center', justifyContent: 'center', backgroundColor: t.bg, borderWidth: 1, borderColor: t.bd }}><Icon name={icon} size={size / 2} color={t.fg} /></View>;
 }
 
-/** Key/value row for detail cards. */
+/** Key/value row for detail cards. Label has fixed minimum width so long values never squeeze it into a vertical strip. */
 export function KeyValue({ k, v, first }: { k: string; v: React.ReactNode; first?: boolean }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderTopWidth: first ? 0 : 1, borderTopColor: colors.borderSubtle }}>
-      <Txt variant="body" color={colors.textSecondary} style={{ flex: 1 }}>{k}</Txt>
-      {typeof v === 'string' ? <Txt variant="bodyStrong" align="right" style={{ flexShrink: 1 }}>{v}</Txt> : v}
+    <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, paddingVertical: 12, borderTopWidth: first ? 0 : 1, borderTopColor: colors.borderSubtle }}>
+      <Txt variant="body" color={colors.textSecondary} style={{ width: 110, flexShrink: 0 }}>{k}</Txt>
+      <View style={{ flex: 1, alignItems: 'flex-end' }}>
+        {typeof v === 'string' ? (
+          <Txt variant="bodyStrong" align="right" style={{ flexShrink: 1, textAlign: 'right' }}>{v}</Txt>
+        ) : (
+          v
+        )}
+      </View>
     </View>
   );
 }

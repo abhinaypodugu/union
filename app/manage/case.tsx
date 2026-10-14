@@ -185,10 +185,7 @@ export default function CaseDetail() {
   };
 
   return (
-    <Screen>
-      <StackHeader title={c.id} mono onBack={() => router.back()} />
-
-      {/* Hero Case Card */}
+    <Screen header={<StackHeader title={c.id} mono onBack={() => router.back()} />}>
       <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
         <Card style={{ padding: 16, gap: 12, borderRadius: radius.xl }}>
           {/* Status Badges Row */}

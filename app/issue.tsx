@@ -131,9 +131,7 @@ export default function IssueDetail() {
  };
 
  return (
-  <Screen>
-   <StackHeader title={issue.id} mono onBack={() => router.back()} />
-
+  <Screen header={<StackHeader title={issue.id} mono onBack={() => router.back()} />}>
    {/* Hero Issue Summary Card */}
    <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
     <Card style={{ padding: 16, gap: 12, borderRadius: radius.xl }}>
