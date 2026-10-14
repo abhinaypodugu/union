@@ -41,11 +41,12 @@ const DASHED = Platform.OS === 'ios' ? 'dashed' : 'solid';
 /** Feed card. Official / committee-private / member must stay visually distinct (PRD §14.4). */
 export function PostCard(p: PostCardProps) {
   const { kind = 'member', author, source, audience, time, title, body, media, pinned, likes = 0, comments = 0, liked } = p;
-  const official = kind === 'official';
-  const committee = kind === 'committee';
+  const scope = audience?.scope ?? (kind === 'committee' ? 'committee' : 'org');
+  const isCommittee = kind === 'committee' || scope === 'committee' || scope === 'private';
+  const official = kind === 'official' && !isCommittee;
+  const committee = isCommittee;
   const isUri = !!media && /^(https?:|file:|data:)/.test(media);
-  const scope = audience?.scope ?? 'org';
-  const priv = committee || scope === 'committee' || scope === 'private';
+  const priv = committee;
   const metaColor = priv ? colors.privateFg : colors.textMuted;
   const where = source || audience?.label;
 
@@ -53,16 +54,15 @@ export function PostCard(p: PostCardProps) {
     <View style={{
       borderRadius: radius.xl, overflow: 'hidden',
       borderWidth: official ? 1.5 : 1,
-      borderStyle: committee ? DASHED : 'solid',
+      borderStyle: committee ? 'dashed' : 'solid',
       borderColor: official ? colors.officialBorder : committee ? colors.privateBorder : colors.borderSubtle,
       backgroundColor: committee ? colors.surfacePrivate : colors.surfaceCard,
     }}>
       {official ? (
         <Band bg={colors.officialBg} fg={colors.officialFg} border={colors.officialBorder} icon="badge-check" text="Official announcement" pinned={pinned} />
       ) : committee ? (
-        <Band bg="transparent" fg={colors.privateFg} border={colors.privateBorder} borderStyle={DASHED} icon="lock" text="Committee only · not visible to members" />
+        <Band bg={colors.bgSunken} fg={colors.privateFg} border={colors.privateBorder} borderStyle="dashed" icon="lock" text="COMMITTEE ONLY · NOT VISIBLE TO MEMBERS" />
       ) : null}
-
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingLeft: 16, paddingRight: 6, paddingTop: 14 }}>
         <Avatar name={author.name} size={42} official={official || author.official} />
         <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
@@ -105,7 +105,7 @@ function Band({ bg, fg, border, borderStyle = 'solid', icon, text, pinned }: { b
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 16, height: 34, backgroundColor: bg, borderBottomWidth: 1, borderStyle, borderBottomColor: border }}>
       <Icon name={icon} size={14} strokeWidth={2.25} color={fg} />
-      <Txt variant="overline" color={fg} style={{ flex: 1 }} numberOfLines={1}>{text}</Txt>
+      <Txt variant="overline" color={fg} style={{ flex: 1, letterSpacing: 0.8 }} numberOfLines={1}>{text}</Txt>
       {pinned ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
           <Icon name="pin" size={12} strokeWidth={2.25} color={fg} />
