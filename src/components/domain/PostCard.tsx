@@ -104,45 +104,37 @@ export function PostCard(p: PostCardProps) {
     </View>
    ) : null}
 
-   {/* 2. Header: Avatar (40px) + Who block + Options button */}
+   {/* 2. Header: Avatar (40px) + Who block (exact 2 lines matching Image #1) + Options button */}
    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingTop: 14 }}>
     <Avatar name={author.name} size={40} official={official || author.official} />
 
-    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-     {/* Author Name + Role */}
-     <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
-      <Txt style={{ fontFamily: fonts.sans600, fontSize: 15, lineHeight: 19 }} color={palette.ink900}>
+    <View style={{ flex: 1, minWidth: 0, justifyContent: 'center', gap: 2 }}>
+     {/* Line 1: Author Name + Role in one line */}
+     <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 5 }}>
+      <Txt style={{ fontFamily: fonts.sans600, fontSize: 15, lineHeight: 19 }} color={palette.ink900} numberOfLines={1}>
        {author.name}
       </Txt>
-      {author.role ? (
-       <Txt style={{ fontFamily: fonts.sans400, fontSize: 13, lineHeight: 18 }} color={colors.textMuted}>
+      {author.role && !['member', 'official announcement', 'official'].includes(author.role.toLowerCase()) ? (
+       <Txt style={{ fontFamily: fonts.sans400, fontSize: 13, lineHeight: 19 }} color={colors.textMuted} numberOfLines={1}>
         {author.role}
        </Txt>
       ) : null}
      </View>
 
-     {/* Meta Line: Icon + Source · Time */}
+     {/* Line 2: Small font size, fits in ONE line like Image #1 */}
      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
       {committee ? (
        <Icon name="lock" size={11} color={colors.textMuted} strokeWidth={2} />
       ) : (
-       <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.textMuted, opacity: 0.7 }} />
+       <Icon name="disc" size={10} color={colors.textMuted} strokeWidth={2.2} />
       )}
-      {metaSource ? (
-       <Txt style={{ fontFamily: fonts.sans400, fontSize: 12.5, lineHeight: 16 }} color={colors.textMuted}>
-        {metaSource}
-       </Txt>
-      ) : null}
-      {metaSource && time ? (
-       <Txt style={{ fontFamily: fonts.sans400, fontSize: 12, lineHeight: 16 }} color={colors.textMuted}>
-        ·
-       </Txt>
-      ) : null}
-      {time ? (
-       <Txt style={{ fontFamily: fonts.sans400, fontSize: 12.5, lineHeight: 16 }} color={colors.textMuted}>
-        {time}
-       </Txt>
-      ) : null}
+      <Txt
+       style={{ fontFamily: fonts.sans400, fontSize: 11.5, lineHeight: 15, flex: 1 }}
+       color={colors.textMuted}
+       numberOfLines={1}
+      >
+       {[metaSource, time].filter(Boolean).join(' · ')}
+      </Txt>
      </View>
     </View>
 

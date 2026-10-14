@@ -22,20 +22,59 @@ export interface AvatarProps {
 
 export function Avatar({ name, uri, size = 40, official, ring, style }: AvatarProps) {
   const h = nameHue(name);
-  const seal = Math.max(14, Math.round(size * 0.4));
-  const inner = (
-    <View style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: oklchToHex(0.9, 0.045, h), alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }, !ring && style]}>
-      {uri ? <Image source={{ uri }} style={{ width: size, height: size }} /> : (
-        <Txt style={{ fontFamily: fonts.sans600, fontSize: Math.round(size * 0.38), lineHeight: Math.round(size * 0.46) }} color={oklchToHex(0.36, 0.07, h)}>{initials(name)}</Txt>
-      )}
-    </View>
-  );
+  const seal = Math.max(14, Math.round(size * 0.38));
   return (
-    <View accessibilityLabel={name} style={ring ? [{ padding: 2.5, borderRadius: size, borderWidth: 2, borderColor: colors.accent }, style] : undefined}>
-      {inner}
+    <View
+      accessibilityLabel={name}
+      style={[
+        { width: size, height: size, position: 'relative' },
+        ring && { padding: 2.5, borderRadius: size, borderWidth: 2, borderColor: colors.accent },
+        style,
+      ]}
+    >
+      <View
+        style={{
+          width: '100%',
+          height: '100%',
+          borderRadius: size / 2,
+          backgroundColor: oklchToHex(0.9, 0.045, h),
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'hidden',
+        }}
+      >
+        {uri ? (
+          <Image source={{ uri }} style={{ width: size, height: size }} />
+        ) : (
+          <Txt
+            style={{
+              fontFamily: fonts.sans600,
+              fontSize: Math.round(size * 0.38),
+              lineHeight: Math.round(size * 0.46),
+            }}
+            color={oklchToHex(0.36, 0.07, h)}
+          >
+            {initials(name)}
+          </Txt>
+        )}
+      </View>
       {official ? (
-        <View style={{ position: 'absolute', right: -2, bottom: -2, width: seal, height: seal, borderRadius: seal / 2, backgroundColor: colors.accent, borderWidth: 2, borderColor: colors.surfaceCard, alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name="check" size={seal - 6} color={palette.paper0} strokeWidth={3} />
+        <View
+          style={{
+            position: 'absolute',
+            right: -2,
+            bottom: -2,
+            width: seal,
+            height: seal,
+            borderRadius: seal / 2,
+            backgroundColor: colors.accent,
+            borderWidth: 2,
+            borderColor: colors.surfaceCard,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Icon name="check" size={seal - 5} color={palette.paper0} strokeWidth={3} />
         </View>
       ) : null}
     </View>
