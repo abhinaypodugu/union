@@ -64,16 +64,16 @@ export default function Home() {
         <Pressable accessibilityLabel="Your profile" onPress={() => router.push('/profile')} style={{ marginLeft: 4 }}><Avatar name={activeMember?.name || 'User'} size={34} /></Pressable>
       </>} />
 
-      <View style={{ paddingHorizontal: 16, paddingBottom: 12, backgroundColor: colors.bgApp }}>
+      <View style={{ paddingHorizontal: 16, paddingBottom: 14, backgroundColor: colors.bgApp }}>
         <SegmentedControl items={FILTERS} value={filter} onChange={setFilter} />
       </View>
 
-      <View style={{ gap: 12, paddingHorizontal: 12, paddingTop: 2 }}>
+      <View style={{ gap: 14, paddingHorizontal: 14, paddingTop: 2, paddingBottom: 24 }}>
         {canCompose ? (
           <Pressable accessibilityRole="button" accessibilityLabel="Write a post" onPress={() => { setTarget(audienceOptions.member[0]); setComposeOpen(true); }}
-            style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingLeft: 14, paddingRight: 12, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: pressed ? colors.surfaceHover : colors.surfaceCard })}>
+            style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, paddingLeft: 14, paddingRight: 14, borderRadius: radius.l, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: pressed ? colors.surfaceHover : colors.surfaceCard })}>
             <Avatar name={activeMember?.name || 'User'} size={36} />
-            <View style={{ flex: 1, height: 40, justifyContent: 'center', paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: palette.paper100 }}>
+            <View style={{ flex: 1, height: 38, justifyContent: 'center', paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: palette.paper100 }}>
               <Txt variant="body" color={colors.textMuted} numberOfLines={1}>Share an update…</Txt>
             </View>
             <Icon name="square-pen" size={20} color={palette.ink600} />
