@@ -62,7 +62,7 @@ export function PostCard(p: PostCardProps) {
       {official ? (
         <Band bg={colors.officialBg} fg={colors.officialFg} border={colors.officialBorder} icon="badge-check" text="Official announcement" pinned={pinned} />
       ) : committee ? (
-        <Band bg={colors.bgSunken} fg={colors.privateFg} border={colors.privateBorder} borderStyle="dashed" icon="lock" text="COMMITTEE ONLY · NOT VISIBLE TO MEMBERS" />
+        <Band bg={colors.bgSunken} fg={colors.privateFg} border={colors.privateBorder} borderStyle="dashed" icon="lock" text="Committee only · Private" />
       ) : null}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingLeft: 16, paddingRight: 6, paddingTop: 14 }}>
         <Avatar name={author.name} size={42} official={official || author.official} />
@@ -107,13 +107,13 @@ export function PostCard(p: PostCardProps) {
 
 function Band({ bg, fg, border, borderStyle = 'solid', icon, text, pinned }: { bg: string; fg: string; border: string; borderStyle?: 'solid' | 'dashed'; icon: string; text: string; pinned?: boolean }) {
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 16, height: 34, backgroundColor: bg, borderBottomWidth: 1, borderStyle, borderBottomColor: border }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 14, minHeight: 32, paddingVertical: 5, backgroundColor: bg, borderBottomWidth: 1, borderStyle, borderBottomColor: border }}>
       <Icon name={icon} size={14} strokeWidth={2.25} color={fg} />
-      <Txt variant="overline" color={fg} style={{ flex: 1, letterSpacing: 0.8 }} numberOfLines={1}>{text}</Txt>
+      <Txt style={{ fontFamily: fonts.sans600, fontSize: 11, letterSpacing: 0.4, textTransform: 'uppercase', flex: 1 }} color={fg} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>{text}</Txt>
       {pinned ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
           <Icon name="pin" size={12} strokeWidth={2.25} color={fg} />
-          <Txt variant="overline" color={fg}>Pinned</Txt>
+          <Txt style={{ fontFamily: fonts.sans600, fontSize: 11, letterSpacing: 0.4, textTransform: 'uppercase' }} color={fg}>Pinned</Txt>
         </View>
       ) : null}
     </View>
