@@ -1931,14 +1931,37 @@ CREATE POLICY "device_tokens: own" ON device_tokens FOR SELECT USING (user_id = 
 CREATE POLICY "audit_logs: admins" ON audit_logs FOR SELECT
   USING (is_platform_admin() OR has_tenant_role(tenant_id, 'org_admin'));
 
--- Belt and braces: clients cannot write any table directly (except chat inserts,
--- which are policy-checked above). Everything else goes through the RPCs.
+-- Standard Supabase role grants & permissions
+GRANT USAGE ON SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, service_role;
+GRANT ALL ON ALL ROUTINES IN SCHEMA public TO postgres, service_role;
+
+-- Tenants list is readable by anon and authenticated (active tenants only via RLS)
+GRANT SELECT ON tenants TO anon, authenticated;
+
+-- Authenticated members can read tables (subject to RLS policies)
+GRANT SELECT ON geo_units, functional_groups, committees, committee_members, routing_rules,
+                issues, internal_notes, member_replies, issue_attachments, posts, comments,
+                post_likes, post_reports, notifications, audit_logs TO authenticated;
+
+-- Privacy on profiles: phone and email are never exposed to directory queries
+REVOKE ALL ON profiles FROM anon, authenticated;
+GRANT SELECT (id, user_id, tenant_id, member_number, name, unit, region, country, groups, roles, status, created_at)
+  ON profiles TO authenticated;
+
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, anon;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO postgres, anon, authenticated, service_role;
+
+-- Client direct writes are revoked (except group_messages with WITH CHECK policy)
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
-REVOKE SELECT ON ALL TABLES IN SCHEMA public FROM anon;
 GRANT INSERT ON group_messages TO authenticated;
-REVOKE ALL ON platform_admins, notification_outbox, device_tokens FROM authenticated;
+REVOKE ALL ON platform_admins, notification_outbox, device_tokens FROM authenticated, anon;
 GRANT SELECT ON device_tokens TO authenticated;
 
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO postgres, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO postgres, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO postgres, anon, authenticated, service_role;
 -- ==============================================================================
 -- 17. STORAGE — private evidence bucket with case-scoped access (PRD §9.7, §12.3)
 -- Path convention: <tenant_id>/<issue_id>/<uuid>-<file name>
