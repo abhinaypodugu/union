@@ -22,6 +22,9 @@ const DEFAULT_TERMINOLOGY: TerminologyConfig = {
   level3Label: 'National',
   groupLabel: 'Functional Group',
   caseLabel: 'Issue',
+  cadres: ['IT Workers', 'Transport', 'Healthcare', 'Administration'],
+  cities: ['Hyderabad'],
+  states: ['Telangana'],
 };
 
 const ACTIVE_TENANT_KEY = 'union.activeTenant';

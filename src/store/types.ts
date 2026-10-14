@@ -11,6 +11,9 @@ export interface TerminologyConfig {
   level3Label: string;
   groupLabel: string;
   caseLabel: string;
+  cadres?: string[];
+  cities?: string[];
+  states?: string[];
 }
 
 export interface TenantSettings {
@@ -27,6 +30,9 @@ export interface Tenant {
   description: string;
   terminology: TerminologyConfig;
   settings?: TenantSettings;
+  cadres?: string[];
+  cities?: string[];
+  states?: string[];
 }
 
 export type MembershipStatus = 'verified' | 'pending' | 'suspended' | 'rejected' | 'ended';

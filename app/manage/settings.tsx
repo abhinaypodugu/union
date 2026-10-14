@@ -6,7 +6,8 @@ import { Restricted } from '../../src/components/Restricted';
 import { colors } from '../../src/theme';
 import { useStore, RoutingRule, TerminologyConfig } from '../../src/store/AppStore';
 
-const TERMS: Array<[keyof TerminologyConfig, string]> = [
+type TermKey = 'orgLabel' | 'level1Label' | 'level2Label' | 'level3Label' | 'groupLabel' | 'caseLabel';
+const TERMS: Array<[TermKey, string]> = [
   ['orgLabel', 'Organization'], ['level1Label', 'Level 1 (e.g. City)'], ['level2Label', 'Level 2 (e.g. State)'],
   ['level3Label', 'Level 3 (e.g. National)'], ['groupLabel', 'Functional group'], ['caseLabel', 'Case / issue'],
 ];
@@ -20,6 +21,22 @@ export default function Settings() {
   const [memberPosts, setMemberPosts] = React.useState(tenant?.settings?.memberPosts !== false);
   const [reopenDays, setReopenDays] = React.useState(String(tenant?.settings?.reopenWindowDays ?? 30));
   const [rule, setRule] = React.useState<Omit<RoutingRule, 'id'> | null>(null);
+  const [newCadre, setNewCadre] = React.useState('');
+  const cadresList = terms.cadres || tenant?.cadres || ['IT Workers', 'Transport', 'Administration'];
+  const addCadre = () => {
+    if (!newCadre.trim() || cadresList.includes(newCadre.trim())) return;
+    const updated = [...cadresList, newCadre.trim()];
+    const nextTerms = { ...terms, cadres: updated };
+    setTerms(nextTerms);
+    setNewCadre('');
+    void updateTenantConfig(nextTerms);
+  };
+  const removeCadre = (c: string) => {
+    const updated = cadresList.filter((x) => x !== c);
+    const nextTerms = { ...terms, cadres: updated };
+    setTerms(nextTerms);
+    void updateTenantConfig(nextTerms);
+  };
   React.useEffect(() => setTerms(terminology), [terminology]);
   if (!isOrgAdmin && !isPlatformSuperAdmin) return <Restricted what="Organization settings" />;
 
@@ -38,6 +55,23 @@ export default function Settings() {
         ))}
       </Card>
 
+      <SectionLabel>{`${terms.groupLabel || 'Cadre'}s & Trade Sectors`}</SectionLabel>
+      <Card style={{ marginHorizontal: 12, gap: 12 }}>
+        <Txt variant="bodyS" color={colors.textMuted}>
+          {`These ${terms.groupLabel?.toLowerCase() || 'cadre'}s appear as selectable dropdown options for members signing up with your invite code.`}
+        </Txt>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          {cadresList.map((c) => (
+            <Tag key={c} icon="briefcase" onRemove={() => removeCadre(c)}>{c}</Tag>
+          ))}
+        </View>
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <View style={{ flex: 1 }}>
+            <Input value={newCadre} onChangeText={setNewCadre} placeholder={`Add ${terms.groupLabel?.toLowerCase() || 'cadre'} (e.g. Healthcare)…`} />
+          </View>
+          <Button size="sm" icon="plus" disabled={!newCadre.trim()} onPress={addCadre}>Add</Button>
+        </View>
+      </Card>
       <SectionLabel>Policies</SectionLabel>
       <Card style={{ marginHorizontal: 12, gap: 12 }}>
         <Switch label="Approve new members automatically" description="Off: every application waits for a membership admin" value={autoApprove} onChange={setAutoApprove} />

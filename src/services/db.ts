@@ -18,6 +18,9 @@ const DEFAULT_TERMINOLOGY: TerminologyConfig = {
   level3Label: 'National',
   groupLabel: 'Functional Group',
   caseLabel: 'Issue',
+  cadres: ['IT Workers', 'Transport', 'Healthcare', 'Administration'],
+  cities: ['Hyderabad'],
+  states: ['Telangana'],
 };
 
 const PROFILE_COLS = 'id, user_id, tenant_id, member_number, name, unit, region, country, groups, roles, status, created_at';
@@ -50,14 +53,19 @@ function mapProfile(r: Record<string, any>): Persona {
 }
 
 function mapTenant(r: Record<string, any>): Tenant {
+  const terminology = { ...DEFAULT_TERMINOLOGY, ...(r.terminology || {}) };
+  const settings = r.settings || {};
   return {
     id: r.id,
     name: r.name,
     short: r.short_name,
     code: r.code,
     description: r.description || '',
-    terminology: { ...DEFAULT_TERMINOLOGY, ...(r.terminology || {}) },
-    settings: r.settings || {},
+    terminology,
+    settings,
+    cadres: terminology.cadres || settings.cadres || DEFAULT_TERMINOLOGY.cadres,
+    cities: terminology.cities || settings.cities || DEFAULT_TERMINOLOGY.cities,
+    states: terminology.states || settings.states || DEFAULT_TERMINOLOGY.states,
   };
 }
 
