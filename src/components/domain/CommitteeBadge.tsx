@@ -4,15 +4,27 @@ import { colors, fonts, palette, radius } from '../../theme';
 import { Txt } from '../Txt';
 
 /** 3-bar geographic level marker: 1 city/local · 2 state/region · 3 national */
-export function LevelBars({ level }: { level: 1 | 2 | 3 }) {
+export function LevelBars({ level = 1 }: { level?: number }) {
+  const barsCount = Math.max(3, Math.min(level, 5));
+  const heights = [4, 6, 8, 10, 12];
   return (
     <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 1.5, height: 10 }} accessibilityLabel={'Level ' + level}>
-      {[4, 7, 10].map((h, i) => <View key={i} style={{ width: 3, height: h, borderRadius: 1, backgroundColor: i < level ? colors.accent : palette.paper300 }} />)}
+      {Array.from({ length: barsCount }).map((_, i) => (
+        <View
+          key={i}
+          style={{
+            width: 2.5,
+            height: heights[i] || 10,
+            borderRadius: 1,
+            backgroundColor: i < level ? colors.accent : palette.paper300,
+          }}
+        />
+      ))}
     </View>
   );
 }
 
-export function CommitteeBadge({ name, level = 1, role, size = 'md' }: { name: string; level?: 1 | 2 | 3; role?: string; size?: 'sm' | 'md' }) {
+export function CommitteeBadge({ name, level = 1, role, size = 'md' }: { name: string; level?: number; role?: string; size?: 'sm' | 'md' }) {
   const sm = size === 'sm';
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: sm ? 6 : 8, height: sm ? 24 : 28, paddingLeft: sm ? 6 : 8, paddingRight: sm ? 8 : 10, borderRadius: sm ? 5 : radius.s, borderWidth: 1, borderColor: colors.borderDefault, backgroundColor: colors.surfaceCard, maxWidth: '100%' }}>

@@ -10,8 +10,9 @@ import { errorMessage, median, relativeTime } from '../lib/format';
 import type {
   AppNotification, AudienceOption, AuditEntry, Case, CommitteeInfo, CommitteeMember, FunctionalGroup, GeoUnit,
   GroupSection, Issue, IssueAction, NotificationPrefs, Persona, Post, RoutingRule, Tenant, TenantSettings,
-  TerminologyConfig,
+  TerminologyConfig, HierarchyLevel,
 } from './types';
+import { getHierarchyLevels } from './types';
 
 export * from './types';
 
@@ -25,6 +26,11 @@ const DEFAULT_TERMINOLOGY: TerminologyConfig = {
   cadres: ['IT Workers', 'Transport', 'Healthcare', 'Administration'],
   cities: ['Hyderabad'],
   states: ['Telangana'],
+  levels: [
+    { level: 1, label: 'City' },
+    { level: 2, label: 'State' },
+    { level: 3, label: 'National' },
+  ],
 };
 
 const ACTIVE_TENANT_KEY = 'union.activeTenant';
@@ -51,6 +57,7 @@ interface Store {
   }, admin: { name: string; email: string; unit: string; region: string }) => Promise<Tenant | null>;
   registerMember: (d: { name: string; email: string; unit: string; region: string; group: string; orgCode: string }) => Promise<Persona | null>;
   terminology: TerminologyConfig;
+  levels: HierarchyLevel[];
   updateTenantConfig: (terminology: Partial<TerminologyConfig>, settings?: TenantSettings) => Promise<boolean>;
 
   // Who am I here
@@ -172,6 +179,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const tenant = tenants.find((t) => t.id === currentTenantId) || null;
   const activeMember = memberships.find((m) => m.tenantId === currentTenantId) || null;
   const terminology = tenant?.terminology || DEFAULT_TERMINOLOGY;
+  const levels = React.useMemo(() => getHierarchyLevels(terminology), [terminology]);
 
   // ------------------------------------------------------------------ identity
   const clearTenantData = () => {
@@ -616,6 +624,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     setupOrganization,
     registerMember,
     terminology,
+    levels,
     updateTenantConfig,
     activeMember,
     isPlatformSuperAdmin,

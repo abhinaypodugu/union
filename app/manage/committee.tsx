@@ -15,13 +15,13 @@ const STATUS: Record<AppointmentStatus, ['success' | 'warning' | 'neutral' | 'da
 const GENERAL = 'General (cross-functional)';
 const NONE = 'Organization-wide';
 
-const blankForm = { id: '', name: '', scope: '', level: 1 as 1 | 2 | 3, group: GENERAL, geo: NONE, escalatesTo: 'Next level (automatic)', method: 'Appointment', term: '', responseHours: '48', resolutionHours: '336' };
+const blankForm = { id: '', name: '', scope: '', level: 1 as number, group: GENERAL, geo: NONE, escalatesTo: 'Next level (automatic)', method: 'Appointment', term: '', responseHours: '48', resolutionHours: '336' };
 
 export default function Committee() {
   const params = useLocalSearchParams<{ id?: string }>();
   const {
     committees, allMembers, geoUnits, functionalGroups, auditLogs, isOrgAdmin, isPlatformSuperAdmin, myAppointments,
-    saveCommittee, appointMember, setAppointmentStatus, terminology,
+    saveCommittee, appointMember, setAppointmentStatus, terminology, levels,
   } = useStore();
   const [selectedId, setSelectedId] = React.useState<string | null>(params.id ? String(params.id) : null);
   const [addOpen, setAddOpen] = React.useState(false);
@@ -100,12 +100,12 @@ export default function Committee() {
         {committees.length === 0 ? (
           <View style={{ padding: 16 }}><Notice tone="info" title="No committees yet">{`Create committees for each ${terminology.groupLabel.toLowerCase()} and level.`}</Notice></View>
         ) : (
-          [3, 2, 1].map((lvl) => {
-            const list = committees.filter((c) => c.level === lvl);
+          [...levels].reverse().map((lvl) => {
+            const list = committees.filter((c) => c.level === lvl.level);
             if (!list.length) return null;
             return (
-              <View key={lvl}>
-                <SectionLabel>{lvl === 3 ? terminology.level3Label : lvl === 2 ? terminology.level2Label : terminology.level1Label}</SectionLabel>
+              <View key={lvl.level}>
+                <SectionLabel>{lvl.label}</SectionLabel>
                 <ListCard style={{ marginHorizontal: 12 }}>
                   {list.map((c) => (
                     <ListRow key={c.id} title={c.name} subtitle={`${c.functionalGroup || 'General'} · ${geoName(c.geoUnitId) || 'Organization-wide'} · ${c.members.filter((m) => m.status === 'active').length} active`}
@@ -264,8 +264,16 @@ export default function Committee() {
         <View style={{ gap: 12, paddingHorizontal: 16, paddingBottom: 16 }}>
           <Field label="Name" required><Input value={form.name} onChangeText={(t) => setForm({ ...form, name: t })} placeholder="e.g. Hyderabad IT Workers Committee" /></Field>
           <Field label="Level">
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              {([1, 2, 3] as const).map((l) => <Tag key={l} selected={form.level === l} onPress={() => setForm({ ...form, level: l })}>{l === 1 ? terminology.level1Label : l === 2 ? terminology.level2Label : terminology.level3Label}</Tag>)}
+            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+              {levels.map((lvl) => (
+                <Tag
+                  key={lvl.level}
+                  selected={form.level === lvl.level}
+                  onPress={() => setForm({ ...form, level: lvl.level })}
+                >
+                  {`L${lvl.level} · ${lvl.label}`}
+                </Tag>
+              ))}
             </View>
           </Field>
           <Field label={terminology.groupLabel}><Select value={form.group} onChange={(v) => setForm({ ...form, group: v })} options={[GENERAL, ...functionalGroups.map((f) => f.name)]} /></Field>

@@ -4,6 +4,11 @@ import type { AudienceOption, AudienceScope, DueState } from '../lib/format';
 
 export type { IssueStatus, EscalationStage, AudienceOption, AudienceScope, DueState };
 
+export interface HierarchyLevel {
+  level: number;
+  label: string;
+}
+
 export interface TerminologyConfig {
   orgLabel: string;
   level1Label: string;
@@ -14,6 +19,18 @@ export interface TerminologyConfig {
   cadres?: string[];
   cities?: string[];
   states?: string[];
+  levels?: HierarchyLevel[];
+}
+
+export function getHierarchyLevels(terminology?: Partial<TerminologyConfig>): HierarchyLevel[] {
+  if (terminology?.levels && terminology.levels.length > 0) {
+    return terminology.levels;
+  }
+  return [
+    { level: 1, label: terminology?.level1Label || 'City' },
+    { level: 2, label: terminology?.level2Label || 'State' },
+    { level: 3, label: terminology?.level3Label || 'National' },
+  ];
 }
 
 export interface TenantSettings {
@@ -33,6 +50,7 @@ export interface Tenant {
   cadres?: string[];
   cities?: string[];
   states?: string[];
+  levels?: HierarchyLevel[];
 }
 
 export type MembershipStatus = 'verified' | 'pending' | 'suspended' | 'rejected' | 'ended';
@@ -74,7 +92,7 @@ export interface Issue {
   description?: string;
   status: IssueStatus;
   statusLabel?: string;
-  level: 1 | 2 | 3;
+  level: number;
   category: string;
   location: string;
   group?: string;
@@ -152,7 +170,7 @@ export interface CommitteeInfo {
   id: string;
   name: string;
   scope: string;
-  level: 1 | 2 | 3;
+  level: number;
   functionalGroup: string | null;
   geoUnitId: string | null;
   escalatesToId: string | null;
@@ -184,7 +202,7 @@ export interface RoutingRule {
   category: string;
   targetKind: 'group' | 'general' | 'committee';
   targetCommitteeId: string | null;
-  startLevel: 1 | 2 | 3;
+  startLevel: number;
   confidential: boolean;
   sortOrder: number;
   active: boolean;

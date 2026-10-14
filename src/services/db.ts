@@ -6,8 +6,9 @@ import { dueInfo, errorMessage, normalizePhoneNumber, relativeTime } from '../li
 import type {
   AppNotification, Attachment, AuditEntry, ChatMessage, Comment, CommitteeInfo, CommitteeMember, FunctionalGroup,
   GeoUnit, InternalNote, Issue, IssueAction, MemberReply, Persona, Post, RoutingRule, Tenant, TerminologyConfig,
-  TenantSettings, NotificationPrefs, AudienceOption, AudienceScope,
+  TenantSettings, NotificationPrefs, AudienceOption, AudienceScope, HierarchyLevel,
 } from '../store/types';
+import { getHierarchyLevels } from '../store/types';
 
 export { normalizePhoneNumber };
 
@@ -21,6 +22,11 @@ const DEFAULT_TERMINOLOGY: TerminologyConfig = {
   cadres: ['IT Workers', 'Transport', 'Healthcare', 'Administration'],
   cities: ['Hyderabad'],
   states: ['Telangana'],
+  levels: [
+    { level: 1, label: 'City' },
+    { level: 2, label: 'State' },
+    { level: 3, label: 'National' },
+  ],
 };
 
 const PROFILE_COLS = 'id, user_id, tenant_id, member_number, name, unit, region, country, groups, roles, status, created_at';
@@ -66,6 +72,7 @@ function mapTenant(r: Record<string, any>): Tenant {
     cadres: terminology.cadres || settings.cadres || DEFAULT_TERMINOLOGY.cadres,
     cities: terminology.cities || settings.cities || DEFAULT_TERMINOLOGY.cities,
     states: terminology.states || settings.states || DEFAULT_TERMINOLOGY.states,
+    levels: getHierarchyLevels(terminology),
   };
 }
 

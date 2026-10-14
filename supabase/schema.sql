@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS committees (
   tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   scope TEXT NOT NULL,
-  level INTEGER NOT NULL CHECK (level IN (1, 2, 3)), -- 1: City, 2: State, 3: National
+  level INTEGER NOT NULL CHECK (level >= 1), -- Dynamic organizational level (unbounded, 1..N)
   functional_group TEXT,                              -- NULL = general / cross-functional
   geo_unit_id TEXT REFERENCES geo_units(id) ON DELETE SET NULL,
   escalates_to_id TEXT REFERENCES committees(id) ON DELETE SET NULL,
@@ -238,7 +238,7 @@ CREATE TABLE IF NOT EXISTS issues (
   priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('normal', 'high', 'urgent')),
   confidential BOOLEAN NOT NULL DEFAULT FALSE,
   affects_others BOOLEAN NOT NULL DEFAULT FALSE,
-  level INTEGER NOT NULL DEFAULT 1 CHECK (level IN (1, 2, 3)),
+  level INTEGER NOT NULL DEFAULT 1 CHECK (level >= 1),
   next_action TEXT NOT NULL DEFAULT 'Committee acknowledges issue',
   assignee_profile_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
   assignee_name TEXT,
@@ -283,7 +283,7 @@ CREATE TABLE IF NOT EXISTS routing_rules (
   category TEXT NOT NULL,
   target_kind TEXT NOT NULL DEFAULT 'group' CHECK (target_kind IN ('group', 'general', 'committee')),
   target_committee_id TEXT REFERENCES committees(id) ON DELETE SET NULL,
-  start_level INTEGER NOT NULL DEFAULT 1 CHECK (start_level IN (1, 2, 3)),
+  start_level INTEGER NOT NULL DEFAULT 1 CHECK (start_level >= 1),
   confidential BOOLEAN NOT NULL DEFAULT FALSE,
   sort_order INTEGER NOT NULL DEFAULT 100,
   active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -1486,11 +1486,18 @@ BEGIN
   IF v_cur.escalates_to_id IS NOT NULL THEN
     SELECT * INTO v_next FROM committees WHERE id = v_cur.escalates_to_id AND active;
   END IF;
-  IF v_next.id IS NULL AND i.level < 3 THEN
-    SELECT * INTO v_next FROM committees WHERE id = coalesce(
-      find_committee(i.tenant_id, i.level + 1, i.functional_group, v_complainant.unit, v_complainant.region),
-      find_committee(i.tenant_id, i.level + 1, NULL, v_complainant.unit, v_complainant.region),
-      CASE WHEN i.level + 1 < 3 THEN find_committee(i.tenant_id, 3, NULL, NULL, NULL) END);
+  IF v_next.id IS NULL THEN
+    DECLARE
+      v_max_level INTEGER;
+    BEGIN
+      SELECT coalesce(max(level), i.level) INTO v_max_level FROM committees WHERE tenant_id = i.tenant_id AND active;
+      IF i.level < v_max_level THEN
+        SELECT * INTO v_next FROM committees WHERE id = coalesce(
+          find_committee(i.tenant_id, i.level + 1, i.functional_group, v_complainant.unit, v_complainant.region),
+          find_committee(i.tenant_id, i.level + 1, NULL, v_complainant.unit, v_complainant.region),
+          CASE WHEN i.level + 1 < v_max_level THEN find_committee(i.tenant_id, v_max_level, NULL, NULL, NULL) END);
+      END IF;
+    END;
   END IF;
   IF v_next.id IS NULL THEN
     RAISE EXCEPTION 'No higher committee is configured for case % (level %)', p_issue, i.level;
@@ -1997,4 +2004,16 @@ BEGIN
     BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE notifications; EXCEPTION WHEN duplicate_object THEN NULL; END;
     BEGIN ALTER PUBLICATION supabase_realtime ADD TABLE group_messages; EXCEPTION WHEN duplicate_object THEN NULL; END;
   END IF;
+END $$;
+
+-- Multi-level hierarchy: loosen level checks to unbounded positive integer (level >= 1)
+DO $$
+BEGIN
+  ALTER TABLE committees DROP CONSTRAINT IF EXISTS committees_level_check;
+  ALTER TABLE committees ADD CONSTRAINT committees_level_check CHECK (level >= 1);
+  ALTER TABLE issues DROP CONSTRAINT IF EXISTS issues_level_check;
+  ALTER TABLE issues ADD CONSTRAINT issues_level_check CHECK (level >= 1);
+  ALTER TABLE routing_rules DROP CONSTRAINT IF EXISTS routing_rules_start_level_check;
+  ALTER TABLE routing_rules ADD CONSTRAINT routing_rules_start_level_check CHECK (start_level >= 1);
+EXCEPTION WHEN OTHERS THEN NULL;
 END $$;

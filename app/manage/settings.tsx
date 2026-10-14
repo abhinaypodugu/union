@@ -1,15 +1,16 @@
 import React from 'react';
 import { View } from 'react-native';
 import { router } from 'expo-router';
-import { Badge, Button, Card, Field, Input, Notice, Screen, SectionLabel, Select, Sheet, StackHeader, Switch, Tag, Txt } from '../../src/components';
+import { Badge, Button, Card, Field, IconButton, Input, Notice, Screen, SectionLabel, Select, Sheet, StackHeader, Switch, Tag, Txt } from '../../src/components';
 import { Restricted } from '../../src/components/Restricted';
-import { colors } from '../../src/theme';
-import { useStore, RoutingRule, TerminologyConfig } from '../../src/store/AppStore';
+import { colors, fonts, palette, radius } from '../../src/theme';
+import { useStore, RoutingRule, TerminologyConfig, HierarchyLevel, getHierarchyLevels } from '../../src/store/AppStore';
 
-type TermKey = 'orgLabel' | 'level1Label' | 'level2Label' | 'level3Label' | 'groupLabel' | 'caseLabel';
+type TermKey = 'orgLabel' | 'groupLabel' | 'caseLabel';
 const TERMS: Array<[TermKey, string]> = [
-  ['orgLabel', 'Organization'], ['level1Label', 'Level 1 (e.g. City)'], ['level2Label', 'Level 2 (e.g. State)'],
-  ['level3Label', 'Level 3 (e.g. National)'], ['groupLabel', 'Functional group'], ['caseLabel', 'Case / issue'],
+  ['orgLabel', 'Organization label'],
+  ['groupLabel', 'Trade / functional group label'],
+  ['caseLabel', 'Case / grievance label'],
 ];
 const TARGETS: Record<RoutingRule['targetKind'], string> = { group: "Member's functional-group committee", general: 'General (cross-functional) committee', committee: 'A specific committee' };
 
@@ -37,6 +38,52 @@ export default function Settings() {
     setTerms(nextTerms);
     void updateTenantConfig(nextTerms);
   };
+
+  const currentLevels = getHierarchyLevels(terms);
+
+  const updateLevelLabel = (lvlNum: number, newLabel: string) => {
+    const updated = currentLevels.map((lvl) => (lvl.level === lvlNum ? { ...lvl, label: newLabel } : lvl));
+    const nextTerms = {
+      ...terms,
+      levels: updated,
+      level1Label: updated[0]?.label || terms.level1Label,
+      level2Label: updated[1]?.label || terms.level2Label,
+      level3Label: updated[2]?.label || terms.level3Label,
+    };
+    setTerms(nextTerms);
+    void updateTenantConfig(nextTerms);
+  };
+
+  const addHierarchyLevel = () => {
+    const nextNum = currentLevels.length + 1;
+    const defaultName = nextNum === 4 ? 'Zonal / Regional' : nextNum === 5 ? 'Apex / Federal' : `Level ${nextNum}`;
+    const updated = [...currentLevels, { level: nextNum, label: defaultName }];
+    const nextTerms = {
+      ...terms,
+      levels: updated,
+      level1Label: updated[0]?.label || terms.level1Label,
+      level2Label: updated[1]?.label || terms.level2Label,
+      level3Label: updated[2]?.label || terms.level3Label,
+    };
+    setTerms(nextTerms);
+    void updateTenantConfig(nextTerms);
+  };
+
+  const removeHierarchyLevel = (lvlNum: number) => {
+    if (currentLevels.length <= 2) return;
+    const filtered = currentLevels.filter((lvl) => lvl.level !== lvlNum);
+    const reindexed = filtered.map((lvl, idx) => ({ level: idx + 1, label: lvl.label }));
+    const nextTerms = {
+      ...terms,
+      levels: reindexed,
+      level1Label: reindexed[0]?.label || terms.level1Label,
+      level2Label: reindexed[1]?.label || terms.level2Label,
+      level3Label: reindexed[2]?.label || terms.level3Label,
+    };
+    setTerms(nextTerms);
+    void updateTenantConfig(nextTerms);
+  };
+
   React.useEffect(() => setTerms(terminology), [terminology]);
   if (!isOrgAdmin && !isPlatformSuperAdmin) return <Restricted what="Organization settings" />;
 
@@ -53,6 +100,43 @@ export default function Settings() {
         {TERMS.map(([k, label]) => (
           <Field key={k} label={label}><Input value={terms[k]} onChangeText={(t) => setTerms({ ...terms, [k]: t })} /></Field>
         ))}
+      </Card>
+
+      <SectionLabel right={<Button size="sm" icon="plus" onPress={addHierarchyLevel}>Add Level</Button>}>
+        Organizational Levels & Hierarchy
+      </SectionLabel>
+      <Card style={{ marginHorizontal: 12, gap: 12 }}>
+        <Txt variant="bodyS" color={colors.textMuted}>
+          {`Configure your organization's administrative tiers (e.g. Plant → City → State → Apex). Escalation flows through these tiers automatically.`}
+        </Txt>
+
+        <View style={{ gap: 10 }}>
+          {currentLevels.map((lvl) => (
+            <View key={lvl.level} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: palette.blue50, borderWidth: 1.5, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center' }}>
+                <Txt style={{ fontFamily: fonts.sans700, fontSize: 13, color: colors.accent }}>{`L${lvl.level}`}</Txt>
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <Input
+                  value={lvl.label}
+                  onChangeText={(t) => updateLevelLabel(lvl.level, t)}
+                  placeholder={`Level ${lvl.level} label`}
+                />
+              </View>
+
+              {currentLevels.length > 2 ? (
+                <IconButton
+                  icon="trash-2"
+                  label={`Remove Level ${lvl.level}`}
+                  size="sm"
+                  onPress={() => removeHierarchyLevel(lvl.level)}
+                  color={palette.redSolid}
+                />
+              ) : null}
+            </View>
+          ))}
+        </View>
       </Card>
 
       <SectionLabel>{`${terms.groupLabel || 'Cadre'}s & Trade Sectors`}</SectionLabel>
@@ -107,8 +191,16 @@ export default function Settings() {
               <Field label="Committee"><Select value={committeeName(rule.targetCommitteeId) || ''} onChange={(v) => setRule({ ...rule, targetCommitteeId: committees.find((c) => c.name === v)?.id || null })} options={committees.map((c) => c.name)} /></Field>
             ) : (
               <Field label="Starting level">
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  {([1, 2, 3] as const).map((l) => <Tag key={l} selected={rule.startLevel === l} onPress={() => setRule({ ...rule, startLevel: l })}>{`L${l} · ${l === 1 ? terminology.level1Label : l === 2 ? terminology.level2Label : terminology.level3Label}`}</Tag>)}
+                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                  {currentLevels.map((lvl) => (
+                    <Tag
+                      key={lvl.level}
+                      selected={rule.startLevel === lvl.level}
+                      onPress={() => setRule({ ...rule, startLevel: lvl.level })}
+                    >
+                      {`L${lvl.level} · ${lvl.label}`}
+                    </Tag>
+                  ))}
                 </View>
               </Field>
             )}

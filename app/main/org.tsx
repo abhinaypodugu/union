@@ -24,14 +24,15 @@ export default function Org() {
    committees.find((c) => c.level === level && matchGroup(c) && [activeMember?.unit, activeMember?.region].map((x) => x?.toLowerCase()).includes(geoName(c.geoUnitId))) ||
    committees.find((c) => c.level === level && matchGroup(c)) ||
    committees.find((c) => c.level === level && !c.functionalGroup);
+  const maxLvl = Math.max(...committees.map((c) => c.level), 3);
   let cur = pick(1);
-  while (cur && out.length < 3 && !out.includes(cur)) {
+  while (cur && out.length < maxLvl && !out.includes(cur)) {
    out.push(cur);
    const nextId: string | null = cur.escalatesToId;
    const lvl: number = cur.level;
-   cur = (nextId ? committees.find((c) => c.id === nextId) : undefined) || (lvl < 3 ? pick(lvl + 1) : undefined);
+   cur = (nextId ? committees.find((c) => c.id === nextId) : undefined) || (lvl < maxLvl ? pick(lvl + 1) : undefined);
   }
-  if (out.length === 0) { const top = pick(3); if (top) out.push(top); }
+  if (out.length === 0) { const top = pick(maxLvl); if (top) out.push(top); }
   return out;
   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [committees, activeMember?.unit, activeMember?.region, myGroup, geoUnits]);
