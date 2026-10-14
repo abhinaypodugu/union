@@ -121,17 +121,19 @@ export function PostCard(p: PostCardProps) {
       ) : null}
      </View>
 
-     {/* Line 2: Small font size, fits in ONE line like Image #1 */}
-     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-      {committee ? (
-       <Icon name="lock" size={11} color={colors.textMuted} strokeWidth={2} />
-      ) : (
-       <Icon name="disc" size={10} color={colors.textMuted} strokeWidth={2.2} />
-      )}
+     {/* Line 2: Small font size, flows onto two lines when needed so it never cuts off with ... */}
+     <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 5, marginTop: 1 }}>
+      <View style={{ paddingTop: 2.5 }}>
+       {committee ? (
+        <Icon name="lock" size={11} color={colors.textMuted} strokeWidth={2} />
+       ) : (
+        <Icon name="disc" size={10} color={colors.textMuted} strokeWidth={2.2} />
+       )}
+      </View>
       <Txt
-       style={{ fontFamily: fonts.sans400, fontSize: 11.5, lineHeight: 15, flex: 1 }}
+       style={{ fontFamily: fonts.sans400, fontSize: 11.5, lineHeight: 16, flex: 1 }}
        color={colors.textMuted}
-       numberOfLines={1}
+       numberOfLines={2}
       >
        {[metaSource, time].filter(Boolean).join(' · ')}
       </Txt>
