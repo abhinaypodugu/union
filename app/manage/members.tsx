@@ -21,6 +21,7 @@ import {
  Tag,
  TextArea,
  Txt,
+ VerifiedCheck,
 } from '../../src/components';
 import { Restricted } from '../../src/components/Restricted';
 import { colors, fonts, palette, radius } from '../../src/theme';
@@ -126,42 +127,38 @@ export default function Members() {
       const statusTone = m.status === 'verified' ? 'success' : m.status === 'pending' ? 'warning' : 'danger';
       return (
        <Card key={m.id} style={{ padding: 16, gap: 12, borderRadius: radius.xl }}>
-        {/* Header: Avatar, Name, Member ID, Status Badge & Action Menu */}
+        {/* Header: Avatar, Name + Verified Tick, Member ID, Action Menu */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
          <Avatar name={m.name} size={42} />
-         <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-           <Txt variant="titleS" style={{ fontSize: 16, lineHeight: 20, flexShrink: 1 }} numberOfLines={1}>
+         <View style={{ flex: 1, minWidth: 0, justifyContent: 'center', gap: 3 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+           <Txt style={{ fontFamily: fonts.sans600, fontSize: 15, lineHeight: 20 }} color={colors.textPrimary}>
             {m.name}
            </Txt>
+           {m.status === 'verified' ? <VerifiedCheck size={16} /> : null}
            {isMe ? <Badge size="sm" tone="info">You</Badge> : null}
           </View>
-          <Txt variant="mono" color={colors.textMuted} style={{ fontSize: 12 }}>
-           {m.memberId}
-          </Txt>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+           <Txt variant="mono" color={colors.textMuted} style={{ fontSize: 12 }}>
+            {m.memberId}
+           </Txt>
+           {m.status !== 'verified' ? (
+            <Badge size="sm" dot tone={statusTone}>
+             {m.status[0].toUpperCase() + m.status.slice(1)}
+            </Badge>
+           ) : null}
+          </View>
          </View>
 
-         {/* Right Alignment Cluster: fixed 32px slot ensures the Status Badge never skews/jumps on cards without a menu button */}
-         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <Badge size="sm" dot tone={statusTone}>
-           {m.status[0].toUpperCase() + m.status.slice(1)}
-          </Badge>
-
-          {isOrgAdmin ? (
-           <View style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}>
-            {m.status === 'verified' && !isMe ? (
-             <IconButton
-              icon="ellipsis"
-              label="Manage member"
-              size="sm"
-              onPress={() => setSelectedMember(m)}
-             />
-            ) : null}
-           </View>
-          ) : null}
-         </View>
+         {isOrgAdmin && m.status === 'verified' && !isMe ? (
+          <IconButton
+           icon="ellipsis"
+           label="Manage member"
+           size="sm"
+           onPress={() => setSelectedMember(m)}
+          />
+         ) : null}
         </View>
-        {/* Location & Cadre Tags */}
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
          {m.unit ? <Tag icon="map-pin">{`${m.unit}, ${m.region}`}</Tag> : null}
          {m.groups.map((g) => (

@@ -6,6 +6,7 @@ import { Avatar } from '../Avatar';
 import { Icon } from '../Icon';
 import { IconButton } from '../IconButton';
 import { Txt } from '../Txt';
+import { VerifiedCheck } from '../VerifiedCheck';
 import { AudienceScope } from './AudienceLabel';
 
 export interface PostCardProps {
@@ -66,9 +67,10 @@ export function PostCard(p: PostCardProps) {
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingLeft: 16, paddingRight: 6, paddingTop: 14 }}>
         <Avatar name={author.name} size={42} official={official || author.official} />
         <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <Txt style={{ fontFamily: fonts.sans600, fontSize: 15, lineHeight: 20, flexShrink: 1 }} numberOfLines={1}>{author.name}</Txt>
-            {author.role ? <Txt style={{ fontFamily: fonts.sans400, fontSize: 13, lineHeight: 20, flexShrink: 2 }} color={colors.textMuted} numberOfLines={1}>{author.role}</Txt> : null}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <Txt style={{ fontFamily: fonts.sans600, fontSize: 14.5, lineHeight: 19 }} color={palette.ink900}>{author.name}</Txt>
+            {official || author.official ? <VerifiedCheck size={14} /> : null}
+            {author.role ? <Txt style={{ fontFamily: fonts.sans400, fontSize: 12.5, lineHeight: 18 }} color={colors.textMuted}>{'· ' + author.role}</Txt> : null}
             {pinned && !official ? <Icon name="pin" size={13} color={colors.textMuted} strokeWidth={2} /> : null}
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }} accessible accessibilityLabel={(where ? 'Posted to ' + where + '. ' : '') + (audience ? 'Visible to ' + audience.label + '. ' : '') + (time || '')}>
@@ -86,18 +88,20 @@ export function PostCard(p: PostCardProps) {
         {body ? <PostBody body={body} lines={p.bodyLines} canOpen={!!p.onOpen} /> : null}
       </Pressable>
 
-      {media ? (
-        <View style={{ marginTop: 14, marginHorizontal: 12, borderRadius: radius.l, overflow: 'hidden', aspectRatio: 4 / 3, backgroundColor: palette.paper150, alignItems: 'center', justifyContent: 'center' }}>
-          {isUri ? <Image source={{ uri: media }} style={{ width: '100%', height: '100%' }} resizeMode="cover" accessibilityIgnoresInvertColors /> : <Txt variant="mono" color={palette.ink500}>{media}</Txt>}
-        </View>
-      ) : null}
+      {
+        media ? (
+          <View style={{ marginTop: 14, marginHorizontal: 12, borderRadius: radius.l, overflow: 'hidden', aspectRatio: 4 / 3, backgroundColor: palette.paper150, alignItems: 'center', justifyContent: 'center' }}>
+            {isUri ? <Image source={{ uri: media }} style={{ width: '100%', height: '100%' }} resizeMode="cover" accessibilityIgnoresInvertColors /> : <Txt variant="mono" color={palette.ink500}>{media}</Txt>}
+          </View>
+        ) : null
+      }
 
       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, marginHorizontal: 8, paddingVertical: 4, borderTopWidth: 1, borderTopColor: committee ? palette.paper200 : colors.borderSubtle }}>
         <Action icon="heart" count={likes} on={liked} onPress={p.onLike} label={liked ? 'Unlike' : 'Like'} />
         <Action icon="message-circle" count={comments} onPress={p.onComment ?? p.onOpen} label={comments ? comments + ' comments' : 'Comment'} />
         {!committee && p.onShare ? <Action icon="share-2" onPress={p.onShare} label="Share" /> : null}
       </View>
-    </View>
+    </View >
   );
 }
 

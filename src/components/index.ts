@@ -29,3 +29,4 @@ export * from './domain/MetricTile';
 export * from './domain/AudienceSummary';
 export * from './LoadingState';
 export * from './layout';
+export * from './VerifiedCheck';

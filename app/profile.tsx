@@ -3,7 +3,7 @@ import { View, Pressable, Share } from 'react-native';
 import { Redirect, router } from 'expo-router';
 import {
   Avatar, Badge, Button, Card, IconTile, KeyValue, ListCard, ListRow, LoadingState, Notice, Screen, SectionLabel, StackHeader,
-  Switch, Txt, Sheet, Field, Input,
+  Switch, Txt, Sheet, Field, Input, VerifiedCheck,
 } from '../src/components';
 import { colors, palette } from '../src/theme';
 import { useStore, NotificationPrefs, Tenant } from '../src/store/AppStore';
@@ -84,9 +84,11 @@ export default function Profile() {
 
       <View style={{ alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 8 }}>
         <Avatar name={activeMember.name} size={80} />
-        <Txt variant="displayM" style={{ marginTop: 6 }}>{activeMember.name}</Txt>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
+          <Txt variant="displayM">{activeMember.name}</Txt>
+          <VerifiedCheck size={20} />
+        </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-          <Badge tone="success" dot>Verified member</Badge>
           <Txt variant="mono" color={colors.textSecondary}>{activeMember.memberId}</Txt>
           {isOrgAdmin ? <Badge tone="info" variant="outline" icon="shield">Org admin</Badge> : null}
           {isPlatformSuperAdmin ? <Badge tone="danger" variant="outline" icon="shield">Platform admin</Badge> : null}

@@ -75,7 +75,7 @@ export default function PostDetail() {
       <Avatar name={c.authorName} size={32} />
       <View style={{ flex: 1, gap: 4 }}>
        <View style={{ alignSelf: 'flex-start', maxWidth: '100%', paddingVertical: 9, paddingHorizontal: 12, borderRadius: radius.l, borderTopLeftRadius: 4, backgroundColor: colors.surfaceCard, borderWidth: 1, borderColor: colors.borderSubtle, gap: 2 }}>
-        <Txt variant="bodySStrong" numberOfLines={1}>{c.authorName}</Txt>
+        <Txt variant="bodySStrong">{c.authorName}</Txt>
         <Txt style={{ fontFamily: fonts.sans400, fontSize: 15, lineHeight: 21 }} color={palette.ink800}>{c.text}</Txt>
        </View>
        <Txt variant="caption" color={colors.textMuted} style={{ paddingLeft: 12 }}>{c.time}</Txt>

@@ -3,7 +3,7 @@ import { View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
   Avatar, Badge, Button, Card, Checkbox, CommitteeBadge, Dialog, Field, IconButton, Input, ListCard, ListRow, Notice, Radio,
-  Screen, SectionLabel, Select, Sheet, StackHeader, Tag, TextArea, Txt, IconTile,
+  Screen, SectionLabel, Select, Sheet, StackHeader, Tag, TextArea, Txt, IconTile, VerifiedCheck,
 } from '../../src/components';
 import { colors, fonts } from '../../src/theme';
 import { useStore, AppointmentStatus, CommitteeInfo, CommitteeMember } from '../../src/store/AppStore';
@@ -154,7 +154,11 @@ export default function Committee() {
           <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 14 }}>
             <Avatar name={m.name} size={38} />
             <View style={{ flex: 1, gap: 4 }}>
-              <Txt variant="titleS">{m.name}<Txt variant="body" color={colors.textMuted}>{' · ' + m.role}</Txt></Txt>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <Txt variant="titleS">{m.name}</Txt>
+                {m.status === 'active' ? <VerifiedCheck size={14} /> : null}
+                <Txt variant="body" color={colors.textMuted}>{'· ' + m.role}</Txt>
+              </View>
               <Txt variant="bodyS" color={colors.textSecondary} numberOfLines={2}>{`${m.method} · ${m.since}${m.endDate ? ' → ' + new Date(m.endDate).toLocaleDateString() : ''}`}</Txt>
               <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
                 <Badge size="sm" dot tone={STATUS[m.status][0]}>{STATUS[m.status][1]}</Badge>
