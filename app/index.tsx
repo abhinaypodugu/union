@@ -27,6 +27,7 @@ type OnboardingStep =
  | 'admin_q1'
  | 'admin_q2'
  | 'admin_q3'
+ | 'admin_q4'
  | 'admin_share'
  | 'member_q1'
  | 'member_q2'
@@ -55,13 +56,14 @@ function BackHeader({ onBack, title, subtitle }: { onBack: () => void; title?: s
  );
 }
 
-const ADMIN_TOTAL = 3;
+const ADMIN_TOTAL = 4;
 const MEMBER_TOTAL = 3;
 function adminProgress(step: OnboardingStep) {
  if (step === 'admin_q1') return 1;
  if (step === 'admin_q2') return 2;
  if (step === 'admin_q3') return 3;
- if (step === 'admin_share') return 3;
+ if (step === 'admin_q4') return 4;
+ if (step === 'admin_share') return 4;
  return 0;
 }
 function memberProgress(step: OnboardingStep) {
@@ -350,6 +352,7 @@ export default function Index() {
   if (step === 'admin_q1') return () => { void backToPhone(); };
   if (step === 'admin_q2') return () => setStep('admin_q1');
   if (step === 'admin_q3') return () => setStep('admin_q2');
+  if (step === 'admin_q4') return () => setStep('admin_q3');
   if (step === 'admin_share') return null;
   if (step === 'member_q1') return () => { void backToPhone(); };
   if (step === 'member_q2') return () => setStep('member_q1');
@@ -478,10 +481,13 @@ export default function Index() {
       </Card>
      )}
 
-     {/* ADMIN Q1 — 2 clean questions; code auto-fills initials; info tips */}
+     {/* ADMIN Q1 — 1 to 2 questions: Name, Code & optional description */}
      {step === 'admin_q1' && (
       <Card style={{ padding: 20, gap: 16 }}>
-       <Txt variant="titleM">Name your organization & choose its code</Txt>
+       <Txt variant="titleM">Organization details</Txt>
+       <Txt variant="bodyS" color={colors.textSecondary}>
+        Establish your organization boundary on the platform.
+       </Txt>
 
        <Field label="Organization name" required infoText="Official name shown across the app and member invites.">
         <Input
@@ -493,136 +499,137 @@ export default function Index() {
            if (initials.length >= 2) setOrgCode(initials);
           }
          }}
-
+         placeholder="e.g. National Healthcare Workers Union"
+         autoFocus
         />
        </Field>
 
-       <Field label="Organization Code" required infoText="Short code members enter after OTP to join this organization. Must be unique.">
+       <Field label="Organization Code" required infoText="Short unique code members enter after OTP to join (e.g. NHWU).">
         <Input value={orgCode} onChangeText={(t) => setOrgCode(t.toUpperCase())} placeholder="NHWU" autoCapitalize="characters" />
+       </Field>
+
+       <Field label="Brief description" infoText="Shown to members browsing the organization directory (optional).">
+        <Input value={orgDesc} onChangeText={setOrgDesc} placeholder="e.g. Independent union for healthcare workers" />
        </Field>
 
        <Button size="lg" block icon="chevron-right" disabled={!orgName.trim() || !orgCode.trim()} onPress={() => setStep('admin_q2')}>
         Continue
        </Button>
-
       </Card>
      )}
 
-     {/* ADMIN Q2 — description + terminology; no 2a/2b numbering */}
+     {/* ADMIN Q2 — Focused solely on Levels & Administrative Tiers */}
      {step === 'admin_q2' && (
       <Card style={{ padding: 20, gap: 16 }}>
-       <Txt variant="titleM">Purpose & governance terms</Txt>
+       <Txt variant="titleM">Administrative levels & tiers</Txt>
+       <Txt variant="bodyS" color={colors.textMuted}>
+        Configure tiers for your union (e.g. Branch → Region → National). Cases escalate through these tiers automatically.
+       </Txt>
 
-       <Field label="Brief description" infoText="Shown to members browsing the organization directory.">
-        <Input value={orgDesc} onChangeText={setOrgDesc} />
-       </Field>
-
-       <View style={{ flexDirection: 'row', gap: 10 }}>
-        <View style={{ flex: 1 }}>
-         <Field label="Case label" infoText="What a complaint/case is called in this organization.">
-          <Input value={caseLabel} onChangeText={setCaseLabel} />
-         </Field>
-        </View>
-        <View style={{ flex: 1 }}>
-         <Field label="Group label" infoText="What a functional or trade group is called here.">
-          <Input value={groupLabel} onChangeText={setGroupLabel} />
-         </Field>
-        </View>
-       </View>
-       <View style={{ gap: 8 }}>
-        <Field
-         label={`${groupLabel || 'Cadre'}s in your organization`}
-         infoText="These appear as selectable options for members signing up with your invite code."
-        >
-         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-          {adminCadres.map((c) => (
-           <Tag
-            key={c}
-            icon="briefcase"
-            onRemove={() => setAdminCadres(adminCadres.filter((x) => x !== c))}
-           >
-            {c}
-           </Tag>
-          ))}
-         </View>
-         <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+       <View style={{ gap: 10 }}>
+        {adminLevels.map((lvl) => (
+         <View key={lvl.level} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: palette.blue50, borderWidth: 1.5, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center' }}>
+           <Txt style={{ fontFamily: fonts.sans700, fontSize: 13, color: colors.accent }}>{`L${lvl.level}`}</Txt>
+          </View>
           <View style={{ flex: 1 }}>
            <Input
-            value={newCadreInput}
-            onChangeText={setNewCadreInput}
-            placeholder={`Add ${groupLabel.toLowerCase() || 'cadre'}…`}
+            value={lvl.label}
+            onChangeText={(t) => updateAdminLevelLabel(lvl.level, t)}
+            placeholder={`Level ${lvl.level} label`}
            />
           </View>
-          <Button
-           size="sm"
-           icon="plus"
-           disabled={!newCadreInput.trim()}
-           onPress={() => {
-            if (newCadreInput.trim() && !adminCadres.includes(newCadreInput.trim())) {
-             setAdminCadres([...adminCadres, newCadreInput.trim()]);
-             setNewCadreInput('');
-            }
-           }}
-          >
-           Add
-          </Button>
+          {adminLevels.length > 2 ? (
+           <IconButton
+            icon="trash-2"
+            label={`Remove Level ${lvl.level}`}
+            size="sm"
+            onPress={() => removeAdminLevel(lvl.level)}
+            color={palette.redSolid}
+           />
+          ) : null}
          </View>
-        </Field>
+        ))}
        </View>
 
-       {/* Hierarchy Levels Builder in Admin Setup */}
-       <View style={{ gap: 8 }}>
-        <Field
-         label="Administrative levels & tiers"
-         infoText="Configure tiers for your union (e.g. Branch → Region → National). Add or rename tiers."
-        >
-         <View style={{ gap: 8, marginBottom: 8 }}>
-          {adminLevels.map((lvl) => (
-           <View key={lvl.level} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: palette.blue50, borderWidth: 1.5, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center' }}>
-             <Txt style={{ fontFamily: fonts.sans700, fontSize: 12, color: colors.accent }}>{`L${lvl.level}`}</Txt>
-            </View>
-            <View style={{ flex: 1 }}>
-             <Input
-              value={lvl.label}
-              onChangeText={(t) => updateAdminLevelLabel(lvl.level, t)}
-              placeholder={`Level ${lvl.level} label`}
-             />
-            </View>
-            {adminLevels.length > 2 ? (
-             <IconButton
-              icon="trash-2"
-              label={`Remove Level ${lvl.level}`}
-              size="sm"
-              onPress={() => removeAdminLevel(lvl.level)}
-              color={palette.redSolid}
-             />
-            ) : null}
-           </View>
-          ))}
-         </View>
-         <Button size="sm" variant="secondary" icon="plus" onPress={addAdminLevel}>Add Level</Button>
-        </Field>
-       </View>
+       <Button size="sm" variant="secondary" icon="plus" onPress={addAdminLevel}>
+        Add Level
+       </Button>
 
-       <Button block icon="chevron-right" onPress={() => setStep('admin_q3')}>Continue</Button>
+       <Button size="lg" block icon="chevron-right" onPress={() => setStep('admin_q3')}>
+        Continue
+       </Button>
       </Card>
      )}
-     {/* ADMIN Q3 — founding admin profile + HQ location autofill */}
+
+     {/* ADMIN Q3 — Focused solely on Cadres & Trade Sectors */}
      {step === 'admin_q3' && (
       <Card style={{ padding: 20, gap: 16 }}>
-       <Txt variant="titleM">Founding administrator profile</Txt>
+       <Txt variant="titleM">Cadres & trade sectors</Txt>
+       <Txt variant="bodyS" color={colors.textSecondary}>
+        What trade sectors do your workers belong to? These will appear as selectable dropdown options for members.
+       </Txt>
+
+       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+        {adminCadres.map((c) => (
+         <Tag
+          key={c}
+          icon="briefcase"
+          onRemove={() => setAdminCadres(adminCadres.filter((x) => x !== c))}
+         >
+          {c}
+         </Tag>
+        ))}
+       </View>
+
+       <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+        <View style={{ flex: 1 }}>
+         <Input
+          value={newCadreInput}
+          onChangeText={setNewCadreInput}
+          placeholder="Add trade sector (e.g. Healthcare)…"
+         />
+        </View>
+        <Button
+         size="sm"
+         icon="plus"
+         disabled={!newCadreInput.trim()}
+         onPress={() => {
+          if (newCadreInput.trim() && !adminCadres.includes(newCadreInput.trim())) {
+           setAdminCadres([...adminCadres, newCadreInput.trim()]);
+           setNewCadreInput('');
+          }
+         }}
+        >
+         Add
+        </Button>
+       </View>
+
+       <Button size="lg" block icon="chevron-right" disabled={adminCadres.length === 0} onPress={() => setStep('admin_q4')}>
+        Continue
+       </Button>
+      </Card>
+     )}
+
+     {/* ADMIN Q4 — Founding administrator profile + primary workplace */}
+     {step === 'admin_q4' && (
+      <Card style={{ padding: 20, gap: 16 }}>
+       <Txt variant="titleM">Administrator profile & location</Txt>
+       <Txt variant="bodyS" color={colors.textSecondary}>
+        Your executive administrative profile and primary organization location.
+       </Txt>
 
        <Field label="Full name" required>
-        <Input value={adminName} onChangeText={setAdminName} />
+        <Input value={adminName} onChangeText={setAdminName} placeholder="Your name" autoFocus />
        </Field>
 
        <Button variant="ghost" size="sm" icon="map-pin" disabled={locBusy} onPress={useMyLocationForAdmin} block>
-        {locBusy ? 'Locating…' : 'Use my location'}
+        {locBusy ? 'Locating…' : 'Use my location to detect city & state'}
        </Button>
+
        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-end' }}>
         <View style={{ flex: 1 }}>
-         <Field label={`Primary ${adminLevels[0]?.label || 'unit'}`} required infoText="Your founding workplace or branch">
+         <Field label={`Primary ${adminLevels[0]?.label || 'unit'} *`} required infoText="Your founding workplace or branch">
           <Input value={adminUnit} onChangeText={setAdminUnit} placeholder={`e.g. Headquarters or ${adminLevels[0]?.label || 'Unit'} 1`} />
          </Field>
         </View>
@@ -635,11 +642,11 @@ export default function Index() {
         ) : null}
        </View>
 
-       <Field label="Work email" infoText="Used for admin notices. Can be left blank.">
-        <Input value={adminEmail} onChangeText={setAdminEmail} keyboardType="email-address" autoCapitalize="none" />
+       <Field label="Work email" infoText="Used for admin notices (optional).">
+        <Input value={adminEmail} onChangeText={setAdminEmail} keyboardType="email-address" autoCapitalize="none" placeholder="admin@example.org" />
        </Field>
 
-       <Button block icon="check" disabled={!adminName.trim() || !adminUnit.trim() || busy} onPress={handleCompleteAdminSetup}>
+       <Button size="lg" block icon="check" disabled={!adminName.trim() || !adminUnit.trim() || busy} onPress={handleCompleteAdminSetup}>
         {busy ? 'Saving…' : 'Create Organization'}
        </Button>
       </Card>
