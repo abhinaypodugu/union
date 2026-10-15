@@ -56,7 +56,7 @@ export default function Settings() {
 
   const addHierarchyLevel = () => {
     const nextNum = currentLevels.length + 1;
-    const defaultName = nextNum === 4 ? 'Zonal / Regional' : nextNum === 5 ? 'Apex / Federal' : `Level ${nextNum}`;
+    const defaultName = `Level ${nextNum}`;
     const updated = [...currentLevels, { level: nextNum, label: defaultName }];
     const nextTerms = {
       ...terms,
@@ -107,7 +107,7 @@ export default function Settings() {
       </SectionLabel>
       <Card style={{ marginHorizontal: 12, gap: 12 }}>
         <Txt variant="bodyS" color={colors.textMuted}>
-          {`Configure your organization's administrative tiers (e.g. Plant → City → State → Apex). Escalation flows through these tiers automatically.`}
+          {`Configure your organization's administrative tiers (e.g. Branch → Region → Central). Escalation flows through these tiers automatically.`}
         </Txt>
 
         <View style={{ gap: 10 }}>

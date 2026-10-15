@@ -19,7 +19,7 @@ describe('Multi-level hierarchy: unbounded escalation (L1 to L5+)', () => {
     await rpc(u.platform, `
       SELECT create_organization(
         'Multilevel Union', 'MLU', 'MLU', 'Multi-tier confederation',
-        '{"levels":[{"level":1,"label":"Plant"},{"level":2,"label":"City"},{"level":3,"label":"District"},{"level":4,"label":"State"},{"level":5,"label":"Apex"}]}',
+        '{"levels":[{"level":1,"label":"Plant"},{"level":2,"label":"City"},{"level":3,"label":"District"},{"level":4,"label":"State"},{"level":5,"label":"Central"}]}',
         'Admin One', 'admin@mlu.org', 'Hyderabad', 'Telangana'
       )
     `);
@@ -46,8 +46,8 @@ describe('Multi-level hierarchy: unbounded escalation (L1 to L5+)', () => {
     await rpc(u.platform, `SELECT upsert_committee('mlu', 'mlu-l3', 'District Council Committee', 'District', 3, 'Manufacturing', NULL, NULL, 'Election', '2026-2027')`);
     // L4: State
     await rpc(u.platform, `SELECT upsert_committee('mlu', 'mlu-l4', 'State Federation Committee', 'State', 4, 'Manufacturing', NULL, NULL, 'Election', '2026-2027')`);
-    // L5: Apex
-    await rpc(u.platform, `SELECT upsert_committee('mlu', 'mlu-l5', 'National Executive Apex', 'Apex', 5, NULL, NULL, NULL, 'Appointment', '2026-2028')`);
+    // L5: Central
+    await rpc(u.platform, `SELECT upsert_committee('mlu', 'mlu-l5', 'Central Executive Committee', 'National', 5, NULL, NULL, NULL, 'Appointment', '2026-2028')`);
 
     // Link escalation chain explicitly: L1 -> L2 -> L3 -> L4 -> L5
     await db.query(`UPDATE committees SET escalates_to_id = 'mlu-l2' WHERE id = 'mlu-l1'`);
@@ -85,15 +85,15 @@ describe('Multi-level hierarchy: unbounded escalation (L1 to L5+)', () => {
     assert.equal(row.level, 4);
     assert.equal(row.committee_name, 'State Federation Committee');
 
-    // Escalate L4 -> L5 (National Apex)
-    await rpc(u.handler, `SELECT escalate_issue($1, 'Requires National Executive intervention', 4)`, [issueId]);
+    // Escalate L4 -> L5 (Central Executive)
+    await rpc(u.handler, `SELECT escalate_issue($1, 'Requires Central Executive intervention', 4)`, [issueId]);
     row = (await db.query(`SELECT level, committee_name, status FROM issues WHERE id = $1`, [issueId])).rows[0];
     assert.equal(row.level, 5);
-    assert.equal(row.committee_name, 'National Executive Apex');
+    assert.equal(row.committee_name, 'Central Executive Committee');
 
     // Reaching top level: no further higher committee
     await assert.rejects(
-      rpc(u.handler, `SELECT escalate_issue($1, 'Cannot escalate past apex', 5)`, [issueId]),
+      rpc(u.handler, `SELECT escalate_issue($1, 'Cannot escalate past top level', 5)`, [issueId]),
       /No higher committee is configured/
     );
   });

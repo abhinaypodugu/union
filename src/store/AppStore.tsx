@@ -613,11 +613,11 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         value: activeMember.region,
       });
     }
-    const apexLevel = levels[levels.length - 1];
+    const topLevel = levels[levels.length - 1];
     tierItems.push({
-      id: 'tier-apex',
+      id: 'tier-org',
       name: country ? `${tenant.name} · ${country.name}` : tenant.name,
-      kind: `Apex · ${apexLevel?.label || 'Whole Organization'} channel`,
+      kind: `L${topLevel?.level || levels.length} · ${topLevel?.label || 'All members'} channel`,
       icon: 'globe',
       tone: 'geo',
       scope: 'org',
