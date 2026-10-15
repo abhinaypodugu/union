@@ -17,8 +17,8 @@ import {
  Tag,
  Txt,
 } from '../src/components';
-import { colors, palette, radius } from '../src/theme';
-import { useStore, Tenant } from '../src/store/AppStore';
+import { colors, fonts, palette, radius } from '../src/theme';
+import { useStore, Tenant, HierarchyLevel } from '../src/store/AppStore';
 import { autofillFromDevice } from '../src/lib/location';
 
 type OnboardingStep =
@@ -118,6 +118,27 @@ export default function Index() {
   'Maintenance',
  ]);
  const [newCadreInput, setNewCadreInput] = useState('');
+ const [adminLevels, setAdminLevels] = useState<HierarchyLevel[]>([
+  { level: 1, label: 'City' },
+  { level: 2, label: 'State' },
+  { level: 3, label: 'National' },
+ ]);
+
+ const updateAdminLevelLabel = (lvlNum: number, newLabel: string) => {
+  setAdminLevels(adminLevels.map((lvl) => (lvl.level === lvlNum ? { ...lvl, label: newLabel } : lvl)));
+ };
+
+ const addAdminLevel = () => {
+  const nextNum = adminLevels.length + 1;
+  setAdminLevels([...adminLevels, { level: nextNum, label: `Level ${nextNum}` }]);
+ };
+
+ const removeAdminLevel = (lvlNum: number) => {
+  if (adminLevels.length <= 2) return;
+  const filtered = adminLevels.filter((lvl) => lvl.level !== lvlNum);
+  setAdminLevels(filtered.map((lvl, idx) => ({ level: idx + 1, label: lvl.label })));
+ };
+
  const [adminName, setAdminName] = useState('');
  const [adminEmail, setAdminEmail] = useState('');
  const [adminUnit, setAdminUnit] = useState('');
@@ -231,6 +252,7 @@ export default function Index() {
       cadres: adminCadres.length > 0 ? adminCadres : ['IT Workers', 'Transport', 'Healthcare', 'Administration'],
       cities: adminUnit.trim() ? [adminUnit.trim()] : ['Hyderabad'],
       states: adminRegion.trim() ? [adminRegion.trim()] : ['Telangana'],
+      levels: adminLevels,
      },
     },
     {
@@ -547,6 +569,42 @@ export default function Index() {
          </View>
         </Field>
        </View>
+
+       {/* Hierarchy Levels Builder in Admin Setup */}
+       <View style={{ gap: 8 }}>
+        <Field
+         label="Administrative levels & tiers"
+         infoText="Configure tiers for your union (e.g. Branch → Region → National). Add or rename tiers."
+        >
+         <View style={{ gap: 8, marginBottom: 8 }}>
+          {adminLevels.map((lvl) => (
+           <View key={lvl.level} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: palette.blue50, borderWidth: 1.5, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center' }}>
+             <Txt style={{ fontFamily: fonts.sans700, fontSize: 12, color: colors.accent }}>{`L${lvl.level}`}</Txt>
+            </View>
+            <View style={{ flex: 1 }}>
+             <Input
+              value={lvl.label}
+              onChangeText={(t) => updateAdminLevelLabel(lvl.level, t)}
+              placeholder={`Level ${lvl.level} label`}
+             />
+            </View>
+            {adminLevels.length > 2 ? (
+             <IconButton
+              icon="trash-2"
+              label={`Remove Level ${lvl.level}`}
+              size="sm"
+              onPress={() => removeAdminLevel(lvl.level)}
+              color={palette.redSolid}
+             />
+            ) : null}
+           </View>
+          ))}
+         </View>
+         <Button size="sm" variant="secondary" icon="plus" onPress={addAdminLevel}>Add Level</Button>
+        </Field>
+       </View>
+
        <Button block icon="chevron-right" onPress={() => setStep('admin_q3')}>Continue</Button>
       </Card>
      )}
@@ -564,15 +622,17 @@ export default function Index() {
        </Button>
        <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-end' }}>
         <View style={{ flex: 1 }}>
-         <Field label="Headquarters city" required>
-          <Input value={adminUnit} onChangeText={setAdminUnit} />
+         <Field label={`Primary ${adminLevels[0]?.label || 'unit'}`} required infoText="Your founding workplace or branch">
+          <Input value={adminUnit} onChangeText={setAdminUnit} placeholder={`e.g. Headquarters or ${adminLevels[0]?.label || 'Unit'} 1`} />
          </Field>
         </View>
-        <View style={{ flex: 1 }}>
-         <Field label="State / region">
-          <Input value={adminRegion} onChangeText={setAdminRegion} />
-         </Field>
-        </View>
+        {adminLevels.length >= 3 ? (
+         <View style={{ flex: 1 }}>
+          <Field label={adminLevels[1]?.label || 'Region'} infoText="Regional or intermediate tier">
+           <Input value={adminRegion} onChangeText={setAdminRegion} placeholder={`e.g. ${adminLevels[1]?.label || 'Region'} 1`} />
+          </Field>
+         </View>
+        ) : null}
        </View>
 
        <Field label="Work email" infoText="Used for admin notices. Can be left blank.">

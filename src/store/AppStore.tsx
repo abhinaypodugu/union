@@ -585,9 +585,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
 
   const groups: GroupSection[] = React.useMemo(() => {
     if (!tenant || !activeMember) return [];
-    const country = geoUnits.find((g) => g.type === 'country');
 
-    // 1. Level-wise / Tier channels (Plant/Unit -> Region/Zone -> National Apex)
+    // 1. Level-wise / Tier channels (L1 Workplace -> L2 Region -> Top Organization)
     const tierItems: GroupItem[] = [];
     if (activeMember.unit) {
       const l1 = levels.find((l) => l.level === 1);
@@ -601,7 +600,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         value: activeMember.unit,
       });
     }
-    if (activeMember.region && activeMember.region !== 'Central') {
+    // Intermediate tier channel (only if organization has 3 or more levels and member has a region)
+    if (levels.length >= 3 && activeMember.region && activeMember.region !== 'Central') {
       const l2 = levels.find((l) => l.level === 2);
       tierItems.push({
         id: 'tier-2',
@@ -613,10 +613,11 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         value: activeMember.region,
       });
     }
+    // Whole organization channel: clean tenant name without hardcoded country
     const topLevel = levels[levels.length - 1];
     tierItems.push({
       id: 'tier-org',
-      name: country ? `${tenant.name} · ${country.name}` : tenant.name,
+      name: tenant.name,
       kind: `L${topLevel?.level || levels.length} · ${topLevel?.label || 'All members'} channel`,
       icon: 'globe',
       tone: 'geo',
