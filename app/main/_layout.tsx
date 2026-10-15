@@ -31,7 +31,7 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="index" options={tab('Home', 'house')} />
       <Tabs.Screen name="groups" options={tab('Groups', 'users-round')} />
-      <Tabs.Screen name="issues" options={tab(terminology.caseLabel + 's', 'circle-alert')} />
+      <Tabs.Screen name="issues" options={tab(terminology.caseLabel.toLowerCase().endsWith('s') ? terminology.caseLabel : terminology.caseLabel + 's', 'circle-alert')} />
       <Tabs.Screen name="alerts" options={{ ...tab('Alerts', 'bell'), tabBarBadge: unreadCount || undefined }} />
       <Tabs.Screen name="org" options={tab(terminology.orgLabel, 'network')} />
     </Tabs>

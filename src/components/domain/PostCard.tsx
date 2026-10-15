@@ -121,16 +121,19 @@ export function PostCard(p: PostCardProps) {
       ) : null}
      </View>
 
-     {/* Line 2: Responsive Meta line */}
-     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+     {/* Line 2: Responsive Meta line — fits on one line with subtle font scale */}
+     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
       {committee ? (
        <Icon name="lock" size={11} color={colors.textMuted} strokeWidth={2} />
       ) : (
        <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: colors.textMuted, opacity: 0.7 }} />
       )}
       <Txt
-       style={{ fontFamily: fonts.sans400, fontSize: 12, lineHeight: 16 }}
+       style={{ fontFamily: fonts.sans400, fontSize: 12, lineHeight: 16, flex: 1 }}
        color={colors.textMuted}
+       numberOfLines={1}
+       adjustsFontSizeToFit
+       minimumFontScale={0.82}
       >
        {[metaSource, time].filter(Boolean).join(' · ')}
       </Txt>
