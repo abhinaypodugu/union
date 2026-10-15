@@ -1155,12 +1155,18 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 -- ==============================================================================
 
 -- Pick a committee for (tenant, level, functional group, member geography).
+-- Supports single cadre, joint cadres (comma-separated), and general committees.
 CREATE OR REPLACE FUNCTION find_committee(p_tenant TEXT, p_level INTEGER, p_group TEXT, p_city TEXT, p_region TEXT)
 RETURNS TEXT AS $$
   SELECT c.id FROM committees c
   LEFT JOIN geo_units g ON g.id = c.geo_unit_id
   WHERE c.tenant_id = p_tenant AND c.active AND c.level = p_level
-    AND ((p_group IS NULL AND c.functional_group IS NULL) OR lower(c.functional_group) = lower(p_group))
+    AND (
+      (p_group IS NULL AND c.functional_group IS NULL)
+      OR (p_group IS NOT NULL AND c.functional_group IS NOT NULL AND (
+        lower(p_group) = ANY(SELECT lower(trim(x)) FROM unnest(string_to_array(c.functional_group, ',')) x)
+      ))
+    )
   ORDER BY
     CASE WHEN g.id IS NULL THEN 1
          WHEN (g.type = 'city' AND lower(g.name) = lower(p_city)) OR (g.type = 'state' AND lower(g.name) = lower(p_region)) THEN 0

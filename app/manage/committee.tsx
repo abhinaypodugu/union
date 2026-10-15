@@ -38,6 +38,12 @@ export default function Committee() {
   const [reasonFor, setReasonFor] = React.useState<{ m: CommitteeMember; action: 'suspend' | 'reinstate' | 'revoke' | 'replace' | 'expire' } | null>(null);
   const [reasonText, setReasonText] = React.useState('');
   const [manageFor, setManageFor] = React.useState<CommitteeMember | null>(null);
+  const [selectedCadres, setSelectedCadres] = React.useState<string[]>([]);
+
+  const allCadres = Array.from(new Set([
+    ...functionalGroups.map((f) => f.name),
+    ...(terminology.cadres || []),
+  ])).filter(Boolean);
 
   const canAdmin = isOrgAdmin || isPlatformSuperAdmin;
   const C = committees.find((c) => c.id === selectedId) || null;
@@ -45,6 +51,11 @@ export default function Committee() {
   const geoName = (id: string | null) => geoUnits.find((g) => g.id === id)?.name;
 
   const openForm = (c?: CommitteeInfo) => {
+    if (c?.functionalGroup) {
+      setSelectedCadres(c.functionalGroup.split(',').map((s) => s.trim()).filter(Boolean));
+    } else {
+      setSelectedCadres([]);
+    }
     setForm(c ? {
       id: c.id, name: c.name, scope: c.scope, level: c.level, group: c.functionalGroup || GENERAL, geo: geoName(c.geoUnitId) || NONE,
       escalatesTo: committees.find((x) => x.id === c.escalatesToId)?.name || 'Next level (automatic)', method: c.method, term: c.term,
@@ -61,7 +72,7 @@ export default function Committee() {
       name: form.name.trim(),
       scope: form.scope.trim() || (form.geo !== NONE ? form.geo : 'Organization-wide'),
       level: form.level,
-      functionalGroup: form.group === GENERAL ? null : form.group,
+      functionalGroup: selectedCadres.length > 0 ? selectedCadres.join(', ') : null,
       geoUnitId: form.geo === NONE ? null : geoUnits.find((g) => g.name === form.geo)?.id || null,
       escalatesToId: committees.find((x) => x.name === form.escalatesTo)?.id || null,
       method: form.method,
@@ -108,7 +119,7 @@ export default function Committee() {
                 <SectionLabel>{lvl.label}</SectionLabel>
                 <ListCard style={{ marginHorizontal: 12 }}>
                   {list.map((c) => (
-                    <ListRow key={c.id} title={c.name} subtitle={`${c.functionalGroup || 'General'} · ${geoName(c.geoUnitId) || 'Organization-wide'} · ${c.members.filter((m) => m.status === 'active').length} active`}
+                    <ListRow key={c.id} title={c.name} subtitle={`${c.functionalGroup ? (c.functionalGroup.includes(',') ? 'Joint: ' + c.functionalGroup : c.functionalGroup) : 'General (All cadres)'} · ${geoName(c.geoUnitId) || 'Organization-wide'} · ${c.members.filter((m) => m.status === 'active').length} active`}
                       left={<IconTile icon="users" tone="committee" />} onPress={() => setSelectedId(c.id)} />
                   ))}
                 </ListCard>
@@ -143,7 +154,7 @@ export default function Committee() {
       <View style={{ paddingHorizontal: 16, paddingTop: 4, gap: 8 }}>
         <Txt variant="displayM">{C.name}</Txt>
         <CommitteeBadge name={C.scope} level={C.level} size="sm" />
-        <Txt variant="bodyS" color={colors.textSecondary}>{`${C.functionalGroup || 'General / cross-functional'} · ${geoName(C.geoUnitId) || 'Organization-wide'} · Term ${C.term}`}</Txt>
+        <Txt variant="bodyS" color={colors.textSecondary}>{`${C.functionalGroup ? (C.functionalGroup.includes(',') ? 'Joint Committee · ' + C.functionalGroup : C.functionalGroup) : 'General / cross-functional'} · ${geoName(C.geoUnitId) || 'Organization-wide'} · Term ${C.term}`}</Txt>
         <Txt variant="bodyS" color={colors.textSecondary}>{`Respond within ${C.responseHours}h · resolve within ${Math.round(C.resolutionHours / 24)}d · escalates to ${escalatesTo?.name || 'next level automatically'}`}</Txt>
       </View>
       <SectionLabel right={canAdmin || iChair ? <Button size="sm" icon="user-plus" onPress={() => { setMethod(canAdmin ? 'appoint' : 'nominate'); setAddOpen(true); }}>Add</Button> : undefined}>
@@ -276,7 +287,34 @@ export default function Committee() {
               ))}
             </View>
           </Field>
-          <Field label={terminology.groupLabel}><Select value={form.group} onChange={(v) => setForm({ ...form, group: v })} options={[GENERAL, ...functionalGroups.map((f) => f.name)]} /></Field>
+          <Field
+            label={`${terminology.groupLabel}s covered`}
+            infoText="Choose 'All Cadres' for a general committee, or tap multiple to establish a joint committee."
+          >
+            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+              <Tag
+                selected={selectedCadres.length === 0}
+                onPress={() => setSelectedCadres([])}
+              >
+                All Cadres (General)
+              </Tag>
+              {allCadres.map((cName) => {
+                const on = selectedCadres.includes(cName);
+                return (
+                  <Tag
+                    key={cName}
+                    selected={on}
+                    onPress={() => {
+                      if (on) setSelectedCadres(selectedCadres.filter((x) => x !== cName));
+                      else setSelectedCadres([...selectedCadres, cName]);
+                    }}
+                  >
+                    {cName}
+                  </Tag>
+                );
+              })}
+            </View>
+          </Field>
           <Field label="Geographic unit"><Select value={form.geo} onChange={(v) => setForm({ ...form, geo: v })} options={[NONE, ...geoUnits.filter((g) => g.type !== 'country').map((g) => g.name)]} /></Field>
           <Field label="Escalates to"><Select value={form.escalatesTo} onChange={(v) => setForm({ ...form, escalatesTo: v })} options={['Next level (automatic)', ...committees.filter((c) => c.id !== form.id && c.level > form.level).map((c) => c.name)]} /></Field>
           <View style={{ flexDirection: 'row', gap: 10 }}>

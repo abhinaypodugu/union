@@ -9,7 +9,7 @@ import { registerForPush, unregisterPush } from '../services/push';
 import { errorMessage, median, relativeTime } from '../lib/format';
 import type {
   AppNotification, AudienceOption, AuditEntry, Case, CommitteeInfo, CommitteeMember, FunctionalGroup, GeoUnit,
-  GroupSection, Issue, IssueAction, NotificationPrefs, Persona, Post, RoutingRule, Tenant, TenantSettings,
+  GroupItem, GroupSection, Issue, IssueAction, NotificationPrefs, Persona, Post, RoutingRule, Tenant, TenantSettings,
   TerminologyConfig, HierarchyLevel,
 } from './types';
 import { getHierarchyLevels } from './types';
@@ -586,28 +586,83 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const groups: GroupSection[] = React.useMemo(() => {
     if (!tenant || !activeMember) return [];
     const country = geoUnits.find((g) => g.type === 'country');
-    const places: GroupSection = {
-      section: 'Your places',
-      note: 'Joined automatically from your registered location',
-      items: [
-        { id: 'loc', name: activeMember.unit, kind: terminology.level1Label, icon: 'building-2', tone: 'geo', scope: 'local', value: activeMember.unit },
-        { id: 'reg', name: activeMember.region, kind: terminology.level2Label, icon: 'map-pin', tone: 'geo', scope: 'region', value: activeMember.region },
-        { id: 'org', name: country ? `${tenant.name} · ${country.name}` : tenant.name, kind: terminology.level3Label, icon: 'globe', tone: 'geo', scope: 'org', value: null },
-      ],
+
+    // 1. Level-wise / Tier channels (Plant/Unit -> Region/Zone -> National Apex)
+    const tierItems: GroupItem[] = [];
+    if (activeMember.unit) {
+      const l1 = levels.find((l) => l.level === 1);
+      tierItems.push({
+        id: 'tier-1',
+        name: activeMember.unit,
+        kind: `L1 · ${l1?.label || 'Workplace'} channel`,
+        icon: 'building-2',
+        tone: 'geo',
+        scope: 'local',
+        value: activeMember.unit,
+      });
+    }
+    if (activeMember.region && activeMember.region !== 'Central') {
+      const l2 = levels.find((l) => l.level === 2);
+      tierItems.push({
+        id: 'tier-2',
+        name: activeMember.region,
+        kind: `L2 · ${l2?.label || 'Regional'} channel`,
+        icon: 'map-pin',
+        tone: 'geo',
+        scope: 'region',
+        value: activeMember.region,
+      });
+    }
+    const apexLevel = levels[levels.length - 1];
+    tierItems.push({
+      id: 'tier-apex',
+      name: country ? `${tenant.name} · ${country.name}` : tenant.name,
+      kind: `Apex · ${apexLevel?.label || 'Whole Organization'} channel`,
+      icon: 'globe',
+      tone: 'geo',
+      scope: 'org',
+      value: null,
+    });
+
+    const tierSection: GroupSection = {
+      section: 'Tier-wise channels',
+      note: 'Joined automatically from your workplace and organizational tier',
+      items: tierItems,
     };
+
+    // 2. Cadre Channels (Trade & profession channels)
     const fg: GroupSection = {
       section: `${terminology.groupLabel}s`,
-      items: activeMember.groups.map((g) => ({ id: 'grp-' + g, name: g, kind: terminology.groupLabel, icon: 'briefcase', tone: 'group', scope: 'group', value: g })),
+      note: 'Trade and professional channels for your sector',
+      items: activeMember.groups.map((g) => ({
+        id: 'grp-' + g,
+        name: g,
+        kind: `${g} · ${terminology.groupLabel}`,
+        icon: 'briefcase',
+        tone: 'group',
+        scope: 'group',
+        value: g,
+      })),
     };
+
+    // 3. Committee Rooms (Private governance and deliberation rooms for appointed stewards & handlers)
     const mine = committees.filter((c) => myAppointments.some((a) => a.committeeId === c.id));
     const cm: GroupSection = {
-      section: 'Committee channels',
-      note: 'Private to current appointees',
-      items: mine.map((c) => ({ id: 'com-' + c.id, name: c.name, kind: 'Committee · private', icon: 'lock', tone: 'committee', scope: 'committee', value: c.id })),
+      section: 'Committee rooms',
+      note: 'Private governance and deliberation channels for appointed stewards & handlers',
+      items: mine.map((c) => ({
+        id: 'com-' + c.id,
+        name: c.name,
+        kind: `L${c.level} · Committee room (Private)`,
+        icon: 'lock',
+        tone: 'committee',
+        scope: 'committee',
+        value: c.id,
+      })),
     };
-    return [places, fg, ...(cm.items.length ? [cm] : [])];
-  }, [tenant, activeMember, geoUnits, committees, myAppointments, terminology]);
 
+    return [tierSection, fg, ...(cm.items.length ? [cm] : [])];
+  }, [tenant, activeMember, geoUnits, committees, myAppointments, terminology, levels]);
   const store: Store = {
     authReady,
     tenantLoading,

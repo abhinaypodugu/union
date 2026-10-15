@@ -97,4 +97,20 @@ describe('Multi-level hierarchy: unbounded escalation (L1 to L5+)', () => {
       /No higher committee is configured/
     );
   });
+
+  it('routes to joint multi-cadre committee covering multiple trades', async () => {
+    const uLogistics = await createUser(db, '919000000033');
+    await rpc(uLogistics, `SELECT register_member('MLU', 'Driver Gamma', '', 'Hyderabad', 'Telangana', 'Logistics')`);
+    const pending = (await db.query(`SELECT id FROM profiles WHERE name = 'Driver Gamma'`)).rows[0].id;
+    await rpc(u.platform, `SELECT set_member_status($1, 'verified')`, [pending]);
+
+    // Create a joint committee for both Manufacturing and Logistics
+    await rpc(u.platform, `SELECT upsert_committee('mlu', 'mlu-joint', 'Plant Operations Joint Committee', 'Workplace', 1, 'Manufacturing, Logistics', NULL, NULL, 'Appointment', '2026-2027')`);
+
+    // Raise issue by Logistics worker
+    const [{ create_issue: jointCaseId }] = await rpc(uLogistics, `SELECT create_issue('mlu', 'Forklift breakdown', 'Logistics equipment issue', 'Health & safety')`);
+    const caseRow = (await db.query(`SELECT committee_name, status FROM issues WHERE id = $1`, [jointCaseId])).rows[0];
+    assert.equal(caseRow.status, 'submitted');
+    assert.equal(caseRow.committee_name, 'Plant Operations Joint Committee');
+  });
 });
