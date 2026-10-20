@@ -186,6 +186,23 @@ export const dbService = {
     const rows = (await must(supabase.rpc('find_org_by_code', { p_code: code.trim() }))) as any[];
     return rows && rows[0] ? mapTenant(rows[0]) : null;
   },
+  async listPublicOrgs(search = ''): Promise<Tenant[]> {
+    try {
+      const { data, error } = await supabase.rpc('list_public_orgs', { p_search: search });
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return (data as Array<Record<string, unknown>>).map(mapTenant);
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      const single = await this.findTenantByCode(search || 'TU');
+      if (single) return [single];
+    } catch {
+      // ignore
+    }
+    return [];
+  },
 
   async createOrganization(org: {
     name: string; code: string; short: string; description: string; terminology?: Partial<TerminologyConfig>;

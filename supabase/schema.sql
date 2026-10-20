@@ -788,6 +788,30 @@ RETURNS TABLE (id TEXT, name TEXT, short_name TEXT, code TEXT, description TEXT,
   SELECT t.id, t.name, t.short_name, t.code, t.description, t.terminology
   FROM tenants t WHERE t.active AND upper(t.code) = upper(trim(p_code)) LIMIT 1;
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
+-- Searchable public organizations listing for onboarding dropdown
+CREATE OR REPLACE FUNCTION list_public_orgs(p_search TEXT DEFAULT '')
+RETURNS TABLE (id TEXT, name TEXT, short_name TEXT, code TEXT, description TEXT, terminology JSONB) AS $$
+BEGIN
+  IF coalesce(trim(p_search), '') = '' THEN
+    RETURN QUERY
+      SELECT t.id, t.name, t.short_name, t.code, t.description, t.terminology
+      FROM tenants t
+      WHERE t.active
+      ORDER BY t.name ASC
+      LIMIT 100;
+  ELSE
+    RETURN QUERY
+      SELECT t.id, t.name, t.short_name, t.code, t.description, t.terminology
+      FROM tenants t
+      WHERE t.active AND (
+        upper(t.code) LIKE '%' || upper(trim(p_search)) || '%'
+        OR lower(t.name) LIKE '%' || lower(trim(p_search)) || '%'
+      )
+      ORDER BY t.name ASC
+      LIMIT 100;
+  END IF;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 -- Organization creation — Platform Super Admin only (PRD §5.11, AC #1).
 CREATE OR REPLACE FUNCTION create_organization(

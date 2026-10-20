@@ -22,6 +22,7 @@ import {
 import { colors, fonts, palette, radius } from '../src/theme';
 import { useStore, Tenant, HierarchyLevel, AFFILIATED_ASSOCIATIONS, DEFAULT_POSTAL_CADRES } from '../src/store/AppStore';
 import { safeStorage as AsyncStorage } from '../src/services/supabase';
+import { dbService } from '../src/services/db';
 import { autofillFromDevice } from '../src/lib/location';
 import { POSTAL_CIRCLES, getDivisionsForCircle, getOfficesForDivision } from '../src/lib/postalData';
 
@@ -153,6 +154,9 @@ export default function Index() {
  // Member Wizard State
  const [joinOrgCode, setJoinOrgCode] = useState('');
  const [matchedOrg, setMatchedOrg] = useState<Tenant | null>(null);
+ const [orgList, setOrgList] = useState<Tenant[]>([]);
+ const [orgSearch, setOrgSearch] = useState('');
+ const [orgSheet, setOrgSheet] = useState(false);
  const [memberName, setMemberName] = useState('');
  const [memberEmail, setMemberEmail] = useState('');
  const [memberUnit, setMemberUnit] = useState('Secunderabad');
@@ -204,6 +208,26 @@ export default function Index() {
   const offs = getOfficesForDivision(memberRegion, division);
   setMemberOffice(offs[0] || '');
  };
+
+ const loadOrganizations = async (query = '') => {
+  try {
+   const list = await dbService.listPublicOrgs(query);
+   setOrgList(list);
+   if (list.length > 0 && !matchedOrg) {
+    setMatchedOrg(list[0]);
+    setJoinOrgCode(list[0].code);
+   }
+  } catch {
+   const def = await lookupOrgByCode('TU');
+   if (def) setOrgList([def]);
+  }
+ };
+
+ React.useEffect(() => {
+  if (step === 'member_q1') {
+   void loadOrganizations('');
+  }
+ }, [step]);
  // This early return is placed AFTER all useState declarations and the effect below
  // (violating that order triggers "Rendered fewer hooks" on native).
 
@@ -757,18 +781,74 @@ export default function Index() {
       </Card>
      )}
 
-     {/* MEMBER Q1 — org code entry; header Back handles navigation */}
+     {/* MEMBER Q1 — Searchable Dropdown Organization Selector */}
      {step === 'member_q1' && (
       <Card style={{ padding: 20, gap: 16 }}>
-       <Txt variant="titleM">Enter your organization code</Txt>
-       <Txt variant="bodyS" color={colors.textSecondary}>Ask your organization administrator for your invite code.</Txt>
+       <Txt variant="titleM">Select Your Organization</Txt>
+       <Txt variant="bodyS" color={colors.textSecondary}>Choose your union or search by organization code to join.</Txt>
 
-       <Field label="Organization code" required infoText="Invite code shared by your organization's admin or steward.">
-        <Input value={joinOrgCode} onChangeText={(t) => setJoinOrgCode(t.toUpperCase())} placeholder="NHWU" autoCapitalize="characters" />
+       {/* Searchable Selectable Organization Card */}
+       <Field label="Organization" required infoText="Select your organization from the directory or search by code">
+        <Pressable
+         onPress={() => {
+          setOrgSheet(true);
+          void loadOrganizations('');
+         }}
+         style={({ pressed }) => ({
+          padding: 14,
+          borderRadius: radius.l,
+          borderWidth: 1,
+          borderColor: colors.borderDefault,
+          backgroundColor: pressed ? colors.surfaceHover : colors.surfaceCard,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10,
+         })}
+        >
+         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+          <IconTile icon="building-2" tone="geo" size={32} />
+          <View style={{ flex: 1 }}>
+           {matchedOrg ? (
+            <>
+             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Txt variant="titleS" numberOfLines={1} style={{ flexShrink: 1 }}>{matchedOrg.name}</Txt>
+              <Badge size="sm" tone="info">{matchedOrg.code}</Badge>
+             </View>
+             <Txt variant="caption" color={colors.textMuted} numberOfLines={1}>
+              {matchedOrg.description || 'Verified organization on Union'}
+             </Txt>
+            </>
+           ) : (
+            <Txt variant="body" color={colors.textPlaceholder}>
+             Select or search organization…
+            </Txt>
+           )}
+          </View>
+         </View>
+         <Icon name="chevron-down" size={20} color={colors.textMuted} />
+        </Pressable>
        </Field>
 
-       <Button size="lg" block icon="chevron-right" disabled={!joinOrgCode.trim() || busy} onPress={handleVerifyOrgCode}>
-        {busy ? 'Checking code…' : 'Verify code & continue'}
+       {/* Selected Confirmation Notice */}
+       {matchedOrg ? (
+        <View style={{ padding: 12, borderRadius: radius.m, backgroundColor: colors.bgSunken, gap: 4 }}>
+         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <Icon name="check-circle" size={16} color={colors.accent} />
+          <Txt variant="bodySStrong" color={colors.textPrimary}>{`Selected: ${matchedOrg.name}`}</Txt>
+         </View>
+         <Txt variant="caption" color={colors.textSecondary}>{`Code: ${matchedOrg.code} · Applications will be routed to this union.`}</Txt>
+        </View>
+       ) : null}
+
+       <Button
+        size="lg"
+        block
+        icon="chevron-right"
+        disabled={!matchedOrg || busy}
+        onPress={() => setStep('member_q2')}
+       >
+        Continue
        </Button>
 
        {isPlatformSuperAdmin && (
@@ -1088,6 +1168,96 @@ export default function Index() {
            </Txt>
           </View>
           {isSelected ? <Icon name="check" size={18} color={colors.accent} /> : null}
+         </Pressable>
+        );
+       })}
+      </View>
+     </ScrollView>
+    </View>
+   </Sheet>
+   {/* Searchable Organization Selector Sheet */}
+   <Sheet visible={orgSheet} onClose={() => setOrgSheet(false)} title="Select Organization">
+    <View style={{ paddingHorizontal: 16, gap: 12, paddingBottom: 24, flexShrink: 1 }}>
+     <Input
+      value={orgSearch}
+      onChangeText={(t) => {
+       setOrgSearch(t);
+       void loadOrganizations(t);
+      }}
+      placeholder="Search organization by name or code (e.g. TU)…"
+      autoFocus
+     />
+     {orgSearch.trim() && !orgList.some((o) => o.code.toUpperCase() === orgSearch.trim().toUpperCase()) ? (
+      <Pressable
+       onPress={async () => {
+        setBusy(true);
+        try {
+         const found = await lookupOrgByCode(orgSearch.trim());
+         if (found) {
+          setMatchedOrg(found);
+          setJoinOrgCode(found.code);
+          setOrgSheet(false);
+         } else {
+          toast({ title: 'Code not found', description: `No organization matches code "${orgSearch.trim().toUpperCase()}".` });
+         }
+        } finally {
+         setBusy(false);
+        }
+       }}
+       style={({ pressed }) => ({
+        padding: 12,
+        borderRadius: radius.m,
+        backgroundColor: pressed ? colors.surfaceHover : colors.surfaceSelected,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+       })}
+      >
+       <Icon name="search" size={16} color={colors.accent} />
+       <Txt variant="bodyS" color={colors.accent}>
+        {`Search code: "${orgSearch.trim().toUpperCase()}"`}
+       </Txt>
+      </Pressable>
+     ) : null}
+
+     <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false}>
+      <View style={{ gap: 8 }}>
+       {orgList.filter((o) =>
+        !orgSearch.trim() ||
+        o.name.toLowerCase().includes(orgSearch.toLowerCase()) ||
+        o.code.toLowerCase().includes(orgSearch.toLowerCase())
+       ).map((o) => {
+        const isSelected = matchedOrg?.id === o.id;
+        return (
+         <Pressable
+          key={o.id}
+          onPress={() => {
+           setMatchedOrg(o);
+           setJoinOrgCode(o.code);
+           setOrgSheet(false);
+          }}
+          style={({ pressed }) => ({
+           padding: 14,
+           borderRadius: radius.m,
+           borderWidth: 1,
+           borderColor: isSelected ? colors.accent : colors.borderSubtle,
+           backgroundColor: isSelected ? colors.accentSoft : pressed ? colors.surfaceHover : colors.surfaceCard,
+           flexDirection: 'row',
+           alignItems: 'center',
+           justifyContent: 'space-between',
+           gap: 10,
+          })}
+         >
+          <View style={{ flex: 1, gap: 4 }}>
+           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Txt variant="titleS" style={{ flexShrink: 1 }}>{o.name}</Txt>
+            <Badge size="sm" tone={isSelected ? 'info' : 'neutral'}>{o.code}</Badge>
+           </View>
+           <Txt variant="caption" color={colors.textSecondary} numberOfLines={2}>
+            {o.description || 'Verified organization on Union'}
+           </Txt>
+          </View>
+          {isSelected ? <Icon name="check" size={20} color={colors.accent} strokeWidth={2.5} /> : null}
          </Pressable>
         );
        })}
