@@ -64,7 +64,9 @@ export function Avatar({ name, uri, size = 40, official, ring, style }: AvatarPr
         }}
       >
         {isDefaultIcon && defaultIconId ? (
-          <CuteAvatar id={defaultIconId} size={size} />
+          <View style={{ transform: [{ scale }, { translateX }, { translateY }] }}>
+            <CuteAvatar id={defaultIconId} size={size} />
+          </View>
         ) : actualUri ? (
           <Image
             source={{ uri: actualUri }}
@@ -73,6 +75,7 @@ export function Avatar({ name, uri, size = 40, official, ring, style }: AvatarPr
               height: size,
               transform: [{ scale }, { translateX }, { translateY }],
             }}
+            resizeMode="cover"
           />
         ) : (
           <Txt

@@ -301,31 +301,25 @@ export default function Profile() {
     if (!previewUri || uploadingPhoto) return;
     setUploadingPhoto(true);
     try {
-      if (previewUri.startsWith('default:')) {
-        await updatePostalProfile({ avatarUrl: previewUri });
-        setPreviewUri(null);
-        setAvatarModalOpen(false);
-        toast({ title: 'Avatar updated' });
-      } else if (previewUri.startsWith('http://') || previewUri.startsWith('https://')) {
-        const cropSuffix = cropScale !== 1 || cropX !== 0 || cropY !== 0
-          ? `#crop=${cropScale.toFixed(2)},${cropX.toFixed(0)},${cropY.toFixed(0)}`
-          : '';
-        await updatePostalProfile({ avatarUrl: previewUri + cropSuffix });
-        setPreviewUri(null);
-        setAvatarModalOpen(false);
-        toast({ title: 'Profile photo updated' });
+      const cropSuffix = cropScale !== 1 || cropX !== 0 || cropY !== 0
+        ? `#crop=${cropScale.toFixed(2)},${cropX.toFixed(0)},${cropY.toFixed(0)}`
+        : '';
+
+      let targetUrl = '';
+      if (previewUri.startsWith('http://') || previewUri.startsWith('https://')) {
+        targetUrl = previewUri;
       } else {
         const res = await uploadAvatar(previewUri);
         if (res.ok && res.url) {
-          const cropSuffix = cropScale !== 1 || cropX !== 0 || cropY !== 0
-            ? `#crop=${cropScale.toFixed(2)},${cropX.toFixed(0)},${cropY.toFixed(0)}`
-            : '';
-          if (cropSuffix) {
-            await updatePostalProfile({ avatarUrl: res.url + cropSuffix });
-          }
-          setPreviewUri(null);
-          setAvatarModalOpen(false);
+          targetUrl = res.url;
         }
+      }
+
+      if (targetUrl) {
+        await updatePostalProfile({ avatarUrl: targetUrl + cropSuffix });
+        setPreviewUri(null);
+        setAvatarModalOpen(false);
+        toast({ title: 'Profile photo updated' });
       }
     } finally {
       setUploadingPhoto(false);
@@ -1102,7 +1096,7 @@ export default function Profile() {
                   <Pressable
                     key={item.id}
                     onPress={() => {
-                      setPreviewUri('default:' + item.id);
+                      setPreviewUri(item.url);
                       setCropScale(1.0);
                       setCropX(0);
                       setCropY(0);
