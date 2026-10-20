@@ -256,7 +256,14 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         admin ? dbService.getAuditLogs(tenantId) : Promise.resolve([] as AuditEntry[]),
       ]);
       const v = <T,>(i: number, fallback: T): T => (results[i].status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<T>).value : fallback);
-      setAllMembers(v(0, []));
+      const rawMembers = v<Persona[]>(0, []);
+      const enrichedMembers = me
+        ? rawMembers.map((m) => (m.id === me.id ? { ...m, ...me } : m))
+        : rawMembers;
+      if (me && !enrichedMembers.some((m) => m.id === me.id) && me.status === 'verified') {
+        enrichedMembers.push(me);
+      }
+      setAllMembers(enrichedMembers);
       setGeoUnits(v(1, []));
       setFunctionalGroups(v(2, []));
       setCommittees(v(3, []));

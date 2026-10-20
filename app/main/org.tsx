@@ -56,9 +56,24 @@ export default function Org() {
  const viewId = view ?? (myDiv?.id || 'overview');
  const div = divisions.find((d) => d.id === viewId);
 
- const verified = React.useMemo(() => allMembers.filter((m) => m.status === 'verified'), [allMembers]);
- const byId = React.useMemo(() => new Map(verified.map((m) => [m.id, m])), [verified]);
+ const verified = React.useMemo(() => {
+  const list = allMembers.filter((m) => m.status === 'verified');
+  if (activeMember && activeMember.status === 'verified') {
+   const idx = list.findIndex((m) => m.id === activeMember.id);
+   if (idx >= 0) {
+    list[idx] = { ...list[idx], ...activeMember };
+   } else {
+    list.push(activeMember);
+   }
+  }
+  return list;
+ }, [allMembers, activeMember]);
 
+ const byId = React.useMemo(() => {
+  const map = new Map(verified.map((m) => [m.id, m]));
+  if (activeMember) map.set(activeMember.id, activeMember);
+  return map;
+ }, [verified, activeMember]);
  // Every active appointment, keyed by person, best role first.
  const appointments = React.useMemo(() => {
   const map = new Map<string, Bearer[]>();

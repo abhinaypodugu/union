@@ -14,7 +14,7 @@ export { normalizePhoneNumber };
 
 import { DEFAULT_TERMINOLOGY } from '../store/types';
 
-const PROFILE_COLS = 'id, user_id, tenant_id, member_number, name, unit, region, country, groups, roles, status, employee_id, designation, category, dob, office_employed, division, circle, created_at';
+const PROFILE_COLS = 'id, user_id, tenant_id, member_number, name, email, phone, unit, region, country, groups, roles, status, employee_id, designation, category, dob, office_employed, division, circle, created_at';
 async function must<T>(p: PromiseLike<{ data: T | null; error: unknown }>): Promise<T> {
   const { data, error } = await p;
   if (error) throw new Error(errorMessage(error));
@@ -347,6 +347,17 @@ export const dbService = {
 
   // ---------------------------------------------------------------- Directory & membership admin
   async getMembers(tenantId: string): Promise<Persona[]> {
+    // 1. Try admin_list_members (returns all details for authorized admins)
+    try {
+      const { data, error } = await supabase.rpc('admin_list_members', { p_tenant: tenantId });
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return (data as Array<Record<string, unknown>>).map(mapProfile);
+      }
+    } catch {
+      // ignore
+    }
+
+    // 2. Try get_all_members RPC (returns all details for all verified members)
     try {
       const { data, error } = await supabase.rpc('get_all_members', { p_tenant: tenantId });
       if (!error && Array.isArray(data) && data.length > 0) {
@@ -355,13 +366,21 @@ export const dbService = {
     } catch {
       // ignore
     }
+
+    // 3. Fallback to direct table select
     try {
       const rows = await must(supabase.from('profiles').select(PROFILE_COLS).eq('tenant_id', tenantId).order('name'));
       return ((rows as any[]) || []).map(mapProfile);
     } catch {
-      const BASELINE_COLS = 'id, user_id, tenant_id, member_number, name, unit, region, country, groups, roles, status, created_at';
-      const rows = await must(supabase.from('profiles').select(BASELINE_COLS).eq('tenant_id', tenantId).order('name')).catch(() => []);
-      return ((rows as any[]) || []).map(mapProfile);
+      try {
+        const CONTACT_COLS = 'id, user_id, tenant_id, member_number, name, email, phone, unit, region, country, groups, roles, status, created_at';
+        const rows = await must(supabase.from('profiles').select(CONTACT_COLS).eq('tenant_id', tenantId).order('name'));
+        return ((rows as any[]) || []).map(mapProfile);
+      } catch {
+        const SAFE_COLS = 'id, user_id, tenant_id, member_number, name, unit, region, country, groups, roles, status, created_at';
+        const rows = await must(supabase.from('profiles').select(SAFE_COLS).eq('tenant_id', tenantId).order('name')).catch(() => []);
+        return ((rows as any[]) || []).map(mapProfile);
+      }
     }
   },
 
