@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Pressable, Share, ScrollView, Modal, Image } from 'react-native';
+import { View, Pressable, Share, ScrollView, Modal, Image, PanResponder } from 'react-native';
 import { Redirect, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 let ImagePicker: any = null;
@@ -21,6 +21,9 @@ const PREFS: Array<[keyof NotificationPrefs, string, boolean]> = [
   ['groupActivity', 'Group activity', false],
   ['caseUpdates', 'Case updates', true],
 ];
+const calcDistance = (x1: number, y1: number, x2: number, y2: number) => {
+  return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+};
 const DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0'));
 const MONTHS = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
 const YEARS = Array.from({ length: 55 }, (_, i) => String(2005 - i));
@@ -41,6 +44,60 @@ export default function Profile() {
   const [cropY, setCropY] = React.useState(0);
   const [uploadingPhoto, setUploadingPhoto] = React.useState(false);
 
+  const cropScaleRef = React.useRef(cropScale);
+  const cropXRef = React.useRef(cropX);
+  const cropYRef = React.useRef(cropY);
+  cropScaleRef.current = cropScale;
+  cropXRef.current = cropX;
+  cropYRef.current = cropY;
+
+  const panResponder = React.useMemo(() => {
+    let baseScale = 1.0;
+    let baseDistance = 0;
+    let basePanX = 0;
+    let basePanY = 0;
+
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        basePanX = cropXRef.current;
+        basePanY = cropYRef.current;
+        baseScale = cropScaleRef.current;
+        const touches = evt.nativeEvent.touches;
+        if (touches && touches.length >= 2) {
+          baseDistance = calcDistance(
+            touches[0].pageX, touches[0].pageY,
+            touches[1].pageX, touches[1].pageY
+          );
+        } else {
+          baseDistance = 0;
+        }
+      },
+      onPanResponderMove: (evt, gestureState) => {
+        const touches = evt.nativeEvent.touches;
+        if (touches && touches.length >= 2) {
+          if (baseDistance > 0) {
+            const curDist = calcDistance(
+              touches[0].pageX, touches[0].pageY,
+              touches[1].pageX, touches[1].pageY
+            );
+            const factor = curDist / baseDistance;
+            const nextScale = Math.min(3.5, Math.max(1.0, +(baseScale * factor).toFixed(2)));
+            setCropScale(nextScale);
+          }
+        } else if (touches && touches.length === 1) {
+          const nextX = Math.round(basePanX + gestureState.dx);
+          const nextY = Math.round(basePanY + gestureState.dy);
+          setCropX(nextX);
+          setCropY(nextY);
+        }
+      },
+      onPanResponderRelease: () => {
+        baseDistance = 0;
+      },
+    });
+  }, []);
   const [orgSheet, setOrgSheet] = React.useState(false);
   const [createOpen, setCreateOpen] = React.useState(false);
   const [joinOpen, setJoinOpen] = React.useState(false);
@@ -765,6 +822,7 @@ export default function Profile() {
           <View style={{ alignItems: 'center', justifyContent: 'center' }}>
             <View style={{ width: 240, height: 240, position: 'relative' }}>
               <View
+                {...(previewUri ? panResponder.panHandlers : {})}
                 style={{
                   width: 240,
                   height: 240,
@@ -866,111 +924,68 @@ export default function Profile() {
           {/* Bottom Action Area: If Previewing cropped photo, show Retake / Save buttons */}
           {/* Bottom Action Area */}
           {previewUri ? (
-            <View style={{ width: '100%', maxWidth: 320, gap: 10 }}>
-              {/* Interactive Framing & Crop Controls */}
+            <View style={{ width: '100%', maxWidth: 320, gap: 14, alignItems: 'center' }}>
+              {/* Intuitive Gesture Tip Badge */}
               <View
                 style={{
-                  backgroundColor: 'rgba(255,255,255,0.08)',
-                  borderRadius: radius.m,
-                  padding: 10,
+                  flexDirection: 'row',
+                  alignItems: 'center',
                   gap: 8,
-                  borderWidth: 1,
-                  borderColor: 'rgba(255,255,255,0.12)',
+                  backgroundColor: 'rgba(255,255,255,0.12)',
+                  paddingHorizontal: 14,
+                  paddingVertical: 7,
+                  borderRadius: radius.pill,
                 }}
               >
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Txt style={{ color: '#fff', fontSize: 13, fontFamily: fonts.sans600 }}>Adjust Crop & Frame</Txt>
-                  <Pressable
-                    onPress={() => {
-                      setCropScale(1.0);
-                      setCropX(0);
-                      setCropY(0);
-                    }}
-                    style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.15)' }}
-                  >
-                    <Txt style={{ color: '#fff', fontSize: 11 }}>↺ Reset</Txt>
-                  </Pressable>
-                </View>
-
-                {/* Zoom Controls */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Txt style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>Zoom</Txt>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Pressable
-                      onPress={() => setCropScale((s) => Math.max(1.0, +(s - 0.15).toFixed(2)))}
-                      style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
-                    >
-                      <Icon name="minus" size={14} color="#fff" />
-                    </Pressable>
-                    <Txt style={{ color: '#fff', fontSize: 13, fontFamily: fonts.mono600, minWidth: 38, textAlign: 'center' }}>
-                      {cropScale.toFixed(1)}x
-                    </Txt>
-                    <Pressable
-                      onPress={() => setCropScale((s) => Math.min(3.0, +(s + 0.15).toFixed(2)))}
-                      style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
-                    >
-                      <Icon name="plus" size={14} color="#fff" />
-                    </Pressable>
-                  </View>
-                </View>
-
-                {/* Pan Position Controls */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Txt style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>Position</Txt>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Pressable
-                      onPress={() => setCropX((x) => x - 10)}
-                      style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
-                    >
-                      <Icon name="arrow-left" size={14} color="#fff" />
-                    </Pressable>
-                    <Pressable
-                      onPress={() => setCropY((y) => y - 10)}
-                      style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
-                    >
-                      <Icon name="arrow-up" size={14} color="#fff" />
-                    </Pressable>
-                    <Pressable
-                      onPress={() => setCropY((y) => y + 10)}
-                      style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
-                    >
-                      <Icon name="arrow-down" size={14} color="#fff" />
-                    </Pressable>
-                    <Pressable
-                      onPress={() => setCropX((x) => x + 10)}
-                      style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
-                    >
-                      <Icon name="arrow-right" size={14} color="#fff" />
-                    </Pressable>
-                  </View>
-                </View>
+                <Icon name="move" size={14} color="#fff" />
+                <Txt style={{ color: '#fff', fontSize: 12, fontFamily: fonts.sans500 }}>
+                  Pinch to zoom ({cropScale.toFixed(1)}x) · Drag to frame
+                </Txt>
+                <Pressable
+                  onPress={() => {
+                    setCropScale(1.0);
+                    setCropX(0);
+                    setCropY(0);
+                  }}
+                  style={{
+                    marginLeft: 4,
+                    paddingHorizontal: 7,
+                    paddingVertical: 3,
+                    borderRadius: 4,
+                    backgroundColor: 'rgba(255,255,255,0.22)',
+                  }}
+                >
+                  <Txt style={{ color: '#fff', fontSize: 11, fontFamily: fonts.sans600 }}>↺ Reset</Txt>
+                </Pressable>
               </View>
 
-              <Button
-                variant="primary"
-                size="md"
-                block
-                icon="check"
-                disabled={uploadingPhoto}
-                onPress={handleSaveAvatar}
-              >
-                {uploadingPhoto ? 'Saving Photo…' : 'Save Framed Photo'}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                block
-                disabled={uploadingPhoto}
-                onPress={() => {
-                  setPreviewUri(null);
-                  setCropScale(1.0);
-                  setCropX(0);
-                  setCropY(0);
-                }}
-                style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}
-              >
-                Cancel / Change
-              </Button>
+              <View style={{ width: '100%', gap: 10 }}>
+                <Button
+                  variant="primary"
+                  size="md"
+                  block
+                  icon="check"
+                  disabled={uploadingPhoto}
+                  onPress={handleSaveAvatar}
+                >
+                  {uploadingPhoto ? 'Saving Photo…' : 'Save Framed Photo'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  block
+                  disabled={uploadingPhoto}
+                  onPress={() => {
+                    setPreviewUri(null);
+                    setCropScale(1.0);
+                    setCropX(0);
+                    setCropY(0);
+                  }}
+                  style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}
+                >
+                  Cancel / Change
+                </Button>
+              </View>
             </View>
           ) : cuteIconsSheet ? (
             <View
