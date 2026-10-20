@@ -36,8 +36,8 @@ export default function Groups() {
         </View>
       ))}
       <View style={{ padding: 12, paddingTop: 18 }}>
-        <Notice tone="private" title="Committee channels are private">
-          You see a committee’s channel only while your appointment is active.
+        <Notice tone="info" title="Tier-Based Communication">
+          Division channels are open for all workplace members to chat. Circle and All-India Union channels carry official updates from elected leadership.
         </Notice>
       </View>
     </Screen>

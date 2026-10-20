@@ -40,7 +40,7 @@ export default function Announce() {
     if (!title.trim() || !body.trim() || !segs.length) return;
     const days = expiry === 'Never' ? 0 : parseInt(expiry, 10);
     setBusy(true);
-    const kind = isOrgAdmin || isPlatformSuperAdmin || segs.some((s) => s.scope === 'org') ? 'official' : 'committee';
+    const kind = 'official';
     const ok = await addPost({
       kind, title: title.trim(), body: body.trim(), pinned: pin, audiences: segs, notify,
       expiresAt: days ? new Date(Date.now() + days * 86400000).toISOString() : null,

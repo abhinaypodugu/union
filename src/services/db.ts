@@ -12,25 +12,9 @@ import { getHierarchyLevels } from '../store/types';
 
 export { normalizePhoneNumber };
 
-const DEFAULT_TERMINOLOGY: TerminologyConfig = {
-  orgLabel: 'Organization',
-  level1Label: 'City',
-  level2Label: 'State',
-  level3Label: 'National',
-  groupLabel: 'Functional Group',
-  caseLabel: 'Issue',
-  cadres: ['IT Workers', 'Transport', 'Healthcare', 'Administration'],
-  cities: ['Hyderabad'],
-  states: ['Telangana'],
-  levels: [
-    { level: 1, label: 'City' },
-    { level: 2, label: 'State' },
-    { level: 3, label: 'National' },
-  ],
-};
+import { DEFAULT_TERMINOLOGY } from '../store/types';
 
-const PROFILE_COLS = 'id, user_id, tenant_id, member_number, name, unit, region, country, groups, roles, status, created_at';
-
+const PROFILE_COLS = 'id, user_id, tenant_id, member_number, name, unit, region, country, groups, roles, status, employee_id, designation, category, dob, office_employed, division, circle, created_at';
 async function must<T>(p: PromiseLike<{ data: T | null; error: unknown }>): Promise<T> {
   const { data, error } = await p;
   if (error) throw new Error(errorMessage(error));
@@ -55,6 +39,13 @@ function mapProfile(r: Record<string, any>): Persona {
     statusReason: r.status_reason ?? undefined,
     since: r.created_at ? new Date(r.created_at).toLocaleDateString() : '',
     prefs: r.notification_prefs ?? undefined,
+    employeeId: r.employee_id ?? undefined,
+    designation: r.designation ?? undefined,
+    category: r.category ?? (Array.isArray(r.groups) && r.groups[0] ? r.groups[0] : undefined),
+    dob: r.dob ?? undefined,
+    officeEmployed: r.office_employed ?? undefined,
+    division: r.division ?? r.unit,
+    circle: r.circle ?? r.region,
   };
 }
 
@@ -207,10 +198,134 @@ export const dbService = {
     }))) as string;
   },
 
-  async registerMember(d: { orgCode: string; name: string; email: string; city: string; region: string; group: string }): Promise<string> {
-    return (await must(supabase.rpc('register_member', {
-      p_org_code: d.orgCode, p_name: d.name, p_email: d.email, p_city: d.city, p_region: d.region, p_group: d.group,
-    }))) as string;
+  async registerMember(d: {
+    orgCode: string;
+    name: string;
+    email: string;
+    city: string;
+    region: string;
+    group: string;
+    employeeId?: string;
+    designation?: string;
+    category?: string;
+    dob?: string;
+    officeEmployed?: string;
+  }): Promise<string> {
+    const rawDob = d.dob?.trim();
+    let dobIso: string | null = null;
+    if (rawDob) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(rawDob)) {
+        dobIso = rawDob;
+      } else {
+        const parts = rawDob.split(/[-/]/);
+        if (parts.length === 3 && parts[0].length === 2 && parts[2].length === 4) {
+          dobIso = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        }
+      }
+    }
+
+    try {
+      return (await must(supabase.rpc('register_member', {
+        p_org_code: d.orgCode,
+        p_name: d.name,
+        p_email: d.email,
+        p_city: d.city,
+        p_region: d.region,
+        p_group: d.group,
+        p_country: 'India',
+        p_employee_id: d.employeeId || null,
+        p_designation: d.designation || 'Member',
+        p_category: d.category || null,
+        p_dob: dobIso,
+        p_office_employed: d.officeEmployed || null,
+      }))) as string;
+    } catch (err: unknown) {
+      const msg = errorMessage(err);
+      if (msg.includes('schema cache') || msg.includes('Could not find the function') || msg.includes('PGRST202')) {
+        const pid = (await must(supabase.rpc('register_member', {
+          p_org_code: d.orgCode,
+          p_name: d.name,
+          p_email: d.email,
+          p_city: d.city,
+          p_region: d.region,
+          p_group: d.group,
+          p_country: 'India',
+        }))) as string;
+        if (pid) {
+          try {
+            await supabase.from('profiles').update({
+              employee_id: d.employeeId || null,
+              designation: d.designation || 'Member',
+              category: d.category || null,
+              dob: dobIso,
+              office_employed: d.officeEmployed || null,
+            }).eq('id', pid);
+          } catch {
+            // ignore if columns not in DB yet
+          }
+        }
+        return pid;
+      }
+      throw err;
+    }
+  },
+  async updatePostalProfile(
+    tenantId: string,
+    profileId: string,
+    data: {
+      employeeId?: string;
+      designation?: string;
+      category?: string;
+      dob?: string;
+      officeEmployed?: string;
+      division?: string;
+      circle?: string;
+    }
+  ): Promise<boolean> {
+    try {
+      const updateData: Record<string, unknown> = {};
+      if (data.employeeId !== undefined) updateData.employee_id = data.employeeId || null;
+      if (data.designation !== undefined) updateData.designation = data.designation || null;
+      if (data.category !== undefined) updateData.category = data.category || null;
+      if (data.dob !== undefined) {
+        const rawDob = data.dob?.trim();
+        let dobIso: string | null = null;
+        if (rawDob) {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(rawDob)) {
+            dobIso = rawDob;
+          } else {
+            const parts = rawDob.split(/[-/]/);
+            if (parts.length === 3 && parts[0].length === 2 && parts[2].length === 4) {
+              dobIso = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+            }
+          }
+        }
+        updateData.dob = dobIso;
+      }
+      if (data.officeEmployed !== undefined) updateData.office_employed = data.officeEmployed || null;
+      if (data.division !== undefined) {
+        updateData.division = data.division || null;
+        updateData.unit = data.division || null;
+      }
+      if (data.circle !== undefined) {
+        updateData.circle = data.circle || null;
+        updateData.region = data.circle || null;
+      }
+
+      if (data.division && data.circle) {
+        await supabase.rpc('ensure_geo_path', {
+          p_tenant: tenantId,
+          p_city: data.division,
+          p_region: data.circle,
+          p_country: 'India',
+        });
+      }
+
+      const { error } = await supabase.from('profiles').update(updateData).eq('id', profileId);
+      return !error;
+    } catch {
+      return false;
+    }
   },
 
   // ---------------------------------------------------------------- Directory & membership admin
@@ -403,17 +518,45 @@ export const dbService = {
     must(supabase.rpc('moderate_post', { p_post: postId, p_action: action, p_reason: reason ?? null })),
 
   // ---------------------------------------------------------------- Chat
-  async getMessages(tenantId: string, scope: AudienceScope, value: string | null): Promise<ChatMessage[]> {
+  async getMessages(tenantId: string, scope: AudienceScope, rawValue: string | null): Promise<ChatMessage[]> {
+    const value = rawValue && rawValue.trim() !== '' ? rawValue.trim() : null;
+    try {
+      const { data, error } = await supabase.rpc('get_group_messages', {
+        p_tenant: tenantId,
+        p_scope: scope,
+        p_value: value,
+      });
+      if (!error && Array.isArray(data)) {
+        return (data as Array<Record<string, unknown>>).map((m) => ({
+          id: String(m.id || ''),
+          authorId: String(m.author_profile_id || ''),
+          authorName: String(m.author_name || ''),
+          body: String(m.body || ''),
+          time: relativeTime(typeof m.created_at === 'string' ? m.created_at : undefined),
+        }));
+      }
+    } catch {
+      // Fall through to direct table select
+    }
+
     let q = supabase.from('group_messages').select('*').eq('tenant_id', tenantId).eq('channel_scope', scope);
     q = value === null ? q.is('channel_value', null) : q.eq('channel_value', value);
     const rows = await must(q.order('created_at', { ascending: true }).limit(200));
-    return ((rows as any[]) || []).map((m) => ({ id: m.id, authorId: m.author_profile_id, authorName: m.author_name, body: m.body, time: relativeTime(m.created_at) }));
+    return ((rows as Array<Record<string, unknown>>) || []).map((m) => ({
+      id: String(m.id || ''),
+      authorId: String(m.author_profile_id || ''),
+      authorName: String(m.author_name || ''),
+      body: String(m.body || ''),
+      time: relativeTime(typeof m.created_at === 'string' ? m.created_at : undefined),
+    }));
   },
 
-  sendMessage: (tenantId: string, scope: AudienceScope, value: string | null, me: Persona, body: string) =>
-    must(supabase.from('group_messages').insert({
+  sendMessage: (tenantId: string, scope: AudienceScope, rawValue: string | null, me: Persona, body: string) => {
+    const value = rawValue && rawValue.trim() !== '' ? rawValue.trim() : null;
+    return must(supabase.from('group_messages').insert({
       tenant_id: tenantId, channel_scope: scope, channel_value: value, author_profile_id: me.id, author_name: me.name, body,
-    })),
+    }));
+  },
 
   // ---------------------------------------------------------------- Audit & notifications
   async getAuditLogs(tenantId: string): Promise<AuditEntry[]> {

@@ -340,8 +340,26 @@ describe('Every RPC path executes (runtime coverage of plpgsql bodies)', () => {
                           VALUES ('orga', 'group', 'IT Workers', $1, 'Asha Member', 'hi')`, [me]);
     await assert.rejects(rpc(u.memberA, `INSERT INTO group_messages (tenant_id, channel_scope, channel_value, author_profile_id, author_name, body)
                           VALUES ('orga', 'group', 'Transport', $1, 'Asha Member', 'hi')`, [me]), /row-level security/);
+    await assert.rejects(rpc(u.memberA, `INSERT INTO group_messages (tenant_id, channel_scope, channel_value, author_profile_id, author_name, body)
+                          VALUES ('orga', 'org', '', $1, 'Asha Member', 'hi org')`, [me]), /row-level security/);
     assert.equal((await rpc(u.otherA, `SELECT * FROM group_messages WHERE channel_value = 'IT Workers'`)).length, 0);
     assert.ok((await rpc(u.platform, `SELECT audience_count('orga', 'group', 'IT Workers')`))[0].audience_count >= 1);
+  });
+
+  it('chat: regular member cannot write to channel_scope = org, org admin can', async () => {
+    const [{ id: me }] = (await db.query(`SELECT id FROM profiles WHERE user_id = $1 AND tenant_id = 'orga'`, [u.memberA])).rows;
+    await assert.rejects(
+      rpc(u.memberA, `INSERT INTO group_messages (tenant_id, channel_scope, channel_value, author_profile_id, author_name, body)
+                      VALUES ('orga', 'org', '', $1, 'Asha Member', 'unauthorized org chat')`, [me]),
+      /row-level security/
+    );
+
+    const [{ id: adminId, name: adminName }] = (await db.query(`SELECT id, name FROM profiles WHERE user_id = $1 AND tenant_id = 'orga'`, [u.platform])).rows;
+    await rpc(u.platform, `INSERT INTO group_messages (tenant_id, channel_scope, channel_value, author_profile_id, author_name, body)
+                           VALUES ('orga', 'org', '', $1, $2, 'Official org announcement')`, [adminId, adminName]);
+    const orgMsgs = await rpc(u.memberA, `SELECT * FROM group_messages WHERE tenant_id = 'orga' AND channel_scope = 'org'`);
+    assert.equal(orgMsgs.length, 1);
+    assert.equal(orgMsgs[0].body, 'Official org announcement');
   });
 
   it('settings, roles, routing, prefs, notifications, device tokens, admin directory', async () => {

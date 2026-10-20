@@ -75,7 +75,8 @@ const TEXT_ACTIONS: Record<string, TextAction> = {
 
 export default function CaseDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { isHandler, committees, issueAction, escalateCase, tenant, toast, cases, activeMember } = useStore();
+  const { isHandler, committees, levels, issueAction, escalateCase, tenant, toast, cases, activeMember } = useStore();
+  const maxLevel = Math.max(...(levels?.map((l) => l.level) || []), ...(committees?.map((cm) => cm.level) || []), 2);
   const [c, setC] = React.useState<Issue | null | undefined>(undefined);
   const [notes, setNotes] = React.useState<InternalNote[]>([]);
   const [replies, setReplies] = React.useState<MemberReply[]>([]);
@@ -268,6 +269,17 @@ export default function CaseDetail() {
                     onPress={() => run('acknowledge')}
                   >
                     Acknowledge
+                  </Button>
+                ) : null}
+                {c.status === 'acknowledged' ? (
+                  <Button
+                    size="md"
+                    icon="play"
+                    style={{ flex: 1 }}
+                    disabled={busy}
+                    onPress={() => run('start')}
+                  >
+                    Start Work
                   </Button>
                 ) : null}
 
@@ -550,6 +562,17 @@ export default function CaseDetail() {
       {/* More Actions Sheet */}
       <Sheet visible={moreOpen} onClose={() => setMoreOpen(false)} title="Case Actions">
         <View style={{ paddingHorizontal: 16, paddingBottom: 16, gap: 10 }}>
+          {open && ['in_progress', 'assigned', 'acknowledged', 'escalated', 'reopened'].includes(c.status) ? (
+            <Button
+              size="md"
+              variant="secondary"
+              icon="circle-check"
+              block
+              onPress={() => openActionDialog('resolve')}
+            >
+              Resolve case
+            </Button>
+          ) : null}
           {open && c.status !== 'awaiting_member' ? (
             <Button
               size="md"
@@ -574,7 +597,7 @@ export default function CaseDetail() {
             </Button>
           ) : null}
 
-          {open && c.level < 3 ? (
+          {open && c.level < maxLevel ? (
             <Button
               size="md"
               variant="secondary"

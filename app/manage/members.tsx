@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, View, ScrollView } from 'react-native';
 import { router } from 'expo-router';
 import {
  Avatar,
@@ -14,6 +14,7 @@ import {
  Input,
  Screen,
  SectionLabel,
+ Select,
  Sheet,
  StackHeader,
  Switch,
@@ -26,6 +27,7 @@ import {
 import { Restricted } from '../../src/components/Restricted';
 import { colors, fonts, palette, radius } from '../../src/theme';
 import { useStore, Persona } from '../../src/store/AppStore';
+import { dbService } from '../../src/services/db';
 
 const ROLE_INFO: Array<{ role: string; label: string; desc: string }> = [
  { role: 'org_admin', label: 'Organization Admin', desc: 'Full authority: settings, routing, official broadcasts' },
@@ -64,6 +66,20 @@ export default function Members() {
   const updated = has ? m.roles.filter((r) => r !== role) : [...m.roles, role];
   void setMemberRoles(m.id, updated);
   setSelectedMember((prev) => (prev && prev.id === m.id ? { ...prev, roles: updated } : prev));
+ };
+
+ const updateMemberDesignation = async (memberId: string, designation: string) => {
+  if (!tenant) return;
+  await dbService.updatePostalProfile(tenant.id, memberId, { designation });
+  await loadAdminMembers();
+  setSelectedMember((prev) => (prev && prev.id === memberId ? { ...prev, designation } : prev));
+ };
+
+ const updateMemberEmpId = async (memberId: string, employeeId: string) => {
+  if (!tenant) return;
+  await dbService.updatePostalProfile(tenant.id, memberId, { employeeId });
+  await loadAdminMembers();
+  setSelectedMember((prev) => (prev && prev.id === memberId ? { ...prev, employeeId } : prev));
  };
 
  const openReason = (m: Persona, action: 'rejected' | 'suspended' | 'ended') => {
@@ -150,7 +166,7 @@ export default function Members() {
           </View>
          </View>
 
-         {isOrgAdmin && m.status === 'verified' && !isMe ? (
+         {isOrgAdmin && !isMe ? (
           <IconButton
            icon="ellipsis"
            label="Manage member"
@@ -160,6 +176,8 @@ export default function Members() {
          ) : null}
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+         {m.designation && m.designation !== 'Member' ? <Badge size="sm" tone="warning" icon="shield">{m.designation}</Badge> : null}
+         {m.employeeId ? <Tag icon="hash">{`ID: ${m.employeeId}`}</Tag> : null}
          {m.unit ? <Tag icon="map-pin">{`${m.unit}, ${m.region}`}</Tag> : null}
          {m.groups.map((g) => (
           <Tag key={g} icon="briefcase">{g}</Tag>
@@ -269,14 +287,16 @@ export default function Members() {
    {/* Member Management Sheet (Sleek modern role toggles & actions) */}
    <Sheet visible={!!currentMember} onClose={() => setSelectedMember(null)} title="Member Management">
     {currentMember ? (
-     <View style={{ paddingHorizontal: 16, paddingBottom: 20, gap: 18 }}>
-      {/* Member Profile Summary */}
+     <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 28, gap: 16 }} showsVerticalScrollIndicator={false}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle }}>
        <Avatar name={currentMember.name} size={48} />
        <View style={{ flex: 1, gap: 2 }}>
-        <Txt variant="titleM">{currentMember.name}</Txt>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+         <Txt variant="titleM">{currentMember.name}</Txt>
+         {currentMember.status === 'verified' ? <VerifiedCheck size={16} /> : null}
+        </View>
         <Txt variant="bodyS" color={colors.textMuted}>
-         {`${currentMember.memberId} · ${currentMember.unit || 'No unit'}`}
+         {`${currentMember.memberId} · ${currentMember.unit || 'No division'}`}
         </Txt>
        </View>
        <Badge size="sm" dot tone={currentMember.status === 'verified' ? 'success' : 'warning'}>
@@ -284,10 +304,38 @@ export default function Members() {
        </Badge>
       </View>
 
+      {/* Postal Identity & Union Rank (Org Admins only) */}
+      {isOrgAdmin ? (
+       <View style={{ gap: 10 }}>
+        <Txt variant="overline" color={colors.textMuted}>UNION DESIGNATION & VERIFICATION</Txt>
+        <Field label="Union Designation" infoText="Leadership post or baseline membership">
+         <Select
+          value={currentMember.designation || 'Member'}
+          onChange={(v) => updateMemberDesignation(currentMember.id, v)}
+          options={['Founding President', 'President', 'General Secretary', 'Division Secretary', 'Circle Secretary', 'Treasurer', 'Vice President', 'Member']}
+         />
+        </Field>
+        <Field label="Employee ID" infoText="Department of Posts staff number">
+         <Input
+          value={currentMember.employeeId || ''}
+          onChangeText={(v) => updateMemberEmpId(currentMember.id, v)}
+          placeholder="e.g. 10125634"
+          keyboardType="number-pad"
+         />
+        </Field>
+        {currentMember.officeEmployed ? (
+         <View style={{ padding: 10, borderRadius: radius.m, backgroundColor: colors.bgSunken }}>
+          <Txt variant="caption" color={colors.textMuted}>OFFICE EMPLOYED</Txt>
+          <Txt variant="bodySStrong" color={colors.textPrimary}>{currentMember.officeEmployed}</Txt>
+         </View>
+        ) : null}
+       </View>
+      ) : null}
+
       {/* Role Assignments Section (Org Admins only) */}
       {isOrgAdmin ? (
        <View style={{ gap: 12 }}>
-        <Txt variant="overline" color={colors.textMuted}>ADMINISTRATIVE ROLES</Txt>
+        <Txt variant="overline" color={colors.textMuted}>ADMINISTRATIVE PLATFORM ROLES</Txt>
         <View style={{ backgroundColor: colors.surfaceCard, borderRadius: radius.l, borderWidth: 1, borderColor: colors.borderSubtle, padding: 14, gap: 14 }}>
          {ROLE_INFO.map(({ role, label, desc }) => {
           const has = currentMember.roles.includes(role);
@@ -305,35 +353,86 @@ export default function Members() {
        </View>
       ) : null}
 
+      {/* Committee Leadership Link */}
+      <Button
+       size="sm"
+       variant="secondary"
+       icon="users"
+       block
+       onPress={() => {
+        setSelectedMember(null);
+        router.push('/manage/committee');
+       }}
+      >
+       Manage Committee Appointments
+      </Button>
+
       {/* Account Status Actions */}
       <View style={{ gap: 10 }}>
-       <Txt variant="overline" color={colors.textMuted}>MEMBERSHIP STATUS</Txt>
-       <View style={{ flexDirection: 'row', gap: 10 }}>
+       <Txt variant="overline" color={colors.textMuted}>MEMBERSHIP STATUS ACTIONS</Txt>
+       {currentMember.status === 'pending' ? (
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+         <Button
+          size="sm"
+          icon="check"
+          style={{ flex: 1 }}
+          onPress={() => {
+           void setMemberStatus(currentMember.id, 'verified');
+           setSelectedMember(null);
+          }}
+         >
+          Approve Application
+         </Button>
+         <Button
+          size="sm"
+          variant="secondary"
+          icon="x"
+          style={{ flex: 1 }}
+          onPress={() => openReason(currentMember, 'rejected')}
+         >
+          Reject
+         </Button>
+        </View>
+       ) : currentMember.status === 'verified' ? (
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+         <Button
+          size="sm"
+          variant="secondary"
+          icon="ban"
+          style={{ flex: 1 }}
+          onPress={() => openReason(currentMember, 'suspended')}
+         >
+          Suspend
+         </Button>
+         <Button
+          size="sm"
+          variant="secondary"
+          icon="user-minus"
+          style={{ flex: 1 }}
+          onPress={() => openReason(currentMember, 'ended')}
+         >
+          End
+         </Button>
+        </View>
+       ) : (
         <Button
          size="sm"
          variant="secondary"
-         icon="ban"
-         style={{ flex: 1 }}
-         onPress={() => openReason(currentMember, 'suspended')}
+         icon="refresh-cw"
+         block
+         onPress={() => {
+          void setMemberStatus(currentMember.id, 'verified');
+          setSelectedMember(null);
+         }}
         >
-         Suspend
+         Reactivate Membership
         </Button>
-        <Button
-         size="sm"
-         variant="secondary"
-         icon="user-minus"
-         style={{ flex: 1 }}
-         onPress={() => openReason(currentMember, 'ended')}
-        >
-         End
-        </Button>
-       </View>
+       )}
       </View>
-
       <Button variant="ghost" block onPress={() => setSelectedMember(null)}>
        Close
       </Button>
-     </View>
+     </ScrollView>
     ) : null}
    </Sheet>
 

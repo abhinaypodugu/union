@@ -97,6 +97,13 @@ CREATE TABLE IF NOT EXISTS profiles (
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS phone TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS status_reason TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS employee_id TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS designation TEXT DEFAULT 'Member';
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS category TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS dob DATE;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS office_employed TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS division TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS circle TEXT;
 ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_id_fkey;
 ALTER TABLE profiles ALTER COLUMN id SET DEFAULT gen_random_uuid();
 UPDATE profiles p SET user_id = p.id
@@ -793,6 +800,7 @@ DECLARE
   v_city TEXT;
   v_committee TEXT;
   v_phone TEXT;
+  v_apex_level INTEGER := 3;
 BEGIN
   IF auth.uid() IS NULL OR NOT is_platform_admin() THEN
     RAISE EXCEPTION 'Only a Platform Super Admin can create organizations';
@@ -807,21 +815,29 @@ BEGIN
   INSERT INTO tenants (id, name, short_name, code, description, terminology)
   VALUES (v_id, trim(p_name), upper(coalesce(nullif(trim(p_short), ''), left(p_code, 4))), upper(trim(p_code)),
           p_description,
-          '{"orgLabel":"Organization","level1Label":"City","level2Label":"State","level3Label":"National","groupLabel":"Functional Group","caseLabel":"Issue"}'::jsonb
+          '{"orgLabel":"Union","level1Label":"Division","level2Label":"Circle","level3Label":"All India","groupLabel":"Affiliated Association","caseLabel":"Grievance"}'::jsonb
             || coalesce(p_terminology, '{}'::jsonb));
 
   v_city := ensure_geo_path(v_id, coalesce(nullif(trim(p_hq_city), ''), 'Headquarters'),
                             coalesce(nullif(trim(p_hq_region), ''), 'Central'), coalesce(p_country, 'India'));
 
   SELECT phone INTO v_phone FROM auth.users WHERE id = auth.uid();
-  INSERT INTO profiles (user_id, tenant_id, member_number, name, email, phone, unit, region, country, groups, roles, status)
+  INSERT INTO profiles (user_id, tenant_id, member_number, name, email, phone, unit, region, country, groups, roles, status,
+                        employee_id, designation, category, office_employed, division, circle)
   VALUES (auth.uid(), v_id, upper(p_code) || '-0001', trim(p_admin_name), coalesce(p_admin_email, ''), v_phone,
           coalesce(nullif(trim(p_hq_city), ''), 'Headquarters'), coalesce(nullif(trim(p_hq_region), ''), 'Central'),
-          coalesce(p_country, 'India'), ARRAY['Administration'], ARRAY['member', 'org_admin'], 'verified')
+          coalesce(p_country, 'India'), '{}'::text[], ARRAY['member', 'org_admin'], 'verified',
+          NULL, 'Founding President', NULL, NULL,
+          coalesce(nullif(trim(p_hq_city), ''), 'Headquarters'), coalesce(nullif(trim(p_hq_region), ''), 'Central'))
   RETURNING id INTO v_profile;
+  SELECT coalesce(max((l->>'level')::int), 3) INTO v_apex_level
+  FROM jsonb_array_elements(coalesce(p_terminology->'levels', '[{"level":3}]'::jsonb)) l;
+  IF v_apex_level IS NULL OR v_apex_level < 1 THEN
+    v_apex_level := 3;
+  END IF;
 
   INSERT INTO committees (tenant_id, name, scope, level, method, term, responsibilities)
-  VALUES (v_id, trim(p_name) || ' Executive Committee', 'Organization-wide', 3, 'Appointment', to_char(NOW(), 'YYYY') || ' – ' || to_char(NOW() + interval '2 years', 'YYYY'),
+  VALUES (v_id, trim(p_name) || ' Executive Committee', 'Organization-wide', v_apex_level, 'Appointment', to_char(NOW(), 'YYYY') || ' – ' || to_char(NOW() + interval '2 years', 'YYYY'),
           '{"handles":"Organization-wide and escalated grievances","escalatesTo":"Final level","publishScope":"Whole organization"}'::jsonb)
   RETURNING id INTO v_committee;
 
@@ -851,7 +867,9 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Member application (PRD §6.1). Creates a PENDING membership for the caller.
 CREATE OR REPLACE FUNCTION register_member(
-  p_org_code TEXT, p_name TEXT, p_email TEXT, p_city TEXT, p_region TEXT, p_group TEXT, p_country TEXT DEFAULT 'India'
+  p_org_code TEXT, p_name TEXT, p_email TEXT, p_city TEXT, p_region TEXT, p_group TEXT, p_country TEXT DEFAULT 'India',
+  p_employee_id TEXT DEFAULT NULL, p_designation TEXT DEFAULT 'Member', p_category TEXT DEFAULT NULL,
+  p_dob DATE DEFAULT NULL, p_office_employed TEXT DEFAULT NULL
 ) RETURNS UUID AS $$
 DECLARE
   v_tenant tenants%ROWTYPE;
@@ -869,7 +887,13 @@ BEGIN
     RAISE EXCEPTION 'Name and location are required';
   END IF;
 
-  v_status := CASE WHEN coalesce((v_tenant.settings ->> 'autoApproveMembers')::boolean, FALSE) THEN 'verified' ELSE 'pending' END;
+  -- Any designation other than 'Member' (e.g. President, Secretary) requires leadership approval
+  -- even if autoApproveMembers is enabled for the organization.
+  IF coalesce(nullif(trim(p_designation), ''), 'Member') <> 'Member' THEN
+    v_status := 'pending';
+  ELSE
+    v_status := CASE WHEN coalesce((v_tenant.settings ->> 'autoApproveMembers')::boolean, FALSE) THEN 'verified' ELSE 'pending' END;
+  END IF;
   SELECT phone INTO v_phone FROM auth.users WHERE id = auth.uid();
 
   PERFORM ensure_geo_path(v_tenant.id, trim(p_city), coalesce(nullif(trim(p_region), ''), 'Central'), coalesce(p_country, 'India'));
@@ -879,11 +903,18 @@ BEGIN
     ON CONFLICT (id) DO NOTHING;
   END IF;
 
-  INSERT INTO profiles (user_id, tenant_id, member_number, name, email, phone, unit, region, country, groups, roles, status)
+  INSERT INTO profiles (user_id, tenant_id, member_number, name, email, phone, unit, region, country, groups, roles, status,
+                        employee_id, designation, category, dob, office_employed, division, circle, status_reason)
   VALUES (auth.uid(), v_tenant.id, v_tenant.code || '-' || lpad(nextval('member_seq')::text, 5, '0'), trim(p_name),
           coalesce(p_email, ''), v_phone, trim(p_city), coalesce(nullif(trim(p_region), ''), 'Central'),
           coalesce(p_country, 'India'), CASE WHEN coalesce(trim(p_group), '') = '' THEN '{}'::text[] ELSE ARRAY[trim(p_group)] END,
-          ARRAY['member'], v_status)
+          ARRAY['member'], v_status,
+          nullif(trim(p_employee_id), ''), coalesce(nullif(trim(p_designation), ''), 'Member'),
+          nullif(trim(p_category), ''), p_dob, nullif(trim(p_office_employed), ''),
+          trim(p_city), coalesce(nullif(trim(p_region), ''), 'Central'),
+          CASE WHEN coalesce(nullif(trim(p_designation), ''), 'Member') <> 'Member'
+               THEN 'Designation "' || trim(p_designation) || '" requires leadership verification'
+               ELSE NULL END)
   RETURNING id INTO v_profile;
 
   PERFORM write_audit(v_tenant.id, 'applicant', 'Member Registration', 'profile', v_profile::text,
@@ -1563,6 +1594,7 @@ DECLARE
   r RECORD;
   v_count INTEGER := 0;
   v_chair UUID;
+  v_max_level INTEGER;
 BEGIN
   IF auth.uid() IS NOT NULL THEN RAISE EXCEPTION 'Scheduler only'; END IF;
 
@@ -1588,7 +1620,8 @@ BEGIN
              AND status NOT IN ('resolved', 'closed', 'rejected', 'awaiting_member', 'awaiting_external')
   LOOP
     UPDATE issues SET due_state = 'overdue', due = 'Overdue' WHERE id = r.id;
-    IF r.level < 3 AND r.committee_id IS NOT NULL THEN
+    v_max_level := (SELECT coalesce(max(level), r.level) FROM committees WHERE tenant_id = r.tenant_id AND active);
+    IF r.level < v_max_level AND r.committee_id IS NOT NULL THEN
       BEGIN
         PERFORM escalate_issue(r.id, 'Deadline missed at L' || r.level || ' (' || r.committee_name || ')', r.level, TRUE);
         v_count := v_count + 1;
@@ -1643,12 +1676,14 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 CREATE OR REPLACE FUNCTION can_publish(p_tenant TEXT, p_kind TEXT, p_scope TEXT, p_value TEXT) RETURNS BOOLEAN AS $$
 DECLARE
   v_me profiles%ROWTYPE;
+  v_top_level INTEGER;
 BEGIN
   IF is_platform_admin() OR has_tenant_role(p_tenant, 'org_admin') THEN RETURN TRUE; END IF;
   SELECT * INTO v_me FROM profiles WHERE user_id = auth.uid() AND tenant_id = p_tenant AND status = 'verified';
   IF v_me.id IS NULL THEN RETURN FALSE; END IF;
 
   IF p_kind IN ('official', 'committee') THEN
+    v_top_level := (SELECT coalesce(max(level), 3) FROM committees WHERE tenant_id = p_tenant AND active);
     -- Committee leaders: only audiences their committee covers
     RETURN EXISTS (
       SELECT 1 FROM committee_members cm JOIN committees c ON c.id = cm.committee_id
@@ -1656,11 +1691,11 @@ BEGIN
       WHERE cm.profile_id = v_me.id AND cm.status = 'active' AND cm.role IN ('Chair', 'Secretary')
         AND (cm.end_date IS NULL OR cm.end_date > NOW()) AND c.tenant_id = p_tenant AND (
           (p_scope = 'committee' AND p_value = c.id)
-          OR (p_scope = 'group' AND c.functional_group IS NOT NULL AND lower(c.functional_group) = lower(p_value)
-              AND (g.id IS NULL OR c.level = 3))
+          OR (p_scope = 'group' AND c.functional_group IS NOT NULL AND (lower(p_value) = ANY(SELECT lower(trim(x)) FROM unnest(string_to_array(c.functional_group, ',')) x))
+              AND (g.id IS NULL OR c.level = v_top_level))
           OR (p_scope = 'local' AND g.type = 'city' AND lower(g.name) = lower(p_value))
           OR (p_scope = 'region' AND g.type = 'state' AND lower(g.name) = lower(p_value))
-          OR (p_scope = 'org' AND c.level = 3 AND c.functional_group IS NULL)
+          OR (p_scope = 'org' AND c.level = v_top_level AND c.functional_group IS NULL)
         ));
   END IF;
 
@@ -1918,13 +1953,105 @@ CREATE POLICY "post_likes: audience of post" ON post_likes FOR SELECT USING (can
 CREATE POLICY "post_reports: moderators" ON post_reports FOR SELECT
   USING (has_tenant_role(tenant_id, 'org_admin', 'moderator') OR is_platform_admin());
 
+-- Helper for role-gated group chat writes
+CREATE OR REPLACE FUNCTION can_write_group_message(p_tenant TEXT, p_scope TEXT, p_value TEXT) RETURNS BOOLEAN AS $$
+DECLARE
+  v_pid UUID;
+  v_roles TEXT[];
+BEGIN
+  IF is_platform_admin() THEN RETURN TRUE; END IF;
+  v_pid := my_profile_id(p_tenant);
+  IF v_pid IS NULL THEN RETURN FALSE; END IF;
+  SELECT roles INTO v_roles FROM profiles WHERE id = v_pid;
+  IF 'org_admin' = ANY(v_roles) THEN RETURN TRUE; END IF;
+
+  -- Local tier (Division Association channel): all verified members in that division and category can write
+  IF p_scope IN ('local', 'group') THEN
+    RETURN in_audience(p_tenant, p_scope, p_value);
+  END IF;
+
+  -- Region tier (Circle channel): division committee heads, membership admins, moderators or org admins can write
+  IF p_scope = 'region' THEN
+    IF in_audience(p_tenant, p_scope, p_value) AND (
+      'membership_admin' = ANY(v_roles) OR 'moderator' = ANY(v_roles) OR
+      EXISTS (
+        SELECT 1 FROM committee_members cm
+        JOIN committees c ON c.id = cm.committee_id
+        WHERE cm.profile_id = v_pid AND cm.status = 'active'
+          AND (cm.end_date IS NULL OR cm.end_date > NOW())
+          AND cm.role IN ('Chair', 'Secretary', 'Vice-Chair', 'Handler')
+      )
+    ) THEN
+      RETURN TRUE;
+    END IF;
+    RETURN FALSE;
+  END IF;
+
+  -- Org tier (All-India Union channel): Circle chairs (level >= 2 committee chairs) or org admins can write
+  IF p_scope = 'org' THEN
+    IF EXISTS (
+      SELECT 1 FROM committee_members cm
+      JOIN committees c ON c.id = cm.committee_id
+      WHERE cm.profile_id = v_pid AND cm.status = 'active'
+        AND (cm.end_date IS NULL OR cm.end_date > NOW())
+        AND cm.role IN ('Chair', 'Secretary') AND c.level >= 2
+    ) THEN
+      RETURN TRUE;
+    END IF;
+    RETURN FALSE;
+  END IF;
+
+  -- Committee private room
+  IF p_scope = 'committee' THEN
+    RETURN EXISTS (
+      SELECT 1 FROM committee_members
+      WHERE committee_id = p_value AND profile_id = v_pid AND status = 'active'
+        AND (end_date IS NULL OR end_date > NOW())
+    );
+  END IF;
+  RETURN FALSE;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
 -- Chat: read/write only in channels the caller belongs to.
 CREATE POLICY "group_messages: channel members read" ON group_messages FOR SELECT
-  USING (in_audience(tenant_id, channel_scope, channel_value) OR is_platform_admin());
+  USING (
+    in_audience(tenant_id, channel_scope, channel_value)
+    OR has_tenant_role(tenant_id, 'org_admin')
+    OR is_platform_admin()
+  );
+
+-- Secure reader function for group chat (handles nulls and case insensitivity)
+CREATE OR REPLACE FUNCTION get_group_messages(p_tenant TEXT, p_scope TEXT, p_value TEXT DEFAULT NULL)
+RETURNS SETOF group_messages AS $$
+BEGIN
+  IF NOT (in_audience(p_tenant, p_scope, p_value) OR has_tenant_role(p_tenant, 'org_admin') OR is_platform_admin()) THEN
+    RAISE EXCEPTION 'Not authorized to read this channel';
+  END IF;
+
+  IF p_value IS NULL OR trim(p_value) = '' THEN
+    RETURN QUERY
+      SELECT * FROM group_messages
+      WHERE tenant_id = p_tenant AND channel_scope = p_scope AND (channel_value IS NULL OR channel_value = '')
+      ORDER BY created_at ASC
+      LIMIT 200;
+  ELSE
+    RETURN QUERY
+      SELECT * FROM group_messages
+      WHERE tenant_id = p_tenant AND channel_scope = p_scope AND lower(channel_value) = lower(trim(p_value))
+      ORDER BY created_at ASC
+      LIMIT 200;
+  END IF;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+DROP POLICY IF EXISTS "group_messages: channel members write" ON group_messages;
 CREATE POLICY "group_messages: channel members write" ON group_messages FOR INSERT
-  WITH CHECK (in_audience(tenant_id, channel_scope, channel_value)
-              AND author_profile_id = my_profile_id(tenant_id)
-              AND author_name = (SELECT name FROM profiles WHERE id = author_profile_id));
+  WITH CHECK (
+    can_write_group_message(tenant_id, channel_scope, channel_value)
+    AND author_profile_id = my_profile_id(tenant_id)
+    AND author_name = (SELECT name FROM profiles WHERE id = author_profile_id)
+  );
 
 -- Notifications: addressed rows only; updates via mark_notifications_read().
 CREATE POLICY "notifications: own" ON notifications FOR SELECT
@@ -1949,19 +2076,19 @@ GRANT SELECT ON tenants TO anon, authenticated;
 -- Authenticated members can read tables (subject to RLS policies)
 GRANT SELECT ON geo_units, functional_groups, committees, committee_members, routing_rules,
                 issues, internal_notes, member_replies, issue_attachments, posts, comments,
-                post_likes, post_reports, notifications, audit_logs TO authenticated;
+                post_likes, post_reports, notifications, audit_logs, group_messages TO authenticated;
 
 -- Privacy on profiles: phone and email are never exposed to directory queries
 REVOKE ALL ON profiles FROM anon, authenticated;
 GRANT SELECT (id, user_id, tenant_id, member_number, name, unit, region, country, groups, roles, status, created_at)
   ON profiles TO authenticated;
 
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, anon;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO postgres, anon, authenticated, service_role;
 
 -- Client direct writes are revoked (except group_messages with WITH CHECK policy)
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
-GRANT INSERT ON group_messages TO authenticated;
+GRANT INSERT, SELECT ON group_messages TO authenticated;
 REVOKE ALL ON platform_admins, notification_outbox, device_tokens FROM authenticated, anon;
 GRANT SELECT ON device_tokens TO authenticated;
 

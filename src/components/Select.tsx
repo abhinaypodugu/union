@@ -33,7 +33,7 @@ export function Select({ value, options, onChange, placeholder = 'Choose…', la
         <Icon name="chevron-down" size={16} color={palette.ink500} strokeWidth={2} />
       </Pressable>
       <Sheet visible={open} onClose={() => setOpen(false)} title={label || placeholder}>
-        <ScrollView style={{ maxHeight: 420 }}>
+        <ScrollView style={{ flexShrink: 1 }}>
           {options.map((o) => (
             <Pressable key={o} onPress={() => { onChange(o); setOpen(false); }} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', minHeight: 52, paddingHorizontal: 16, backgroundColor: pressed ? colors.surfaceHover : 'transparent' })}>
               <Txt variant="body" style={{ flex: 1 }}>{o}</Txt>

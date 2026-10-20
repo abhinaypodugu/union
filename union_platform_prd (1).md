@@ -1,9 +1,9 @@
 # Product Requirements Document (PRD)
 ## Multi-Tenant Organization, Membership, Community, and Issue Management Platform
 
-**Document status:** Draft — updated for domain-agnostic terminology, governance, platform-wide committee administration, social-feed behavior, push notifications, and open-source reuse research  
-**Version:** 1.2  
-**Date:** 10 October 2026
+**Document status:** Approved — updated for Postal Union branding, 12 Affiliated Associations, Employee ID identity model, cascading hierarchy, role-gated chat matrix, and reactive layout design  
+**Version:** 1.3  
+**Date:** 20 October 2026
 
 ---
 
@@ -185,32 +185,41 @@ The system must support terms, renewals, vacancies, succession, replacement, sus
 
 ### 4.6 Member
 
-A member profile may contain:
-- Member ID.
-- Name and contact details.
-- Verification and membership status.
-- Registered country, state/province, city/district, and local unit where applicable.
-- Functional-group memberships.
-- Committee appointments and organizational roles.
-- Tags or attributes approved by the organization.
-- Date joined and relevant membership history.
+A member profile contains:
+- Member ID (e.g. `TU-0001`, `TU-0101`).
+- Employee ID (Department of Posts Staff Number, e.g. `10125634`).
+- Union Designation (e.g. `Founding President`, `President`, `Division Secretary`, `Circle Secretary`, `Treasurer`, `Vice President`, `Member`).
+- Affiliated Association and Category (e.g. `Supervisors`, `Postman & MTS`, `GDS`, `RMS & MMS`, `Civil Wing`, `Group ‘C’`, etc.).
+- Name, mobile number, and optional email address.
+- Date of Birth (ISO formatted `YYYY-MM-DD`).
+- Office Employed (e.g. `Sitaphalmandi SO`, `Secunderabad HPO`).
+- Division ($L_1$) and Circle ($L_2$).
+- Verification and membership status (`verified`, `pending`, `suspended`, `rejected`, `ended`).
+- Committee appointments and organizational roles (`member`, `org_admin`, `membership_admin`, `moderator`).
 - Privacy and notification preferences.
 
-Personal data must only be visible to authorized users for legitimate purposes.
-
+**Governance & Immutability Rules:**
+1. **Self-Modification Restrictions:** Ordinary members cannot self-modify `employee_id`, `designation`, or `category`. These fields are strictly locked in member profiles to prevent unauthorized leadership rank elevation or identity spoofing. Only Organization Administrators can alter or verify these governance attributes.
+2. **Workplace Transfer Updates:** Members may update their `office_employed`, `division`, and `circle` (e.g. upon postal workplace transfer). Updating the workplace automatically synchronizes the member's active tier channels and recalculates geographic Row Level Security.
 ### 4.7 Communities and Groups
 
 Groups provide communication spaces and are separate from committees.
 
-Supported group types:
-1. Geographic groups: city, state/province, country/national, and other configured levels.
-2. Functional-group groups: discussions for a particular functional group at a given scope.
-3. Committee-private channels.
-4. Additional interest- or purpose-based communities, if enabled.
-5. organization-wide announcements or official channels.
-
-A group can support posts, comments, reactions, and chat as configured. Group membership and content visibility must be permission-controlled.
-
+Supported group and channel types:
+1. **Division Association Channel (Local Workplace Tier — $D_A, D_B, D_C$):**
+   - e.g. `Secunderabad · Supervisors`.
+   - Formed dynamically from the member's Division ($L_1$) and Affiliated Association Category.
+   - **Access Matrix:** All verified members in that division and category have unrestricted read & chat access. This is their daily workplace communication hub.
+2. **Circle Channel (Intermediate Tier — $C_{ABC}$):**
+   - e.g. `Telangana Circle`.
+   - Encompasses all pooled postal employees across all divisions in that state/circle.
+   - **Access Matrix:** Read-only for regular members. Division committee heads (Chairs, Secretaries, Handlers) and Circle office bearers can post messages and coordinate regional matters.
+3. **All-India Union Channel (Apex / Federation Tier):**
+   - e.g. `All India Bharatiya Postal Employees Union`.
+   - Encompasses the nationwide postal workforce.
+   - **Access Matrix:** Read-only for regular members and division heads. Circle leaders and National Executive officers can post resolutions and official broadcasts.
+4. **Committee Private Deliberation Rooms:**
+   - Case handlers and committee leadership rooms gated by active appointment.
 ### 4.8 Tags
 
 Tags describe attributes or help classify members, content, and issues. Examples include profession, employer, membership type, or issue category.
@@ -314,16 +323,19 @@ The Platform Super Admin is the highest-privilege operational role and can perfo
 
 ### 6.1 Member Registration Flow
 
-1. User selects or follows an invitation to a specific organization.
-2. User provides required personal and contact information.
-3. User verifies contact details using the configured verification method.
-4. User supplies geographic location and any membership-specific information.
-5. System maps the user to the corresponding geographic units.
-6. User selects or requests eligible functional group memberships, if required.
-7. The organization's configured approval process verifies the application.
-8. Once approved, the system grants access to the three applicable geographic groups and eligible functional group/community spaces.
-9. The user sees their home feed, organizational chart, profile, and issue area.
-
+1. User verifies mobile number via Supabase Auth Phone OTP (Twilio integration).
+2. User enters organization invite code (e.g. `TU`).
+3. User enters full name and optional work email.
+4. User completes Postal Identity & Workplace onboarding:
+   - **Employee ID:** Staff number issued by Department of Posts.
+   - **Union Designation:** Selects leadership post (`President`, `Division Secretary`, `Treasurer`, `Member`, etc.).
+   - **Affiliated Association:** Selects from the 12 configured postal trade associations (two-tier display: full official name + concise Category chip).
+   - **Date of Birth:** Entered via direct text or interactive calendar picker sheet.
+   - **Circle ($L_2$) & Division ($L_1$):** Selectable cascading dropdowns (choosing Circle filters available Divisions, or detected automatically via device GPS).
+   - **Office Employed:** Dynamically preloads Sub-Offices (SO), Head Post Offices (HPO), and Branch Offices (BO) for the chosen Division, with live search filtering and custom office entry.
+5. **Approval Routing & Leadership Gate:**
+   - If applicant selects baseline designation `'Member'`, membership status evaluates according to `autoApproveMembers` policy (`verified` if enabled, `pending` if disabled).
+   - If applicant claims any leadership designation other than `'Member'` (e.g. `President`, `Division Secretary`, `Treasurer`), the application is **strictly held in `'pending'` review**, requiring explicit verification by higher union leadership regardless of automatic approval settings.
 ### 6.2 Membership Changes
 
 - Authorized administrators can approve, reject, suspend, reactivate, or end membership.
@@ -394,12 +406,13 @@ The feed should feel familiar to users of social/community applications such as 
 
 ### 8.2 Chat
 
-- Support group chat in permitted geographic, functional group, and committee spaces.
-- Support direct messages only if enabled by the organization and permitted by policy.
-- Private committee chat must not be visible to all members of the same geographic unit by default.
-- Leaving a committee or changing roles must update access to its private channels.
-- Retention, export, and deletion rules must be defined by the organization and applicable law.
-
+- **Default Chat View:** Tapping any channel from the Groups screen opens directly to the active live **Chat** stream by default (with an optional tab toggle for **Posts**).
+- **Loading State:** Displays an animated loading spinner with *"Loading messages…"* while fetching channel history from Supabase, eliminating false empty-state flickers.
+- **Optimistic Messaging:** When sending a message, the bubble renders immediately on screen with a *"Just now"* timestamp, reverting gracefully if network transport fails.
+- **Role-Gated Permissions:** Chat posting permissions are strictly enforced server-side via `can_write_group_message()` definer function and PostgreSQL RLS:
+  - Local Division Association Channel: Read & Write for all verified division category members.
+  - Circle Channel: Read-Only for members; Write-enabled for division heads and circle leaders.
+  - All-India Union Channel: Read-Only for members; Write-enabled for circle chairs and central executives.
 ### 8.3 Official Announcements and Audience Targeting
 
 - Authorized committee leaders and organization leaders can publish official announcements only within their permitted scope.
@@ -724,6 +737,11 @@ Initial targets to validate:
 - Monitoring for failed notifications, stuck escalations, and workflow errors.
 - Operational alerts without leaking sensitive complaint data.
 
+### 14.8 Responsive UI and Viewport Scaling
+
+- All modal panels, bottom sheets, and selection dialogs must dynamically scale using `useWindowDimensions()` and safe area insets.
+- Bottom sheet containers must enforce a reactive ceiling: $\text{maxHeight} = \text{round}(\text{windowHeight} \times 0.88 - \text{insets.top})$ with `overflow: 'hidden'`, guaranteeing that headers, drag handles, and close buttons remain pinned within the visible screen on any device.
+- Scrollable content must use `flexShrink: 1` rather than fixed pixel heights (`540px`, `400px`, `380px`), allowing sheets to adapt fluidly across compact phones, tall flagships, and tablets without offscreen clipping or layout skew.
 ---
 
 ## 15. Suggested Technical Direction
@@ -773,6 +791,14 @@ The following public repositories were identified in a preliminary research pass
 
 The research suggests that no single repository identified here should be treated as the complete foundation for the platform. The best path is a controlled hybrid: reuse selected mobile/social and issue-management components, while implementing the tenant model, governance, committee permissions, complaint confidentiality, and escalation rules specifically for this product.
 
+### 15.4 Visual Identity and Postal Theme
+
+The mobile client integrates the national identity of India Post with the solidarity of the trade union movement (Bharatiya Mazdoor Sangh emblem):
+- **India Post Red (`#C6262E`):** Primary brand accent, primary action buttons, active indicator pills, and timeline nodes.
+- **Postal Blue / Navy (`#1A237E` / `#283593`):** Industrial cogwheel border accents, secondary badges, and council tags.
+- **Union Saffron (`#EB6E02`):** Labor solidarity highlights, warning tones, and action pips.
+- **India Post Gold (`#FFC72C` / `#FFD54F`):** Golden wing highlights, wheat sheaf contours, and verified badges.
+- **App Launcher Assets:** Mapped and packaged across all Android standard and adaptive mipmap densities (`mdpi`, `hdpi`, `xhdpi`, `xxhdpi`, `xxxhdpi`) embedding the unified postal wing, gear, and wheat sheaf emblem.
 ---
 
 ## 16. MVP Scope and Delivery Phases

@@ -1,13 +1,13 @@
 import React from 'react';
-import { View, Pressable, Share } from 'react-native';
+import { View, Pressable, Share, ScrollView } from 'react-native';
 import { Redirect, router } from 'expo-router';
 import {
-  Avatar, Badge, Button, Card, IconTile, KeyValue, ListCard, ListRow, LoadingState, Notice, Screen, SectionLabel, StackHeader,
-  Switch, Txt, Sheet, Field, Input, VerifiedCheck,
+  Avatar, Badge, Button, Card, Icon, IconTile, KeyValue, ListCard, ListRow, LoadingState, Notice, Screen, SectionLabel, Select, StackHeader,
+  Switch, Tag, Txt, Sheet, Field, Input, VerifiedCheck,
 } from '../src/components';
-import { colors, palette } from '../src/theme';
-import { useStore, NotificationPrefs, Tenant } from '../src/store/AppStore';
-
+import { colors, palette, radius } from '../src/theme';
+import { useStore, NotificationPrefs, Tenant, DEFAULT_POSTAL_CADRES } from '../src/store/AppStore';
+import { POSTAL_CIRCLES, getDivisionsForCircle, getOfficesForDivision } from '../src/lib/postalData';
 const PREFS: Array<[keyof NotificationPrefs, string, boolean]> = [
   ['announcements', 'Official announcements', false],
   ['replies', 'Replies & mentions', false],
@@ -19,7 +19,7 @@ export default function Profile() {
   const {
     tenant, tenants, memberships, switchTenant, activeMember, authReady, signedIn, isPlatformSuperAdmin, isOrgAdmin, isMembershipAdmin,
     adminMembers, loadAdminMembers, setupOrganization, registerMember, lookupOrgByCode, updatePrefs, logout, myAppointments,
-    committees, toast,
+    committees, toast, updatePostalProfile,
   } = useStore();
 
   const [orgSheet, setOrgSheet] = React.useState(false);
@@ -29,7 +29,62 @@ export default function Profile() {
   const [org, setOrg] = React.useState({ name: '', code: '', desc: '', caseLabel: 'Grievance', groupLabel: 'Sector', city: '', region: '' });
   const [join, setJoin] = React.useState({ code: '', unit: '', region: '', group: '' });
   const [joinOrg, setJoinOrg] = React.useState<Tenant | null>(null);
+  const [postalSheet, setPostalSheet] = React.useState(false);
+  const [editEmpId, setEditEmpId] = React.useState('');
+  const [editDesig, setEditDesig] = React.useState('');
+  const [editCategory, setEditCategory] = React.useState('');
+  const [editDob, setEditDob] = React.useState('');
+  const [editOffice, setEditOffice] = React.useState('');
+  const [editOfficeSearch, setEditOfficeSearch] = React.useState('');
+  const [editDivision, setEditDivision] = React.useState('');
+  const [editCircle, setEditCircle] = React.useState('');
 
+  const editDivisions = React.useMemo(() => getDivisionsForCircle(editCircle), [editCircle]);
+  const editOffices = React.useMemo(() => getOfficesForDivision(editCircle, editDivision), [editCircle, editDivision]);
+
+  const handleEditCircle = (circle: string) => {
+    setEditCircle(circle);
+    const divs = getDivisionsForCircle(circle);
+    const nextDiv = divs[0] || 'Secunderabad';
+    setEditDivision(nextDiv);
+    const offs = getOfficesForDivision(circle, nextDiv);
+    setEditOffice(offs[0] || '');
+  };
+
+  const handleEditDivision = (division: string) => {
+    setEditDivision(division);
+    const offs = getOfficesForDivision(editCircle, division);
+    setEditOffice(offs[0] || '');
+  };
+
+  const openPostalEdit = () => {
+    setEditEmpId(activeMember.employeeId || '');
+    setEditDesig(activeMember.designation || (isOrgAdmin ? 'Founding President' : 'Member'));
+    setEditCategory(activeMember.category || (activeMember.groups && activeMember.groups[0]) || 'Supervisors');
+    setEditDob(activeMember.dob || '06-04-1972');
+    setEditOffice(activeMember.officeEmployed || 'Sitaphalmandi SO');
+    setEditDivision(activeMember.division || activeMember.unit);
+    setEditCircle(activeMember.circle || activeMember.region);
+    setEditOfficeSearch('');
+    setPostalSheet(true);
+  };
+
+  const savePostalEdit = async () => {
+    setBusy(true);
+    await updatePostalProfile({
+      employeeId: (isOrgAdmin || isPlatformSuperAdmin) ? editEmpId.trim() || undefined : undefined,
+      designation: (isOrgAdmin || isPlatformSuperAdmin) ? editDesig.trim() || undefined : undefined,
+      category: (isOrgAdmin || isPlatformSuperAdmin) ? editCategory.trim() || undefined : undefined,
+      dob: editDob.trim() || undefined,
+      officeEmployed: editOffice.trim() || undefined,
+      division: editDivision.trim() || undefined,
+      circle: editCircle.trim() || undefined,
+      unit: editDivision.trim() || undefined,
+      region: editCircle.trim() || undefined,
+    });
+    setBusy(false);
+    setPostalSheet(false);
+  };
   React.useEffect(() => { if (isMembershipAdmin) void loadAdminMembers(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [isMembershipAdmin, tenant?.id]);
 
   if (!authReady) return <LoadingState subtitle="Signing you in…" />;
@@ -121,16 +176,19 @@ export default function Profile() {
         </>
       )}
 
-      <SectionLabel>Membership details</SectionLabel>
+      <SectionLabel right={<Button size="sm" variant="ghost" icon="edit-2" onPress={openPostalEdit}>Edit</Button>}>Postal Identity & Membership</SectionLabel>
       <Card padding={14} style={{ marginHorizontal: 12, paddingVertical: 2 }}>
-        <KeyValue first k="Verified mobile" v={activeMember.phone ? '+' + activeMember.phone.replace(/^\+/, '') : '—'} />
-        <KeyValue k="Location" v={`${activeMember.unit} · ${activeMember.region}`} />
-        <KeyValue k="Functional groups" v={activeMember.groups.length ? activeMember.groups.join(', ') : 'General membership'} />
+        <KeyValue first k="Employee ID" v={activeMember.employeeId || '—'} />
+        <KeyValue k="Category" v={activeMember.category || (activeMember.groups.length ? activeMember.groups[0] : '—')} />
+        <KeyValue k="Designation" v={activeMember.designation || 'Member'} />
+        <KeyValue k="Date of birth" v={activeMember.dob || '—'} />
+        <KeyValue k="Office employed" v={activeMember.officeEmployed || '—'} />
+        <KeyValue k="Division (L1)" v={activeMember.division || activeMember.unit} />
+        <KeyValue k="Circle (L2)" v={activeMember.circle || activeMember.region} />
+        <KeyValue k="Verified mobile" v={activeMember.phone ? '+' + activeMember.phone.replace(/^\+/, '') : '—'} />
         <KeyValue k="Roles" v={activeMember.roles.join(', ')} />
-        <KeyValue k="Committees" v={myAppointments.length ? myAppointments.map((a) => `${a.role}, ${committees.find((c) => c.id === a.committeeId)?.name || ''}`).join('; ') : 'None'} />
         <KeyValue k="Member since" v={activeMember.since} />
       </Card>
-
       <SectionLabel>Notifications</SectionLabel>
       <Card padding={14} style={{ marginHorizontal: 12, paddingVertical: 2 }}>
         {PREFS.map(([key, label, locked], i) => (
@@ -218,6 +276,99 @@ export default function Profile() {
           </View>
         </Sheet>
       )}
-    </Screen>
+      {/* Edit Postal Identity Sheet */}
+      <Sheet visible={postalSheet} onClose={() => setPostalSheet(false)} title="Update Workplace Details">
+        <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingHorizontal: 16, gap: 14, paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
+          {/* If Admin: Allow editing Employee ID, Designation, and Affiliated Category */}
+          {isOrgAdmin || isPlatformSuperAdmin ? (
+            <>
+              <Field label="Employee ID" required infoText="Department of Posts staff number">
+                <Input value={editEmpId} onChangeText={setEditEmpId} placeholder="e.g. 10125634" keyboardType="number-pad" />
+              </Field>
+
+              <Field label="Union Designation" required infoText="Your executive leadership post">
+                <Select
+                  value={editDesig}
+                  onChange={setEditDesig}
+                  options={['Founding President', 'President', 'General Secretary', 'Division Secretary', 'Circle Secretary', 'Treasurer', 'Vice President', 'Member']}
+                />
+              </Field>
+
+              <Field label="Affiliated Association" required infoText="Your primary trade association affiliation">
+                <Select
+                  value={editCategory}
+                  onChange={setEditCategory}
+                  options={DEFAULT_POSTAL_CADRES}
+                />
+              </Field>
+            </>
+          ) : (
+            <>
+              {/* Non-editable Locked Governance Fields for Regular Members */}
+              <View style={{ gap: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Txt variant="bodySStrong">Employee ID</Txt>
+                  <Badge size="sm" tone="neutral" icon="lock">Verified · Locked</Badge>
+                </View>
+                <View style={{ padding: 12, borderRadius: radius.m, backgroundColor: colors.bgSunken, borderWidth: 1, borderColor: colors.borderSubtle }}>
+                  <Txt variant="body" color={colors.textPrimary}>{activeMember.employeeId || 'Contact union administrator'}</Txt>
+                </View>
+                <Txt variant="caption" color={colors.textMuted}>Staff ID is verified during signup and cannot be self-edited.</Txt>
+              </View>
+
+              <View style={{ gap: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Txt variant="bodySStrong">Designation & Affiliation</Txt>
+                  <Badge size="sm" tone="neutral" icon="lock">Governance Locked</Badge>
+                </View>
+                <View style={{ padding: 12, borderRadius: radius.m, backgroundColor: colors.bgSunken, borderWidth: 1, borderColor: colors.borderSubtle, gap: 4 }}>
+                  <Txt variant="bodyStrong" color={colors.textPrimary}>{activeMember.designation || 'Member'}</Txt>
+                  <Txt variant="bodyS" color={colors.textSecondary}>{activeMember.category || (activeMember.groups.length ? activeMember.groups[0] : 'General')}</Txt>
+                </View>
+                <Txt variant="caption" color={colors.textMuted}>Union post and trade association require committee appointment or admin approval.</Txt>
+              </View>
+            </>
+          )}
+
+          {/* Editable Workplace / Transfer Fields */}
+          {/* Selectable Circle (L2) — Like Setup Page */}
+          <Field label="Circle (L2)" required infoText="Select state or regional postal circle">
+            <Select
+              value={editCircle}
+              onChange={handleEditCircle}
+              options={POSTAL_CIRCLES}
+              placeholder="Select Circle…"
+            />
+          </Field>
+
+          {/* Selectable Division (L1) — Filtered by Circle like Setup Page */}
+          <Field label={`Division (L1) — ${editCircle}`} required infoText={`Operational division in ${editCircle} Circle`}>
+            <Select
+              value={editDivision}
+              onChange={handleEditDivision}
+              options={editDivisions}
+              placeholder="Select Division…"
+            />
+          </Field>
+
+          {/* Office Employed — Filtered by Division & Circle like Setup Page */}
+          <Field label={`Office Employed — ${editDivision}`} required infoText={`Postal offices loaded for ${editDivision} Division`}>
+            <Select
+              value={editOffice}
+              onChange={setEditOffice}
+              options={editOffices}
+              placeholder={`Select office in ${editDivision}…`}
+            />
+          </Field>
+
+          <Field label="Date of Birth" infoText="Format: DD-MM-YYYY">
+            <Input value={editDob} onChangeText={setEditDob} placeholder="e.g. 06-04-1972" />
+          </Field>
+          <Button block size="lg" icon="check" disabled={!editOffice.trim() || busy} onPress={savePostalEdit}>
+            {busy ? 'Saving…' : 'Save Workplace Details'}
+          </Button>
+        </ScrollView>
+      </Sheet>
+    </Screen >
   );
 }

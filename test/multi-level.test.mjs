@@ -1,6 +1,6 @@
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { createDb, createUser, as } from './helpers/supabase-sim.mjs';
+import { createDb, createUser, as, asScheduler } from './helpers/supabase-sim.mjs';
 
 describe('Multi-level hierarchy: unbounded escalation (L1 to L5+)', () => {
   let db;
@@ -112,5 +112,91 @@ describe('Multi-level hierarchy: unbounded escalation (L1 to L5+)', () => {
     const caseRow = (await db.query(`SELECT committee_name, status FROM issues WHERE id = $1`, [jointCaseId])).rows[0];
     assert.equal(caseRow.status, 'submitted');
     assert.equal(caseRow.committee_name, 'Plant Operations Joint Committee');
+  });
+
+  it('auto-escalates an overdue issue at Level 3 to Level 4 when process_issue_deadlines() runs', async () => {
+    // Raise an issue routed to L1 Plant
+    const [{ create_issue: issueId }] = await rpc(u.member, `SELECT create_issue('mlu', 'Safety audit finding', 'Machine guard missing', 'Health & safety')`);
+
+    // Escalate to L2 City, then L3 District
+    await rpc(u.handler, `SELECT escalate_issue($1, 'Plant escalation to City', 1)`, [issueId]);
+    await rpc(u.handler, `SELECT escalate_issue($1, 'City escalation to District', 2)`, [issueId]);
+
+    let row = (await db.query(`SELECT level, committee_name, committee_id FROM issues WHERE id = $1`, [issueId])).rows[0];
+    assert.equal(row.level, 3);
+    assert.equal(row.committee_id, 'mlu-l3');
+
+    // Set issue to overdue
+    await db.query(`UPDATE issues SET due_at = NOW() - interval '2 hours' WHERE id = $1`, [issueId]);
+
+    // Run scheduled deadlines processor
+    const res = await asScheduler(db, (q) => q('SELECT process_issue_deadlines()'));
+    assert.ok(res[0].process_issue_deadlines >= 1);
+
+    // In a 5-tier org, Level 3 overdue issue must auto-escalate to Level 4 State
+    row = (await db.query(`SELECT level, committee_name, committee_id, due_state, status FROM issues WHERE id = $1`, [issueId])).rows[0];
+    assert.equal(row.level, 4);
+    assert.equal(row.committee_id, 'mlu-l4');
+    assert.equal(row.committee_name, 'State Federation Committee');
+    assert.equal(row.due_state, 'ok');
+    assert.equal(row.status, 'escalated');
+  });
+
+  it('verifies that the Level 5 Central Executive chair CAN publish to scope: org', async () => {
+    const uCentralChair = await createUser(db, '919000000055');
+    await rpc(uCentralChair, `SELECT register_member('MLU', 'Central Chair Person', '', 'Hyderabad', 'Telangana', 'Manufacturing')`);
+    const chairProf = (await db.query(`SELECT id FROM profiles WHERE user_id = $1 AND tenant_id = 'mlu'`, [uCentralChair])).rows[0].id;
+    await rpc(u.platform, `SELECT set_member_status($1, 'verified')`, [chairProf]);
+
+    // Appoint as Chair of L5 Central Executive Committee (mlu-l5)
+    await rpc(u.platform, `SELECT appoint_committee_member('mlu-l5', $1, 'Chair', 'Appointment')`, [chairProf]);
+
+    // Chair of top-level committee (Level 5) can publish to scope 'org'
+    const [{ can_publish: allowed }] = await rpc(uCentralChair, `SELECT can_publish('mlu', 'official', 'org', '')`);
+    assert.equal(allowed, true);
+
+    // Can publish an official post to org
+    const postIds = await rpc(uCentralChair, `SELECT publish_post('mlu', 'official', 'Central Resolution', 'Message to all union members', false, '[{"scope":"org","label":"All Members"}]')`);
+    assert.ok(postIds.length > 0);
+
+    // Non-chair ordinary member cannot publish to scope 'org'
+    const [{ can_publish: memberAllowed }] = await rpc(u.member, `SELECT can_publish('mlu', 'official', 'org', '')`);
+    assert.equal(memberAllowed, false);
+  });
+
+  it('allows the chair of a joint committee to publish to both covered groups', async () => {
+    const uJointChair = await createUser(db, '919000000066');
+    await rpc(uJointChair, `SELECT register_member('MLU', 'Joint Chair Person', '', 'Hyderabad', 'Telangana', 'Manufacturing')`);
+    const jointProf = (await db.query(`SELECT id FROM profiles WHERE user_id = $1 AND tenant_id = 'mlu'`, [uJointChair])).rows[0].id;
+    await rpc(u.platform, `SELECT set_member_status($1, 'verified')`, [jointProf]);
+
+    // Ensure joint committee for 'Manufacturing, Logistics' exists
+    await rpc(u.platform, `SELECT upsert_committee('mlu', 'mlu-joint', 'Plant Operations Joint Committee', 'Workplace', 1, 'Manufacturing, Logistics', NULL, NULL, 'Appointment', '2026-2027')`);
+    await rpc(u.platform, `SELECT appoint_committee_member('mlu-joint', $1, 'Chair', 'Appointment')`, [jointProf]);
+
+    // Can publish to Manufacturing
+    const [{ can_publish: canMfg }] = await rpc(uJointChair, `SELECT can_publish('mlu', 'official', 'group', 'Manufacturing')`);
+    assert.equal(canMfg, true);
+
+    // Can publish to Logistics
+    const [{ can_publish: canLog }] = await rpc(uJointChair, `SELECT can_publish('mlu', 'official', 'group', 'Logistics')`);
+    assert.equal(canLog, true);
+
+    // Cannot publish to IT Workers
+    const [{ can_publish: canIT }] = await rpc(uJointChair, `SELECT can_publish('mlu', 'official', 'group', 'IT Workers')`);
+    assert.equal(canIT, false);
+
+    // Successfully publish official posts to Manufacturing and Logistics
+    const mfgPost = await rpc(uJointChair, `SELECT publish_post('mlu', 'official', 'Mfg Policy', 'Notice for manufacturing', false, '[{"scope":"group","value":"Manufacturing","label":"Manufacturing"}]')`);
+    assert.ok(mfgPost.length > 0);
+
+    const logPost = await rpc(uJointChair, `SELECT publish_post('mlu', 'official', 'Logistics Protocol', 'Notice for logistics', false, '[{"scope":"group","value":"Logistics","label":"Logistics"}]')`);
+    assert.ok(logPost.length > 0);
+
+    // Publishing to IT Workers is rejected
+    await assert.rejects(
+      rpc(uJointChair, `SELECT publish_post('mlu', 'official', 'IT Notice', 'Notice for IT', false, '[{"scope":"group","value":"IT Workers","label":"IT Workers"}]')`),
+      /not authorized/
+    );
   });
 });

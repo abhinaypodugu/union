@@ -14,23 +14,31 @@ export const palette = {
   ink700: "#433f39",
   ink800: "#2c2822",
   ink900: "#1b1812",
-  blue50: "#eff7ff",
-  blue100: "#dbecff",
-  blue200: "#b7d8ff",
-  blue300: "#86b7f6",
-  blue400: "#4f8edc",
-  blue500: "#266cbd",
-  blue600: "#14569f",
-  blue700: "#0d437f",
-  blue800: "#09305c",
-  redFg: "#a5332e",
-  redSolid: "#c44039",
-  redBg: "#ffedeb",
-  redBorder: "#fac6bf",
-  amberFg: "#8d5406",
-  amberSolid: "#e19b34",
-  amberBg: "#fff2dc",
-  amberBorder: "#f2ce9d",
+  // India Post Red & Postal Wings
+  redSolid: "#C6262E",
+  redFg: "#A81822",
+  redBg: "#FFF1F0",
+  redBorder: "#FFCCC7",
+  // Union Saffron / Deep Labor Orange
+  amberSolid: "#EB6E02",
+  amberFg: "#A34300",
+  amberBg: "#FFF4E6",
+  amberBorder: "#FFD8A8",
+  // India Post Gold
+  goldSolid: "#FFC72C",
+  goldFg: "#8A6400",
+  goldBg: "#FFFBE6",
+  goldBorder: "#FFE58F",
+  // Industrial Cogwheel Blue / Navy
+  blue50: "#EEF2FF",
+  blue100: "#E0E7FF",
+  blue200: "#C7D2FE",
+  blue300: "#A5B4FC",
+  blue400: "#6366F1",
+  blue500: "#3B3187",
+  blue600: "#283593",
+  blue700: "#1A237E",
+  blue800: "#0F172A",
   greenFg: "#1b6c3a",
   greenSolid: "#318850",
   greenBg: "#e7f8ea",
@@ -39,7 +47,7 @@ export const palette = {
   violetSolid: "#7e53bc",
   violetBg: "#f4efff",
   violetBorder: "#daccf7"
-} as const;
+};
 
 export const colors = {
   bgApp: palette.paper50,
@@ -65,11 +73,14 @@ export const colors = {
   borderStrong: palette.ink400,
   borderFocus: palette.blue500,
 
-  accent: palette.blue600,
-  accentPressed: palette.blue700,
-  accentSoft: palette.blue50,
-  accentSoftBorder: palette.blue200,
-  focusRing: palette.blue200,
+  accent: "#C6262E", // India Post Red
+  accentPressed: "#A81822",
+  accentSoft: "#FFF1F0",
+  accentSoftBorder: "#FFCCC7",
+  focusRing: "#FFCCC7",
+  accentSaffron: "#EB6E02",
+  accentNavy: "#1A237E",
+  accentGold: "#FFC72C",
 
   officialFg: palette.blue600,
   officialBg: palette.blue50,

@@ -8,30 +8,13 @@ import { supabase } from '../services/supabase';
 import { registerForPush, unregisterPush } from '../services/push';
 import { errorMessage, median, relativeTime } from '../lib/format';
 import type {
-  AppNotification, AudienceOption, AuditEntry, Case, CommitteeInfo, CommitteeMember, FunctionalGroup, GeoUnit,
+  AppNotification, AudienceOption, AudienceScope, AuditEntry, Case, CommitteeInfo, CommitteeMember, FunctionalGroup, GeoUnit,
   GroupItem, GroupSection, Issue, IssueAction, NotificationPrefs, Persona, Post, RoutingRule, Tenant, TenantSettings,
   TerminologyConfig, HierarchyLevel,
 } from './types';
-import { getHierarchyLevels } from './types';
-
+import { getHierarchyLevels, DEFAULT_TERMINOLOGY } from './types';
 export * from './types';
 
-const DEFAULT_TERMINOLOGY: TerminologyConfig = {
-  orgLabel: 'Organization',
-  level1Label: 'City',
-  level2Label: 'State',
-  level3Label: 'National',
-  groupLabel: 'Functional Group',
-  caseLabel: 'Issue',
-  cadres: ['IT Workers', 'Transport', 'Healthcare', 'Administration'],
-  cities: ['Hyderabad'],
-  states: ['Telangana'],
-  levels: [
-    { level: 1, label: 'City' },
-    { level: 2, label: 'State' },
-    { level: 3, label: 'National' },
-  ],
-};
 
 const ACTIVE_TENANT_KEY = 'union.activeTenant';
 const MUTED_KEY = 'union.mutedSources';
@@ -55,12 +38,23 @@ interface Store {
   setupOrganization: (org: {
     name: string; short: string; code: string; description: string; terminology?: Partial<TerminologyConfig>;
   }, admin: { name: string; email: string; unit: string; region: string }) => Promise<Tenant | null>;
-  registerMember: (d: { name: string; email: string; unit: string; region: string; group: string; orgCode: string }) => Promise<Persona | null>;
+  registerMember: (d: {
+    name: string;
+    email: string;
+    unit: string;
+    region: string;
+    group: string;
+    orgCode: string;
+    employeeId?: string;
+    designation?: string;
+    category?: string;
+    dob?: string;
+    officeEmployed?: string;
+  }) => Promise<Persona | null>;
+  canWriteInChannel: (scope: AudienceScope, value: string | null) => boolean;
   terminology: TerminologyConfig;
   levels: HierarchyLevel[];
   updateTenantConfig: (terminology: Partial<TerminologyConfig>, settings?: TenantSettings) => Promise<boolean>;
-
-  // Who am I here
   activeMember: Persona | null;
   isPlatformSuperAdmin: boolean;
   isOrgAdmin: boolean;
@@ -79,7 +73,7 @@ interface Store {
   approveMember: (id: string) => Promise<boolean>;
   setMemberRoles: (id: string, roles: string[]) => Promise<boolean>;
   updatePrefs: (prefs: NotificationPrefs) => Promise<boolean>;
-
+  updatePostalProfile: (data: Partial<Persona>) => Promise<boolean>;
   // Structure & governance
   geoUnits: GeoUnit[];
   functionalGroups: FunctionalGroup[];
@@ -189,13 +183,36 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
 
   const loadIdentity = React.useCallback(async () => {
     const [ms, ts, admin] = await Promise.all([dbService.getMyMemberships(), dbService.getMyTenants(), dbService.isPlatformAdmin()]);
-    setMemberships(ms);
+    const enrichedMs = await Promise.all(
+      ms.map(async (m) => {
+        try {
+          const cachedStr = (await AsyncStorage.getItem(`postal_profile_${m.tenantId}`)) || (await AsyncStorage.getItem(`postal_profile_${m.tenantId.toLowerCase()}`));
+          if (cachedStr) {
+            const cached = JSON.parse(cachedStr);
+            return {
+              ...m,
+              employeeId: m.employeeId || cached.employeeId,
+              designation: m.designation || cached.designation || 'Member',
+              category: m.category || cached.category || (m.groups && m.groups[0]),
+              dob: m.dob || cached.dob,
+              officeEmployed: m.officeEmployed || cached.officeEmployed,
+              division: m.division || cached.division || m.unit,
+              circle: m.circle || cached.circle || m.region,
+            };
+          }
+        } catch {
+          // ignore cache read error
+        }
+        return m;
+      })
+    );
+    setMemberships(enrichedMs);
     setTenants(ts);
     setIsPlatformSuperAdmin(admin);
     const saved = await AsyncStorage.getItem(ACTIVE_TENANT_KEY).catch(() => null);
-    const pick = ms.find((m) => m.tenantId === saved) || ms.find((m) => m.status === 'verified') || ms[0];
+    const pick = enrichedMs.find((m) => m.tenantId === saved) || enrichedMs.find((m) => m.status === 'verified') || enrichedMs[0];
     setCurrentTenantId(pick ? pick.tenantId : null);
-    return { memberships: ms, isPlatformAdmin: admin };
+    return { memberships: enrichedMs, isPlatformAdmin: admin };
   }, []);
 
   React.useEffect(() => {
@@ -307,15 +324,24 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       functionalGroups.forEach((f) => add({ scope: 'group', value: f.name, label: `${f.name} · ${terminology.groupLabel}` }));
       committees.forEach((c) => add({ scope: 'committee', value: c.id, label: `${c.name} (private)` }));
     } else {
+      const maxLevel = Math.max(...committees.map((c) => c.level), 1);
       myAppointments.filter((a) => a.role === 'Chair' || a.role === 'Secretary').forEach((a) => {
         const c = committees.find((x) => x.id === a.committeeId);
         if (!c) return;
         const geo = geoUnits.find((g) => g.id === c.geoUnitId);
         add({ scope: 'committee', value: c.id, label: `${c.name} (private)` });
-        if (c.functionalGroup && (!geo || c.level === 3)) add({ scope: 'group', value: c.functionalGroup, label: `${c.functionalGroup} · ${terminology.groupLabel}` });
+        if (c.functionalGroup && (!geo || c.level === maxLevel)) {
+          c.functionalGroup
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .forEach((cadre) => {
+              add({ scope: 'group', value: cadre, label: `${cadre} · ${terminology.groupLabel}` });
+            });
+        }
         if (geo?.type === 'city') add({ scope: 'local', value: geo.name, label: `${geo.name} · ${terminology.level1Label}` });
         if (geo?.type === 'state') add({ scope: 'region', value: geo.name, label: `${geo.name} · ${terminology.level2Label}` });
-        if (c.level === 3 && !c.functionalGroup) add({ scope: 'org', value: null, label: `${tenant?.name || 'Organization'} · All members` });
+        if (c.level === maxLevel && !c.functionalGroup) add({ scope: 'org', value: null, label: `${tenant?.name || 'Organization'} · All members` });
       });
     }
     const member: AudienceOption[] = activeMember
@@ -404,7 +430,29 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
 
   const registerMember: Store['registerMember'] = async (d) => {
     try {
-      const profileId = await dbService.registerMember({ orgCode: d.orgCode, name: d.name, email: d.email, city: d.unit, region: d.region, group: d.group });
+      const postalPayload = {
+        employeeId: d.employeeId,
+        designation: d.designation || 'Member',
+        category: d.category || d.group,
+        dob: d.dob,
+        officeEmployed: d.officeEmployed,
+        division: d.unit,
+        circle: d.region,
+      };
+      void AsyncStorage.setItem(`postal_profile_${d.orgCode.toLowerCase()}`, JSON.stringify(postalPayload)).catch(() => undefined);
+      const profileId = await dbService.registerMember({
+        orgCode: d.orgCode,
+        name: d.name,
+        email: d.email,
+        city: d.unit,
+        region: d.region,
+        group: d.group,
+        employeeId: d.employeeId,
+        designation: d.designation,
+        category: d.category,
+        dob: d.dob,
+        officeEmployed: d.officeEmployed,
+      });
       const { memberships: ms } = await loadIdentity();
       const mine = ms.find((m) => m.id === profileId) || null;
       if (mine) {
@@ -444,6 +492,52 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     const ok = await run('Could not change roles', () => dbService.setMemberRoles(id, roles), { title: 'Roles updated' });
     if (ok) await loadAdminMembers();
     return ok;
+  };
+
+  const updatePostalProfile: Store['updatePostalProfile'] = async (data) => {
+    if (!currentTenantId || !activeMember) return false;
+    try {
+      const newUnit = data.division || data.unit || activeMember.unit;
+      const newRegion = data.circle || data.region || activeMember.region;
+
+      const safeData = isOrgAdmin || isPlatformSuperAdmin
+        ? {
+          ...data,
+          unit: newUnit,
+          region: newRegion,
+          division: data.division || newUnit,
+          circle: data.circle || newRegion,
+        }
+        : {
+          dob: data.dob,
+          officeEmployed: data.officeEmployed,
+          division: data.division || newUnit,
+          circle: data.circle || newRegion,
+          unit: newUnit,
+          region: newRegion,
+        };
+
+      const merged: Persona = {
+        ...activeMember,
+        ...safeData,
+        unit: newUnit,
+        region: newRegion,
+        division: data.division || activeMember.division || newUnit,
+        circle: data.circle || activeMember.circle || newRegion,
+      };
+
+      setMemberships((prev) => prev.map((m) => (m.id === activeMember.id ? merged : m)));
+      await AsyncStorage.setItem(`postal_profile_${currentTenantId.toLowerCase()}`, JSON.stringify(merged));
+      await dbService.updatePostalProfile(currentTenantId, activeMember.id, safeData);
+      toast({
+        title: 'Workplace & channels updated',
+        description: `You are now active in ${newUnit} Division and ${newRegion} Circle channels.`,
+      });
+      return true;
+    } catch (e) {
+      fail('Could not update details', e);
+      return false;
+    }
   };
 
   const updatePrefs = async (prefs: NotificationPrefs) => {
@@ -564,7 +658,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   // ------------------------------------------------------------------ derived data
   const myIssues = issues.filter((i) => i.complainantId === activeMember?.id);
   const cases = issues.filter((i) => i.complainantId !== activeMember?.id).map(toCase);
-  const committee = committees.find((c) => c.level === 3 && !c.functionalGroup) || committees[0] || null;
+  const maxLevel = Math.max(...committees.map((c) => c.level), 1);
+  const committee = committees.find((c) => c.level === maxLevel && !c.functionalGroup) || committees[0] || null;
 
   const metrics = React.useMemo(() => {
     const open = cases.filter((c) => !['resolved', 'closed', 'rejected'].includes(c.status));
@@ -583,42 +678,85 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
 
   const categories = routingRules.filter((r) => r.active).map((r) => r.category);
 
+  const canWriteInChannel = React.useCallback(
+    (scope: AudienceScope, value: string | null): boolean => {
+      if (!activeMember || activeMember.status !== 'verified') return false;
+      if (isPlatformSuperAdmin || isOrgAdmin) return true;
+
+      // Local division association: all members in that unit can chat
+      if (scope === 'local' || scope === 'group') {
+        return true;
+      }
+
+      // Circle level: division committee heads, membership admins, moderators or org admins
+      if (scope === 'region') {
+        const isHead = myAppointments.some(
+          (a) => (a.role === 'Chair' || a.role === 'Secretary' || a.role === 'Issue handler') && a.status === 'active'
+        );
+        const hasRole = activeMember.roles.some((r) => r === 'membership_admin' || r === 'moderator');
+        return isHead || hasRole;
+      }
+
+      // All India union level: circle chairs (level >= 2) or central executives
+      if (scope === 'org') {
+        return myAppointments.some((a) => {
+          if (a.role !== 'Chair' && a.role !== 'Secretary') return false;
+          const c = committees.find((x) => x.id === a.committeeId);
+          return Boolean(c && c.level >= 2);
+        });
+      }
+
+      if (scope === 'committee') {
+        return myAppointments.some((a) => a.committeeId === value && a.status === 'active');
+      }
+
+      return false;
+    },
+    [activeMember, isPlatformSuperAdmin, isOrgAdmin, myAppointments, committees]
+  );
+
   const groups: GroupSection[] = React.useMemo(() => {
     if (!tenant || !activeMember) return [];
 
-    // 1. Level-wise / Tier channels (L1 Workplace -> L2 Region -> Top Organization)
     const tierItems: GroupItem[] = [];
+    const memberCadre = activeMember.category || (activeMember.groups && activeMember.groups[0]) || '';
+
+    // 1. Division Association Channel (Local Workplace - interactive for members)
     if (activeMember.unit) {
       const l1 = levels.find((l) => l.level === 1);
+      const displayName = memberCadre ? `${activeMember.unit} · ${memberCadre}` : activeMember.unit;
       tierItems.push({
-        id: 'tier-1',
-        name: activeMember.unit,
-        kind: `L1 · ${l1?.label || 'Workplace'} channel`,
-        icon: 'building-2',
-        tone: 'geo',
+        id: 'tier-1-cadre',
+        name: displayName,
+        kind: `${l1?.label || 'Division'} Association Channel`,
+        icon: 'briefcase',
+        tone: 'group',
         scope: 'local',
         value: activeMember.unit,
       });
     }
-    // Intermediate tier channel (only if organization has 3 or more levels and member has a region)
-    if (levels.length >= 3 && activeMember.region && activeMember.region !== 'Central') {
+
+    // 2. Circle Channel (L2: Combined Divisions)
+    if (activeMember.region && activeMember.region !== 'Central') {
       const l2 = levels.find((l) => l.level === 2);
+      const isCircle = activeMember.region.toLowerCase().includes('circle') ? activeMember.region : `${activeMember.region} Circle`;
       tierItems.push({
-        id: 'tier-2',
-        name: activeMember.region,
-        kind: `L2 · ${l2?.label || 'Regional'} channel`,
+        id: 'tier-2-circle',
+        name: isCircle,
+        kind: `${l2?.label || 'Circle'} Channel (All Divisions)`,
         icon: 'map-pin',
         tone: 'geo',
         scope: 'region',
         value: activeMember.region,
       });
     }
-    // Whole organization channel: clean tenant name without hardcoded country
+
+    // 3. All India Union Channel (L3: Whole Organization)
     const topLevel = levels[levels.length - 1];
     tierItems.push({
       id: 'tier-org',
       name: tenant.name,
-      kind: `L${topLevel?.level || levels.length} · ${topLevel?.label || 'All members'} channel`,
+      kind: `${topLevel?.label || 'All India'} Union Channel`,
       icon: 'globe',
       tone: 'geo',
       scope: 'org',
@@ -626,43 +764,12 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     });
 
     const tierSection: GroupSection = {
-      section: 'Tier-wise channels',
-      note: 'Joined automatically from your workplace and organizational tier',
+      section: 'Union Channels',
+      note: 'Interactive at local division; leadership announcements at circle & all-India tiers',
       items: tierItems,
     };
 
-    // 2. Cadre Channels (Trade & profession channels)
-    const fg: GroupSection = {
-      section: `${terminology.groupLabel}s`,
-      note: 'Trade and professional channels for your sector',
-      items: activeMember.groups.map((g) => ({
-        id: 'grp-' + g,
-        name: g,
-        kind: `${g} · ${terminology.groupLabel}`,
-        icon: 'briefcase',
-        tone: 'group',
-        scope: 'group',
-        value: g,
-      })),
-    };
-
-    // 3. Committee Rooms (Private governance and deliberation rooms for appointed stewards & handlers)
-    const mine = committees.filter((c) => myAppointments.some((a) => a.committeeId === c.id));
-    const cm: GroupSection = {
-      section: 'Committee rooms',
-      note: 'Private governance and deliberation channels for appointed stewards & handlers',
-      items: mine.map((c) => ({
-        id: 'com-' + c.id,
-        name: c.name,
-        kind: `L${c.level} · Committee room (Private)`,
-        icon: 'lock',
-        tone: 'committee',
-        scope: 'committee',
-        value: c.id,
-      })),
-    };
-
-    return [tierSection, fg, ...(cm.items.length ? [cm] : [])];
+    return [tierSection];
   }, [tenant, activeMember, geoUnits, committees, myAppointments, terminology, levels]);
   const store: Store = {
     authReady,
@@ -682,6 +789,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     terminology,
     levels,
     updateTenantConfig,
+    canWriteInChannel,
     activeMember,
     isPlatformSuperAdmin,
     isOrgAdmin,
@@ -719,6 +827,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     toggleMute,
     issues: myIssues,
     cases,
+    updatePostalProfile,
     addIssue,
     issueAction,
     escalateCase,

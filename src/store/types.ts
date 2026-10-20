@@ -33,6 +33,46 @@ export function getHierarchyLevels(terminology?: Partial<TerminologyConfig>): Hi
   ];
 }
 
+export interface AffiliatedAssociation {
+  name: string;
+  category: string;
+  shortLabel: string;
+}
+
+export const AFFILIATED_ASSOCIATIONS: AffiliatedAssociation[] = [
+  { name: 'Bharatiya Postal RMS Supervisors Association Group ‘B’', category: 'Supervisors', shortLabel: 'Supervisors' },
+  { name: 'Bharatiya Postal Employees Association Postman & MTS', category: 'Postman & MTS', shortLabel: 'Postman & MTS' },
+  { name: 'Bharatiya Postal Employees Association Gr. ‘C’', category: 'Group ‘C’', shortLabel: 'Group ‘C’' },
+  { name: 'Bharatiya Gramin Dak Karamchari Sangh', category: 'GDS', shortLabel: 'GDS' },
+  { name: 'Bharatiya RMS & MMS Employees Association Gr. ‘C’', category: 'RMS & MMS', shortLabel: 'RMS & MMS' },
+  { name: 'Bharatiya RMS & MMS Employees Association Mailguard & MTS', category: 'Mailguard & MTS', shortLabel: 'Mailguard & MTS' },
+  { name: 'Bharatiya Postal Civil Wing Non-Gazetted Employees Association', category: 'Civil Wing', shortLabel: 'Civil Wing' },
+  { name: 'Bharatiya Postal Accounts Office Employees Association', category: 'Postal Accounts', shortLabel: 'Postal Accounts' },
+  { name: 'Bharatiya Postal Administrative Offices Employees Association Group ‘C’ / MTS & other Non-Gazetted Staff', category: 'Administrative Offices', shortLabel: 'Administrative Offices' },
+  { name: 'Bharatiya Postal SBCO Employees Association', category: 'SBCO', shortLabel: 'SBCO' },
+  { name: 'Bharatiya Postal Officers Association', category: 'Postal Officers', shortLabel: 'Postal Officers' },
+  { name: 'Bharatiya Postal IP and ASP Association', category: 'IP & ASP', shortLabel: 'IP & ASP' },
+];
+
+export const DEFAULT_POSTAL_CADRES = AFFILIATED_ASSOCIATIONS.map((a) => a.category);
+
+export const DEFAULT_TERMINOLOGY: TerminologyConfig = {
+  orgLabel: 'Union',
+  level1Label: 'Division',
+  level2Label: 'Circle',
+  level3Label: 'All India',
+  groupLabel: 'Affiliated Association',
+  caseLabel: 'Grievance',
+  cadres: DEFAULT_POSTAL_CADRES,
+  cities: [],
+  states: [],
+  levels: [
+    { level: 1, label: 'Division' },
+    { level: 2, label: 'Circle' },
+    { level: 3, label: 'All India' },
+  ],
+};
+
 export interface TenantSettings {
   autoApproveMembers?: boolean;
   reopenWindowDays?: number;
@@ -81,6 +121,13 @@ export interface Persona {
   statusReason?: string;
   since: string;
   prefs?: NotificationPrefs;
+  employeeId?: string;
+  designation?: string;
+  category?: string;
+  dob?: string;
+  officeEmployed?: string;
+  division?: string;
+  circle?: string;
 }
 
 export interface Issue {

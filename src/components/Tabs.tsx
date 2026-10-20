@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Animated, Pressable, ScrollView, View } from 'react-native';
 import { colors, fonts, palette, radius } from '../theme';
 import { Txt } from './Txt';
 
@@ -31,14 +31,72 @@ export function Tabs({ items, value, onChange }: { items: TabItem[]; value: stri
 
 /** 2–4 peer filters, e.g. For you / My groups / Announcements. */
 export function SegmentedControl({ items, value, onChange }: { items: string[]; value: string; onChange: (v: string) => void }) {
+  const [layouts, setLayouts] = React.useState<{ [key: number]: { x: number; width: number } }>({});
+  const activeIndex = Math.max(0, items.indexOf(value));
+  const activeLayout = layouts[activeIndex];
+  const animX = React.useRef(new Animated.Value(0)).current;
+  const isInitialized = React.useRef(false);
+
+  React.useEffect(() => {
+    if (activeLayout) {
+      if (!isInitialized.current) {
+        animX.setValue(activeLayout.x);
+        isInitialized.current = true;
+      } else {
+        Animated.spring(animX, {
+          toValue: activeLayout.x,
+          tension: 300,
+          friction: 28,
+          useNativeDriver: true,
+        }).start();
+      }
+    }
+  }, [activeIndex, activeLayout?.x]);
+
   return (
-    <View style={{ flexDirection: 'row', padding: 3, gap: 2, borderRadius: radius.m, backgroundColor: palette.paper150 }}>
-      {items.map((it) => {
+    <View style={{ flexDirection: 'row', padding: 3, borderRadius: radius.m, backgroundColor: palette.paper150, position: 'relative' }}>
+      {activeLayout ? (
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: 3,
+            bottom: 3,
+            left: 0,
+            width: activeLayout.width,
+            transform: [{ translateX: animX }],
+            borderRadius: 6,
+            backgroundColor: colors.surfaceCard,
+            boxShadow: '0px 1px 2px rgba(48,42,32,0.12)',
+          }}
+        />
+      ) : null}
+      {items.map((it, idx) => {
         const on = it === value;
         return (
-          <Pressable key={it} accessibilityRole="tab" accessibilityState={{ selected: on }} onPress={() => onChange(it)}
-            style={{ flex: 1, height: 34, borderRadius: 6, alignItems: 'center', justifyContent: 'center', backgroundColor: on ? colors.surfaceCard : 'transparent', boxShadow: on ? '0px 1px 2px rgba(48,42,32,0.12)' : undefined }}>
-            <Txt style={{ fontFamily: fonts.sans600, fontSize: 13 }} color={on ? colors.textPrimary : colors.textSecondary} numberOfLines={1}>{it}</Txt>
+          <Pressable
+            key={it}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: on }}
+            onPress={() => onChange(it)}
+            onLayout={(e) => {
+              const { x, width } = e.nativeEvent.layout;
+              setLayouts((prev) => ({ ...prev, [idx]: { x, width } }));
+            }}
+            style={{
+              flex: 1,
+              height: 34,
+              borderRadius: 6,
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1,
+              backgroundColor: !activeLayout && on ? colors.surfaceCard : 'transparent',
+              boxShadow: !activeLayout && on ? '0px 1px 2px rgba(48,42,32,0.12)' : undefined,
+            }}
+          >
+            <Txt style={{ fontFamily: fonts.sans600, fontSize: 13 }} color={on ? colors.textPrimary : colors.textSecondary} numberOfLines={1}>
+              {it}
+            </Txt>
           </Pressable>
         );
       })}

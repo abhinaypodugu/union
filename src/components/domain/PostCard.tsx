@@ -1,5 +1,5 @@
 import React from 'react';
-import { Image, Platform, Pressable, View } from 'react-native';
+import { Animated, Image, Platform, Pressable, View } from 'react-native';
 import { colors, fonts, palette, radius } from '../../theme';
 import { compactCount } from '../../lib/format';
 import { Avatar } from '../Avatar';
@@ -47,16 +47,59 @@ export function PostCard(p: PostCardProps) {
  const committee = isCommittee;
  const isUri = !!media && /^(https?:|file:|data:)/.test(media);
 
- // Meta line source text
  const metaSource = source || audience?.label;
+
+ const getAudienceBadge = () => {
+  if (isCommittee) {
+   return { icon: 'lock', label: 'Committee private' };
+  }
+  if (scope === 'region') {
+   const raw = audience?.label || metaSource || '';
+   const label = raw ? (raw.toLowerCase().includes('region') ? raw : `${raw} · Region`) : 'Region';
+   return { icon: 'map-pin', label };
+  }
+  if (scope === 'local') {
+   const raw = audience?.label || metaSource || '';
+   const label = raw ? (raw.toLowerCase().includes('unit') || raw.toLowerCase().includes('branch') || raw.toLowerCase().includes('city') ? raw : `${raw} · Unit`) : 'Unit';
+   return { icon: 'building-2', label };
+  }
+  if (scope === 'group') {
+   const raw = audience?.label || metaSource || '';
+   const label = raw ? (raw.toLowerCase().includes('cadre') || raw.toLowerCase().includes('group') ? raw : `${raw} · Cadre`) : 'Cadre';
+   return { icon: 'briefcase', label };
+  }
+  const raw = audience?.label || metaSource;
+  const label = raw ? (raw.toLowerCase().includes('all members') || raw.toLowerCase().includes('organization') ? raw : `${raw} · All members`) : 'Organization-wide';
+  return { icon: 'globe', label };
+ };
+
+ const badge = getAudienceBadge();
+ const likeScale = React.useRef(new Animated.Value(1)).current;
+
+ const handleLike = () => {
+  Animated.sequence([
+   Animated.timing(likeScale, {
+    toValue: 1.2,
+    duration: 100,
+    useNativeDriver: true,
+   }),
+   Animated.spring(likeScale, {
+    toValue: 1.0,
+    friction: 4,
+    tension: 160,
+    useNativeDriver: true,
+   }),
+  ]).start();
+  p.onLike?.();
+ };
 
  return (
   <View style={{
    borderRadius: radius.l,
    overflow: 'hidden',
    borderWidth: 1,
-   borderStyle: committee ? 'dashed' : 'solid',
-   borderColor: official ? colors.officialBorder : committee ? colors.privateBorder : colors.borderSubtle,
+   borderStyle: committee ? (Platform.OS === 'android' ? 'solid' : 'dashed') : 'solid',
+   borderColor: official ? colors.officialBorder : committee ? (Platform.OS === 'android' ? colors.borderSubtle : colors.privateBorder) : colors.borderSubtle,
    backgroundColor: committee ? colors.surfacePrivate : colors.surfaceCard,
   }}>
    {/* 1. Top Flag Banner matching Image #1 */}
@@ -94,8 +137,8 @@ export function PostCard(p: PostCardProps) {
      height: 36,
      backgroundColor: colors.bgSunken,
      borderBottomWidth: 1,
-     borderStyle: 'dashed',
-     borderBottomColor: colors.privateBorder,
+     borderStyle: Platform.OS === 'android' ? 'solid' : 'dashed',
+     borderBottomColor: Platform.OS === 'android' ? colors.borderSubtle : colors.privateBorder,
     }}>
      <Icon name="lock" size={12} strokeWidth={2.25} color={colors.privateFg} />
      <Txt style={{ fontFamily: fonts.mono500, fontSize: 10.5, letterSpacing: 0.6, textTransform: 'uppercase', flex: 1 }} color={colors.privateFg} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
@@ -121,22 +164,36 @@ export function PostCard(p: PostCardProps) {
       ) : null}
      </View>
 
-     {/* Line 2: Responsive Meta line — fits on one line with subtle font scale */}
-     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-      {committee ? (
-       <Icon name="lock" size={11} color={colors.textMuted} strokeWidth={2} />
-      ) : (
-       <View style={{ width: 5, height: 5, borderRadius: 2.5, backgroundColor: colors.textMuted, opacity: 0.7 }} />
-      )}
-      <Txt
-       style={{ fontFamily: fonts.sans400, fontSize: 12, lineHeight: 16, flex: 1 }}
-       color={colors.textMuted}
-       numberOfLines={1}
-       adjustsFontSizeToFit
-       minimumFontScale={0.82}
+     {/* Line 2: Audience Visibility Badge + Time */}
+     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+      <View
+       style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        paddingHorizontal: 6,
+        paddingVertical: 1.5,
+        borderRadius: radius.pill,
+        backgroundColor: isCommittee ? colors.surfacePrivate : palette.paper150,
+        maxWidth: '85%',
+       }}
+       accessibilityLabel={`Visible to ${badge.label}`}
       >
-       {[metaSource, time].filter(Boolean).join(' · ')}
-      </Txt>
+       <Icon name={badge.icon} size={11} color={isCommittee ? colors.privateFg : palette.ink700} strokeWidth={2} />
+       <Txt
+        style={{ fontFamily: fonts.sans500, fontSize: 11.5, lineHeight: 15 }}
+        color={isCommittee ? colors.privateFg : palette.ink800}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+       >
+        {badge.label}
+       </Txt>
+      </View>
+      {time ? (
+       <Txt style={{ fontFamily: fonts.sans400, fontSize: 11.5, lineHeight: 15 }} color={colors.textMuted} numberOfLines={1}>
+        · {time}
+       </Txt>
+      ) : null}
      </View>
     </View>
 
@@ -179,15 +236,26 @@ export function PostCard(p: PostCardProps) {
    ) : null}
 
    {/* 6. Action Row: Responsive padding aligned with card content */}
-   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 24, paddingHorizontal: 12, paddingTop: 12, paddingBottom: 14 }}>
+   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20, paddingHorizontal: 12, paddingTop: 4, paddingBottom: 6 }}>
+    {/* Like */}
     <Pressable
      accessibilityRole="button"
      accessibilityLabel="Like"
-     hitSlop={8}
-     onPress={p.onLike}
-     style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.7 : 1 })}
+     hitSlop={6}
+     onPress={handleLike}
+     style={({ pressed }) => ({
+      minHeight: 44,
+      minWidth: 44,
+      justifyContent: 'center',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      opacity: pressed ? 0.7 : 1,
+     })}
     >
-     <Icon name="heart" size={18} color={liked ? palette.redSolid : palette.ink700} fill={liked ? palette.redSolid : 'none'} strokeWidth={1.8} />
+     <Animated.View style={{ transform: [{ scale: likeScale }] }}>
+      <Icon name="heart" size={18} color={liked ? palette.redSolid : palette.ink700} fill={liked ? palette.redSolid : 'none'} strokeWidth={1.8} />
+     </Animated.View>
      {likes > 0 ? (
       <Txt style={{ fontFamily: fonts.sans600, fontSize: 13.5, lineHeight: 18 }} color={liked ? palette.redSolid : palette.ink800}>
        {compactCount(likes)}
@@ -199,9 +267,17 @@ export function PostCard(p: PostCardProps) {
     <Pressable
      accessibilityRole="button"
      accessibilityLabel="Comment"
-     hitSlop={8}
+     hitSlop={6}
      onPress={p.onComment ?? p.onOpen}
-     style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, opacity: pressed ? 0.7 : 1 })}
+     style={({ pressed }) => ({
+      minHeight: 44,
+      minWidth: 44,
+      justifyContent: 'center',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      opacity: pressed ? 0.7 : 1,
+     })}
     >
      <Icon name="message-circle" size={18} color={palette.ink700} strokeWidth={1.8} />
      {comments > 0 ? (
@@ -216,11 +292,18 @@ export function PostCard(p: PostCardProps) {
      <Pressable
       accessibilityRole="button"
       accessibilityLabel="Share"
-      hitSlop={8}
+      hitSlop={6}
       onPress={p.onShare}
-      style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', opacity: pressed ? 0.7 : 1 })}
+      style={({ pressed }) => ({
+       minHeight: 44,
+       minWidth: 44,
+       justifyContent: 'center',
+       flexDirection: 'row',
+       alignItems: 'center',
+       opacity: pressed ? 0.7 : 1,
+      })}
      >
-      <Icon name="arrow-up-right" size={18} color={palette.ink700} strokeWidth={1.8} />
+      <Icon name="share-2" size={18} color={palette.ink700} strokeWidth={1.8} />
      </Pressable>
     ) : null}
    </View>

@@ -64,10 +64,20 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO functional_groups (id, tenant_id, name, category, geographic_scope) VALUES
   ('tu-grp-it-workers', 'tu', 'IT Workers', 'Functional group', 'Organization-wide'),
   ('tu-grp-transport', 'tu', 'Transport', 'Functional group', 'Organization-wide'),
-  ('tu-grp-administration', 'tu', 'Administration', 'Functional group', 'Organization-wide'),
+  ('tu-grp-civil-wing', 'tu', 'Civil Wing', 'Affiliated Association', 'Organization-wide'),
+  ('tu-grp-postal-accounts', 'tu', 'Postal Accounts', 'Affiliated Association', 'Organization-wide'),
+  ('tu-grp-group-c', 'tu', 'Group ‘C’', 'Affiliated Association', 'Organization-wide'),
+  ('tu-grp-postman-mts', 'tu', 'Postman & MTS', 'Affiliated Association', 'Organization-wide'),
+  ('tu-grp-rms-mms', 'tu', 'RMS & MMS', 'Affiliated Association', 'Organization-wide'),
+  ('tu-grp-mailguard-mts', 'tu', 'Mailguard & MTS', 'Affiliated Association', 'Organization-wide'),
+  ('tu-grp-admin-offices', 'tu', 'Administrative Offices', 'Affiliated Association', 'Organization-wide'),
+  ('tu-grp-sbco', 'tu', 'SBCO', 'Affiliated Association', 'Organization-wide'),
+  ('tu-grp-supervisors', 'tu', 'Supervisors', 'Affiliated Association', 'Organization-wide'),
+  ('tu-grp-gds', 'tu', 'GDS', 'Affiliated Association', 'Organization-wide'),
+  ('tu-grp-postal-officers', 'tu', 'Postal Officers', 'Affiliated Association', 'Organization-wide'),
+  ('tu-grp-ip-asp', 'tu', 'IP & ASP', 'Affiliated Association', 'Organization-wide'),
   ('su-grp-it-workers', 'su', 'IT Workers', 'Functional group', 'Organization-wide'),
-  ('su-grp-transport', 'su', 'Transport', 'Functional group', 'Organization-wide'),
-  ('su-grp-administration', 'su', 'Administration', 'Functional group', 'Organization-wide')
+  ('su-grp-transport', 'su', 'Transport', 'Functional group', 'Organization-wide')
 ON CONFLICT (id) DO NOTHING;
 
 -- ---------------------------------------------------------------------------

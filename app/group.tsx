@@ -1,5 +1,5 @@
 import React from 'react';
-import { TextInput, View } from 'react-native';
+import { ActivityIndicator, TextInput, View } from 'react-native';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { Avatar, IconButton, IconTile, LoadingState, Notice, PostCard, Screen, SegmentedControl, StackHeader, Txt } from '../src/components';
 import { colors, fonts, palette, radius } from '../src/theme';
@@ -14,15 +14,23 @@ export default function GroupSpace() {
  const params = useLocalSearchParams<{ scope: string; value: string; name: string }>();
  const scope = (params.scope || 'org') as AudienceScope;
  const value = params.value ? String(params.value) : null;
- const { tenant, activeMember, posts, liked, toggleLike, toast, authReady, signedIn, isOrgAdmin, isPlatformSuperAdmin } = useStore();
- const [tab, setTab] = React.useState('Posts');
+ const { tenant, activeMember, posts, liked, toggleLike, toast, authReady, signedIn, isOrgAdmin, isPlatformSuperAdmin, canWriteInChannel } = useStore();
+ const [tab, setTab] = React.useState('Chat');
  const [messages, setMessages] = React.useState<ChatMessage[]>([]);
+ const [loadingMessages, setLoadingMessages] = React.useState(true);
  const [draft, setDraft] = React.useState('');
- const canWriteChat = scope !== 'org' || isOrgAdmin || isPlatformSuperAdmin;
+ const canWriteChat = canWriteInChannel(scope, value);
 
  const load = React.useCallback(async () => {
   if (!tenant) return;
-  try { setMessages(await dbService.getMessages(tenant.id, scope, value)); } catch { setMessages([]); }
+  try {
+   const list = await dbService.getMessages(tenant.id, scope, value);
+   setMessages(list);
+  } catch (e) {
+   console.warn('Failed to load group messages:', e);
+  } finally {
+   setLoadingMessages(false);
+  }
  }, [tenant, scope, value]);
 
  React.useEffect(() => {
@@ -42,14 +50,29 @@ export default function GroupSpace() {
  const send = async () => {
   if (!tenant || !activeMember || !draft.trim()) return;
   if (!canWriteChat) {
-   toast({ title: 'Read-only channel', description: 'Only organization administrators can post messages in the national channel.' });
+   const msg = scope === 'org'
+    ? 'Only Circle chairs and National leadership can post in the All-India Union channel.'
+    : 'Only Division committee heads and Circle office bearers can post in this Circle channel.';
+   toast({ title: 'Read-only channel', description: msg });
    return;
   }
+  const text = draft.trim();
+  setDraft('');
+  const tempId = 'temp-' + Date.now();
+  const optimisticMsg: ChatMessage = {
+   id: tempId,
+   authorId: activeMember.id,
+   authorName: activeMember.name,
+   body: text,
+   time: 'Just now',
+  };
+  setMessages((prev) => [...prev, optimisticMsg]);
   try {
-   await dbService.sendMessage(tenant.id, scope, value, activeMember, draft.trim());
-   setDraft('');
+   await dbService.sendMessage(tenant.id, scope, value, activeMember, text);
    await load();
   } catch (e) {
+   setMessages((prev) => prev.filter((m) => m.id !== tempId));
+   setDraft(text);
    toast({ title: 'Message not sent', description: errorMessage(e) });
   }
  };
@@ -58,7 +81,7 @@ export default function GroupSpace() {
   <Screen>
    <StackHeader onBack={() => router.back()} title={String(params.name || 'Group')} />
    <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
-    <SegmentedControl items={['Posts', 'Chat']} value={tab} onChange={setTab} />
+    <SegmentedControl items={['Chat', 'Posts']} value={tab} onChange={setTab} />
    </View>
    {scope === 'committee' ? (
     <View style={{ paddingHorizontal: 12, paddingBottom: 10 }}>
@@ -82,7 +105,14 @@ export default function GroupSpace() {
     </View>
    ) : (
     <View style={{ paddingHorizontal: 12, gap: 12 }}>
-     {messages.length === 0 ? <Txt variant="bodyS" color={colors.textMuted} align="center" style={{ padding: 16 }}>No messages yet. Say hello.</Txt> : messages.map((m, i) => {
+     {loadingMessages && messages.length === 0 ? (
+      <View style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 36, gap: 10 }}>
+       <ActivityIndicator size="small" color={colors.accent} />
+       <Txt variant="caption" color={colors.textMuted}>Loading messages…</Txt>
+      </View>
+     ) : messages.length === 0 ? (
+      <Txt variant="bodyS" color={colors.textMuted} align="center" style={{ padding: 16 }}>No messages yet. Say hello.</Txt>
+     ) : messages.map((m, i) => {
       const own = m.authorId === activeMember.id;
       const grouped = i > 0 && messages[i - 1].authorId === m.authorId;
       return (
@@ -107,7 +137,9 @@ export default function GroupSpace() {
      ) : (
       <View style={{ padding: 14, alignItems: 'center', borderRadius: radius.l, backgroundColor: colors.bgSunken, borderWidth: 1, borderColor: colors.borderSubtle, marginTop: 8 }}>
        <Txt variant="bodyS" color={colors.textSecondary} align="center">
-        This is an official broadcast channel. Only organization administrators can post messages here.
+        {scope === 'org'
+         ? 'Official Union broadcast channel. Circle leaders and National executives post updates here.'
+         : 'Circle coordination channel. Division committee heads and Circle office bearers post updates here.'}
        </Txt>
       </View>
      )}

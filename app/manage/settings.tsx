@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { Badge, Button, Card, Field, IconButton, Input, Notice, Screen, SectionLabel, Select, Sheet, StackHeader, Switch, Tag, Txt } from '../../src/components';
 import { Restricted } from '../../src/components/Restricted';
 import { colors, fonts, palette, radius } from '../../src/theme';
-import { useStore, RoutingRule, TerminologyConfig, HierarchyLevel, getHierarchyLevels } from '../../src/store/AppStore';
+import { useStore, RoutingRule, TerminologyConfig, HierarchyLevel, getHierarchyLevels, DEFAULT_POSTAL_CADRES } from '../../src/store/AppStore';
 
 type TermKey = 'orgLabel' | 'groupLabel' | 'caseLabel';
 const TERMS: Array<[TermKey, string]> = [
@@ -23,7 +23,7 @@ export default function Settings() {
   const [reopenDays, setReopenDays] = React.useState(String(tenant?.settings?.reopenWindowDays ?? 30));
   const [rule, setRule] = React.useState<Omit<RoutingRule, 'id'> | null>(null);
   const [newCadre, setNewCadre] = React.useState('');
-  const cadresList = terms.cadres || tenant?.cadres || ['IT Workers', 'Transport', 'Administration'];
+  const cadresList = terms.cadres || tenant?.cadres || DEFAULT_POSTAL_CADRES;
   const addCadre = () => {
     if (!newCadre.trim() || cadresList.includes(newCadre.trim())) return;
     const updated = [...cadresList, newCadre.trim()];
@@ -51,7 +51,6 @@ export default function Settings() {
       level3Label: updated[2]?.label || terms.level3Label,
     };
     setTerms(nextTerms);
-    void updateTenantConfig(nextTerms);
   };
 
   const addHierarchyLevel = () => {
@@ -121,6 +120,7 @@ export default function Settings() {
                 <Input
                   value={lvl.label}
                   onChangeText={(t) => updateLevelLabel(lvl.level, t)}
+                  onBlur={() => void updateTenantConfig(terms)}
                   placeholder={`Level ${lvl.level} label`}
                 />
               </View>
@@ -137,6 +137,13 @@ export default function Settings() {
             </View>
           ))}
         </View>
+        <Button
+          size="sm"
+          icon="check"
+          onPress={() => void updateTenantConfig(terms)}
+        >
+          Save hierarchy tiers
+        </Button>
       </Card>
 
       <SectionLabel>{`${terms.groupLabel || 'Cadre'}s & Trade Sectors`}</SectionLabel>
@@ -158,8 +165,24 @@ export default function Settings() {
       </Card>
       <SectionLabel>Policies</SectionLabel>
       <Card style={{ marginHorizontal: 12, gap: 12 }}>
-        <Switch label="Approve new members automatically" description="Off: every application waits for a membership admin" value={autoApprove} onChange={setAutoApprove} />
-        <Switch label="Members can post in their groups" description="Off: only leaders publish" value={memberPosts} onChange={setMemberPosts} />
+        <Switch
+          label="Approve new members automatically"
+          description={autoApprove ? "Active: new applicants are verified immediately" : "Off: every application waits for a membership admin"}
+          value={autoApprove}
+          onChange={(val) => {
+            setAutoApprove(val);
+            void updateTenantConfig(terms, { autoApproveMembers: val, memberPosts, reopenWindowDays: Number(reopenDays) || 30 });
+          }}
+        />
+        <Switch
+          label="Members can post in their groups"
+          description={memberPosts ? "On: members can post" : "Off: only leaders publish"}
+          value={memberPosts}
+          onChange={(val) => {
+            setMemberPosts(val);
+            void updateTenantConfig(terms, { autoApproveMembers: autoApprove, memberPosts: val, reopenWindowDays: Number(reopenDays) || 30 });
+          }}
+        />
         <Field label="Members can reopen cases for (days)"><Input value={reopenDays} onChangeText={(t) => setReopenDays(t.replace(/\D/g, ''))} keyboardType="number-pad" /></Field>
         <Button icon="check" onPress={() => void updateTenantConfig(terms, { autoApproveMembers: autoApprove, memberPosts, reopenWindowDays: Number(reopenDays) || 30 })}>Save settings</Button>
       </Card>

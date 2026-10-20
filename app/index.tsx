@@ -3,6 +3,7 @@ import { View, ScrollView, KeyboardAvoidingView, Platform, Pressable, Share } fr
 import { Redirect, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+ Badge,
  Button,
  Card,
  Field,
@@ -14,13 +15,19 @@ import {
  Notice,
  Screen,
  Select,
+ Sheet,
  Tag,
  Txt,
 } from '../src/components';
 import { colors, fonts, palette, radius } from '../src/theme';
-import { useStore, Tenant, HierarchyLevel } from '../src/store/AppStore';
+import { useStore, Tenant, HierarchyLevel, AFFILIATED_ASSOCIATIONS, DEFAULT_POSTAL_CADRES } from '../src/store/AppStore';
+import { safeStorage as AsyncStorage } from '../src/services/supabase';
 import { autofillFromDevice } from '../src/lib/location';
+import { POSTAL_CIRCLES, getDivisionsForCircle, getOfficesForDivision } from '../src/lib/postalData';
 
+const DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0'));
+const MONTHS = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+const YEARS = Array.from({ length: 55 }, (_, i) => String(2005 - i));
 type OnboardingStep =
  | 'phone'
  | 'otp'
@@ -111,19 +118,13 @@ export default function Index() {
  const [orgCode, setOrgCode] = useState('');
  const [orgDesc, setOrgDesc] = useState('');
  const [caseLabel, setCaseLabel] = useState('Grievance');
- const [groupLabel, setGroupLabel] = useState('Trade Sector');
- const [adminCadres, setAdminCadres] = useState<string[]>([
-  'IT Workers',
-  'Transport',
-  'Healthcare',
-  'Administration',
-  'Maintenance',
- ]);
+ const [groupLabel, setGroupLabel] = useState('Affiliated Association');
+ const [adminCadres, setAdminCadres] = useState<string[]>(DEFAULT_POSTAL_CADRES);
  const [newCadreInput, setNewCadreInput] = useState('');
  const [adminLevels, setAdminLevels] = useState<HierarchyLevel[]>([
-  { level: 1, label: 'City' },
-  { level: 2, label: 'State' },
-  { level: 3, label: 'National' },
+  { level: 1, label: 'Division' },
+  { level: 2, label: 'Circle' },
+  { level: 3, label: 'All India' },
  ]);
 
  const updateAdminLevelLabel = (lvlNum: number, newLabel: string) => {
@@ -143,6 +144,8 @@ export default function Index() {
 
  const [adminName, setAdminName] = useState('');
  const [adminEmail, setAdminEmail] = useState('');
+ const [adminEmpId, setAdminEmpId] = useState('');
+ const [adminCategory, setAdminCategory] = useState('Supervisors');
  const [adminUnit, setAdminUnit] = useState('');
  const [adminRegion, setAdminRegion] = useState('');
  const [createdTenant, setCreatedTenant] = useState<Tenant | null>(null);
@@ -152,14 +155,55 @@ export default function Index() {
  const [matchedOrg, setMatchedOrg] = useState<Tenant | null>(null);
  const [memberName, setMemberName] = useState('');
  const [memberEmail, setMemberEmail] = useState('');
- const [memberUnit, setMemberUnit] = useState('');
- const [memberRegion, setMemberRegion] = useState('');
- const [memberGroup, setMemberGroup] = useState('');
+ const [memberUnit, setMemberUnit] = useState('Secunderabad');
+ const [memberRegion, setMemberRegion] = useState('Telangana');
+ const [memberGroup, setMemberGroup] = useState('Supervisors');
+ const [memberCategory, setMemberCategory] = useState('Supervisors');
+ const [memberEmpId, setMemberEmpId] = useState('');
+ const [memberDesignation, setMemberDesignation] = useState('Member');
+ const [memberDob, setMemberDob] = useState('06-04-1972');
+ const [memberOffice, setMemberOffice] = useState('Sitaphalmandi SO');
  const [customUnit, setCustomUnit] = useState(false);
  const [customRegion, setCustomRegion] = useState(false);
  const [customGroup, setCustomGroup] = useState(false);
- // While Supabase is verifying phone + checking platform_admins, show a branded loader
- // instead of flashing member_q1 briefly before correcting to admin_q1.
+ const [assocSheet, setAssocSheet] = useState(false);
+ const [assocSearch, setAssocSearch] = useState('');
+ const [dobSheet, setDobSheet] = useState(false);
+ const [dobDay, setDobDay] = useState('06');
+ const [dobMonth, setDobMonth] = useState('04');
+ const [dobYear, setDobYear] = useState('1972');
+ const [officeSheet, setOfficeSheet] = useState(false);
+ const [officeSearch, setOfficeSearch] = useState('');
+ const availableDivisions = React.useMemo(() => getDivisionsForCircle(memberRegion), [memberRegion]);
+ const availableOffices = React.useMemo(() => getOfficesForDivision(memberRegion, memberUnit), [memberRegion, memberUnit]);
+
+ const handleSelectCircle = (circle: string) => {
+  if (circle === '+ Other circle') {
+   setCustomRegion(true);
+   setMemberRegion('');
+   return;
+  }
+  setCustomRegion(false);
+  setMemberRegion(circle);
+  const divs = getDivisionsForCircle(circle);
+  const nextDiv = divs[0] || 'Secunderabad';
+  setMemberUnit(nextDiv);
+  setCustomUnit(false);
+  const offs = getOfficesForDivision(circle, nextDiv);
+  setMemberOffice(offs[0] || '');
+ };
+
+ const handleSelectDivision = (division: string) => {
+  if (division === '+ Other division') {
+   setCustomUnit(true);
+   setMemberUnit('');
+   return;
+  }
+  setCustomUnit(false);
+  setMemberUnit(division);
+  const offs = getOfficesForDivision(memberRegion, division);
+  setMemberOffice(offs[0] || '');
+ };
  // This early return is placed AFTER all useState declarations and the effect below
  // (violating that order triggers "Rendered fewer hooks" on native).
 
@@ -250,10 +294,9 @@ export default function Index() {
      terminology: {
       orgLabel: 'Organization',
       caseLabel: caseLabel.trim() || 'Grievance',
-      groupLabel: groupLabel.trim() || 'Trade Sector',
-      cadres: adminCadres.length > 0 ? adminCadres : ['IT Workers', 'Transport', 'Healthcare', 'Administration'],
-      cities: adminUnit.trim() ? [adminUnit.trim()] : ['Hyderabad'],
-      states: adminRegion.trim() ? [adminRegion.trim()] : ['Telangana'],
+      groupLabel: groupLabel.trim() || 'Affiliated Association',
+      cadres: adminCadres.length > 0 ? adminCadres : DEFAULT_POSTAL_CADRES,
+      states: adminRegion.trim() ? [adminRegion.trim()] : [],
       levels: adminLevels,
      },
     },
@@ -266,6 +309,14 @@ export default function Index() {
    );
    if (!created) return;
    setCreatedTenant(created);
+   // Persist admin postal profile
+   void AsyncStorage.setItem(`postal_profile_${created.id}`, JSON.stringify({
+    employeeId: adminEmpId.trim() || undefined,
+    designation: 'Founding President',
+    category: adminCategory,
+    division: adminUnit.trim(),
+    circle: adminRegion.trim() || 'Central',
+   })).catch(() => undefined);
    setStep('admin_share');
   } finally {
    setBusy(false);
@@ -282,11 +333,28 @@ export default function Index() {
     name: memberName.trim(),
     email: memberEmail.trim(),
     unit: memberUnit.trim(),
-    region: memberRegion.trim(),
-    group: memberGroup.trim(),
+    region: memberRegion.trim() || 'Telangana',
+    group: memberCategory.trim() || memberGroup.trim(),
     orgCode: matchedOrg.code,
+    employeeId: memberEmpId.trim(),
+    designation: memberDesignation.trim() || 'Member',
+    category: memberCategory.trim() || memberGroup.trim(),
+    dob: memberDob.trim(),
+    officeEmployed: memberOffice.trim(),
    });
-   if (saved) router.replace('/main');
+   if (saved) {
+    if (saved.status === 'verified') {
+     router.replace('/main');
+    } else {
+     toast({
+      title: 'Application Pending Review',
+      description: memberDesignation !== 'Member'
+       ? `Applied as ${memberDesignation}. Claimed leadership designation requires verification.`
+       : 'Your application is awaiting admin verification.',
+     });
+     router.replace('/pending');
+    }
+   }
   } finally {
    setBusy(false);
   }
@@ -322,20 +390,35 @@ export default function Index() {
   try {
    const loc = await autofillFromDevice();
    if (!loc) {
-    toast({ title: 'Location unavailable', description: 'Please select your city and state below.' });
+    toast({ title: 'Location unavailable', description: 'Please select your circle and division below.' });
     return;
    }
-   if (loc.city) {
-    setMemberUnit(loc.city);
-    setCustomUnit(false);
-   }
+   let detectedCircle = 'Telangana';
    if (loc.state) {
-    setMemberRegion(loc.state);
+    const matchedCircle = POSTAL_CIRCLES.find(
+     (c) => c.toLowerCase() === loc.state.toLowerCase() || loc.state.toLowerCase().includes(c.toLowerCase())
+    );
+    detectedCircle = matchedCircle || loc.state;
+    setMemberRegion(detectedCircle);
     setCustomRegion(false);
    }
-   toast({ title: 'Location detected', description: `${loc.city}, ${loc.state}` });
+   let detectedDivision = 'Secunderabad';
+   if (loc.city) {
+    const divs = getDivisionsForCircle(detectedCircle);
+    const matchedDiv = divs.find(
+     (d) => d.toLowerCase() === loc.city.toLowerCase() || loc.city.toLowerCase().includes(d.toLowerCase())
+    );
+    detectedDivision = matchedDiv || (loc.city.toLowerCase().includes('hyderabad') ? 'Secunderabad' : loc.city);
+    setMemberUnit(detectedDivision);
+    setCustomUnit(false);
+   }
+   const offs = getOfficesForDivision(detectedCircle, detectedDivision);
+   if (offs.length > 0) {
+    setMemberOffice(offs[0]);
+   }
+   toast({ title: 'Location detected', description: `${detectedDivision} Division, ${detectedCircle} Circle` });
   } catch {
-   toast({ title: 'Location unavailable', description: 'Please select your city and state below.' });
+   toast({ title: 'Location unavailable', description: 'Please select your circle and division below.' });
   } finally {
    setLocBusy(false);
   }
@@ -613,41 +696,46 @@ export default function Index() {
 
      {/* ADMIN Q4 — Founding administrator profile + primary workplace */}
      {step === 'admin_q4' && (
-      <Card style={{ padding: 20, gap: 16 }}>
-       <Txt variant="titleM">Administrator profile & location</Txt>
+      <Card style={{ padding: 22, gap: 16 }}>
+       <Txt variant="titleM">Administrator Profile & Location</Txt>
        <Txt variant="bodyS" color={colors.textSecondary}>
         Your executive administrative profile and primary organization location.
        </Txt>
 
-       <Field label="Full name" required>
-        <Input value={adminName} onChangeText={setAdminName} placeholder="Your name" autoFocus />
+       <Field label="Full Name" required>
+        <Input value={adminName} onChangeText={setAdminName} placeholder="e.g. P Laxminarayana" autoFocus />
+       </Field>
+       <Field label="Work Email" infoText="Used for formal union notices (optional).">
+        <Input value={adminEmail} onChangeText={setAdminEmail} keyboardType="email-address" autoCapitalize="none" placeholder="e.g. admin@union.org" />
        </Field>
 
+       <Field label="Employee ID" infoText="Staff number issued by India Post (optional)">
+        <Input value={adminEmpId} onChangeText={setAdminEmpId} placeholder="e.g. 100001" keyboardType="number-pad" />
+       </Field>
+
+       <Field label="Primary Affiliated Association" required infoText="Your personal trade association membership">
+        <Select
+         value={adminCategory}
+         onChange={setAdminCategory}
+         options={DEFAULT_POSTAL_CADRES}
+        />
+       </Field>
        <Button variant="ghost" size="sm" icon="map-pin" disabled={locBusy} onPress={useMyLocationForAdmin} block>
-        {locBusy ? 'Locating…' : 'Use my location to detect city & state'}
+        {locBusy ? 'Locating…' : 'Use location to detect Division & Circle'}
        </Button>
 
-       <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-end' }}>
-        <View style={{ flex: 1 }}>
-         <Field label={`Primary ${adminLevels[0]?.label || 'unit'} *`} required infoText="Your founding workplace or branch">
-          <Input value={adminUnit} onChangeText={setAdminUnit} placeholder={`e.g. Headquarters or ${adminLevels[0]?.label || 'Unit'} 1`} />
-         </Field>
-        </View>
-        {adminLevels.length >= 3 ? (
-         <View style={{ flex: 1 }}>
-          <Field label={adminLevels[1]?.label || 'Region'} infoText="Regional or intermediate tier">
-           <Input value={adminRegion} onChangeText={setAdminRegion} placeholder={`e.g. ${adminLevels[1]?.label || 'Region'} 1`} />
-          </Field>
-         </View>
-        ) : null}
-       </View>
-
-       <Field label="Work email" infoText="Used for admin notices (optional).">
-        <Input value={adminEmail} onChangeText={setAdminEmail} keyboardType="email-address" autoCapitalize="none" placeholder="admin@example.org" />
+       <Field label={`Primary ${adminLevels[0]?.label || 'Division'} (L1)`} required infoText="Your founding division, workplace, or headquarters">
+        <Input value={adminUnit} onChangeText={setAdminUnit} placeholder={`e.g. Secunderabad or Headquarters`} />
        </Field>
 
+       {adminLevels.length >= 2 ? (
+        <Field label={`${adminLevels[1]?.label || 'Circle'} (L2)`} infoText="State, circle, or regional jurisdiction">
+         <Input value={adminRegion} onChangeText={setAdminRegion} placeholder={`e.g. Telangana Circle`} />
+        </Field>
+       ) : null}
+
        <Button size="lg" block icon="check" disabled={!adminName.trim() || !adminUnit.trim() || busy} onPress={handleCompleteAdminSetup}>
-        {busy ? 'Saving…' : 'Create Organization'}
+        {busy ? 'Creating Organization…' : 'Create Organization'}
        </Button>
       </Card>
      )}
@@ -712,127 +800,301 @@ export default function Index() {
      {/* MEMBER Q3 — selectable city, state & cadre dropdowns */}
      {step === 'member_q3' && matchedOrg && (
       <Card style={{ padding: 20, gap: 16 }}>
-       <Txt variant="titleM">Your workplace & unit</Txt>
+       <Txt variant="titleM">Postal Identity & Workplace</Txt>
+       <Txt variant="bodyS" color={colors.textSecondary}>Enter your employee details for union verification and channel routing.</Txt>
 
+       <Field label="Employee ID" required infoText="Your Department of Posts Employee ID / Staff Number">
+        <Input value={memberEmpId} onChangeText={setMemberEmpId} placeholder="e.g. 10125634" keyboardType="number-pad" />
+       </Field>
+
+       <Field label="Union Designation" infoText="Your elected designation or standard membership">
+        <Select
+         value={memberDesignation}
+         onChange={setMemberDesignation}
+         options={['Member', 'President', 'Division Secretary', 'Circle Secretary', 'Treasurer', 'Vice President', 'Assistant Secretary', 'Committee Member']}
+        />
+       </Field>
+
+       {/* Affiliated Association / Category Selector (Rich Design System Card + Sheet) */}
+       <Field
+        label={matchedOrg.terminology.groupLabel || 'Affiliated Association'}
+        required
+        infoText="Select your trade association. Grievances route to this committee."
+       >
+        <Pressable
+         onPress={() => setAssocSheet(true)}
+         style={({ pressed }) => ({
+          padding: 12,
+          borderRadius: radius.l,
+          borderWidth: 1,
+          borderColor: colors.borderDefault,
+          backgroundColor: pressed ? colors.surfaceHover : colors.surfaceCard,
+          gap: 6,
+         })}
+        >
+         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+           <IconTile icon="briefcase" tone="group" size={28} />
+           <Badge tone="info" icon="users">{memberCategory || 'Supervisors'}</Badge>
+          </View>
+          <Icon name="chevron-down" size={18} color={colors.textMuted} />
+         </View>
+         <Txt variant="bodyS" color={colors.textPrimary} style={{ marginTop: 2 }}>
+          {AFFILIATED_ASSOCIATIONS.find((a) => a.category === memberCategory)?.name || 'Tap to select your affiliated association…'}
+         </Txt>
+        </Pressable>
+       </Field>
+
+       {/* Date of Birth with Calendar Button & Picker */}
+       <Field label="Date of Birth" required infoText="Format: DD-MM-YYYY">
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+         <View style={{ flex: 1 }}>
+          <Input value={memberDob} onChangeText={setMemberDob} placeholder="e.g. 06-04-1972" />
+         </View>
+         <IconButton
+          icon="calendar"
+          label="Open calendar"
+          variant="secondary"
+          onPress={() => setDobSheet(true)}
+         />
+        </View>
+       </Field>
+
+       {/* Location Auto-Detect Helper */}
        <Button variant="ghost" size="sm" icon="map-pin" disabled={locBusy} onPress={useMyLocationForMember} block>
-        {locBusy ? 'Locating…' : 'Use my location to detect city & state'}
+        {locBusy ? 'Locating…' : 'Use location to auto-detect Circle & Division'}
        </Button>
 
-       {/* State Selection Dropdown */}
+       {/* Circle / State (Level 2) — Selectable */}
        <View style={{ gap: 6 }}>
         {!customRegion ? (
-         <Field label={matchedOrg.terminology.level2Label || 'State'}>
+         <Field label={matchedOrg.terminology.level2Label || 'Circle'} required infoText="Your postal state or regional circle">
           <Select
            value={memberRegion}
-           onChange={(v) => {
-            if (v === '+ Other state') {
-             setCustomRegion(true);
-             setMemberRegion('');
-            } else {
-             setMemberRegion(v);
-            }
-           }}
-           options={[
-            ...Array.from(new Set([...(matchedOrg.states || []), 'Telangana', 'Maharashtra', 'Karnataka', 'Tamil Nadu', 'Delhi'])),
-            '+ Other state',
-           ]}
-           placeholder="Select state…"
+           onChange={handleSelectCircle}
+           options={[...POSTAL_CIRCLES, '+ Other circle']}
+           placeholder="Select Circle…"
           />
          </Field>
         ) : (
          <View style={{ gap: 4 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-           <Txt variant="bodySStrong">{matchedOrg.terminology.level2Label || 'State'}</Txt>
-           <Pressable onPress={() => { setCustomRegion(false); setMemberRegion(matchedOrg.states?.[0] || 'Telangana'); }}>
+           <Txt variant="bodySStrong">{`${matchedOrg.terminology.level2Label || 'Circle'} *`}</Txt>
+           <Pressable onPress={() => { setCustomRegion(false); setMemberRegion('Telangana'); }}>
             <Txt variant="bodyS" color={colors.accent}>Select from list</Txt>
            </Pressable>
           </View>
-          <Input value={memberRegion} onChangeText={setMemberRegion} placeholder="Type state name" autoFocus />
+          <Input value={memberRegion} onChangeText={setMemberRegion} placeholder="Type circle name" autoFocus />
          </View>
         )}
        </View>
 
-       {/* City Selection Dropdown */}
+       {/* Division / City (Level 1) — Selectable & Filtered by Circle */}
        <View style={{ gap: 6 }}>
         {!customUnit ? (
-         <Field label={matchedOrg.terminology.level1Label || 'City'} required>
+         <Field label={matchedOrg.terminology.level1Label || 'Division'} required infoText={`Operational division in ${memberRegion} Circle`}>
           <Select
            value={memberUnit}
-           onChange={(v) => {
-            if (v === '+ Other city') {
-             setCustomUnit(true);
-             setMemberUnit('');
-            } else {
-             setMemberUnit(v);
-            }
-           }}
-           options={[
-            ...Array.from(new Set([...(matchedOrg.cities || []), 'Hyderabad', 'Bengaluru', 'Mumbai', 'Chennai', 'Delhi'])),
-            '+ Other city',
-           ]}
-           placeholder="Select city…"
+           onChange={handleSelectDivision}
+           options={[...availableDivisions, '+ Other division']}
+           placeholder="Select Division…"
           />
          </Field>
         ) : (
          <View style={{ gap: 4 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-           <Txt variant="bodySStrong">{`${matchedOrg.terminology.level1Label || 'City'} *`}</Txt>
-           <Pressable onPress={() => { setCustomUnit(false); setMemberUnit(matchedOrg.cities?.[0] || 'Hyderabad'); }}>
+           <Txt variant="bodySStrong">{`${matchedOrg.terminology.level1Label || 'Division'} *`}</Txt>
+           <Pressable onPress={() => { setCustomUnit(false); setMemberUnit(availableDivisions[0] || 'Secunderabad'); }}>
             <Txt variant="bodyS" color={colors.accent}>Select from list</Txt>
            </Pressable>
           </View>
-          <Input value={memberUnit} onChangeText={setMemberUnit} placeholder="Type city name" autoFocus />
+          <Input value={memberUnit} onChangeText={setMemberUnit} placeholder="Type division name" autoFocus />
          </View>
         )}
        </View>
 
-       {/* Cadre / Trade Sector Dropdown */}
-       <View style={{ gap: 6 }}>
-        {!customGroup ? (
-         <Field
-          label={matchedOrg.terminology.groupLabel || 'Trade Sector'}
-          required
-          infoText="Select your trade/cadre. Issues will route to this committee."
-         >
-          <Select
-           value={memberGroup}
-           onChange={(v) => {
-            if (v === '+ Other (enter new cadre)') {
-             setCustomGroup(true);
-             setMemberGroup('');
-            } else {
-             setMemberGroup(v);
-            }
-           }}
-           options={[
-            ...(matchedOrg.cadres && matchedOrg.cadres.length > 0
-             ? matchedOrg.cadres
-             : ['IT Workers', 'Transport', 'Healthcare', 'Administration']),
-            '+ Other (enter new cadre)',
-           ]}
-           placeholder={`Select your ${matchedOrg.terminology.groupLabel || 'cadre'}…`}
-          />
-         </Field>
-        ) : (
-         <View style={{ gap: 4 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-           <Txt variant="bodySStrong">{`${matchedOrg.terminology.groupLabel || 'Trade Sector'} *`}</Txt>
-           <Pressable onPress={() => { setCustomGroup(false); setMemberGroup(matchedOrg.cadres?.[0] || 'IT Workers'); }}>
-            <Txt variant="bodyS" color={colors.accent}>Select from list</Txt>
-           </Pressable>
+       {/* Office Employed — Loaded based on Division & Circle */}
+       <Field label="Office Employed" required infoText={`Postal offices loaded for ${memberUnit} Division`}>
+        <Pressable
+         onPress={() => setOfficeSheet(true)}
+         style={({ pressed }) => ({
+          padding: 12,
+          borderRadius: radius.l,
+          borderWidth: 1,
+          borderColor: colors.borderDefault,
+          backgroundColor: pressed ? colors.surfaceHover : colors.surfaceCard,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+         })}
+        >
+         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+          <IconTile icon="building-2" tone="geo" size={28} />
+          <View style={{ flex: 1 }}>
+           <Txt variant="caption" color={colors.textMuted}>{`${memberUnit} Division · ${memberRegion} Circle`}</Txt>
+           <Txt variant="body" color={memberOffice ? colors.textPrimary : colors.textPlaceholder}>
+            {memberOffice || `Select office in ${memberUnit}…`}
+           </Txt>
           </View>
-          <Input value={memberGroup} onChangeText={setMemberGroup} placeholder="Enter your cadre name" autoFocus />
          </View>
-        )}
-       </View>
-
-       <Button block icon="check" disabled={!memberUnit.trim() || !memberGroup.trim() || busy} onPress={handleCompleteMemberSetup}>
-        {busy ? 'Joining…' : 'Complete Setup'}
+         <Icon name="search" size={18} color={colors.textMuted} />
+        </Pressable>
+       </Field>
+       <Button block icon="check" disabled={!memberUnit.trim() || !memberGroup.trim() || !memberEmpId.trim() || busy} onPress={handleCompleteMemberSetup}>
+        {busy ? 'Submitting…' : 'Complete Setup & Apply'}
        </Button>
       </Card>
      )}
     </ScrollView>
    </KeyboardAvoidingView>
-  </Screen>
+   {/* Affiliated Association Selection Sheet */}
+   <Sheet visible={assocSheet} onClose={() => setAssocSheet(false)} title="Affiliated Association">
+    <View style={{ paddingHorizontal: 16, gap: 12, paddingBottom: 24, flexShrink: 1 }}>
+     <Input
+      value={assocSearch}
+      onChangeText={setAssocSearch}
+      placeholder="Search association or category…"
+      autoFocus
+     />
+     <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false}>
+      <View style={{ gap: 8 }}>
+       {AFFILIATED_ASSOCIATIONS.filter(
+        (a) =>
+         !assocSearch.trim() ||
+         a.name.toLowerCase().includes(assocSearch.toLowerCase()) ||
+         a.category.toLowerCase().includes(assocSearch.toLowerCase())
+       ).map((a) => {
+        const isSelected = a.category === memberCategory;
+        return (
+         <Pressable
+          key={a.name}
+          onPress={() => {
+           setMemberCategory(a.category);
+           setMemberGroup(a.category);
+           setAssocSheet(false);
+          }}
+          style={({ pressed }) => ({
+           padding: 12,
+           borderRadius: radius.m,
+           borderWidth: 1,
+           borderColor: isSelected ? colors.accent : colors.borderSubtle,
+           backgroundColor: isSelected ? colors.accentSoft : pressed ? colors.surfaceHover : colors.surfaceCard,
+           gap: 4,
+          })}
+         >
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+           <Badge tone={isSelected ? 'info' : 'neutral'}>{a.category}</Badge>
+          </View>
+          <Txt variant="bodyS" color={isSelected ? colors.textPrimary : colors.textSecondary} style={{ marginTop: 2 }}>
+           {a.name}
+          </Txt>
+         </Pressable>
+        );
+       })}
+      </View>
+     </ScrollView>
+    </View>
+   </Sheet>
+
+   {/* Date of Birth Picker Sheet */}
+   <Sheet visible={dobSheet} onClose={() => setDobSheet(false)} title="Select Date of Birth">
+    <View style={{ paddingHorizontal: 16, gap: 16, paddingBottom: 24 }}>
+     <View style={{ flexDirection: 'row', gap: 8 }}>
+      <View style={{ flex: 1 }}>
+       <Field label="Day">
+        <Select value={dobDay} onChange={setDobDay} options={DAYS} />
+       </Field>
+      </View>
+      <View style={{ flex: 1 }}>
+       <Field label="Month">
+        <Select value={dobMonth} onChange={setDobMonth} options={MONTHS} />
+       </Field>
+      </View>
+      <View style={{ flex: 1.2 }}>
+       <Field label="Year">
+        <Select value={dobYear} onChange={setDobYear} options={YEARS} />
+       </Field>
+      </View>
+     </View>
+     <Button
+      block
+      icon="check"
+      onPress={() => {
+       setMemberDob(`${dobDay}-${dobMonth}-${dobYear}`);
+       setDobSheet(false);
+      }}
+     >
+      Confirm Date of Birth
+     </Button>
+    </View>
+   </Sheet>
+
+   {/* Office Employed Searchable Sheet */}
+   <Sheet visible={officeSheet} onClose={() => setOfficeSheet(false)} title="Select Office Employed">
+    <View style={{ paddingHorizontal: 16, gap: 12, paddingBottom: 24, flexShrink: 1 }}>
+     <Input
+      value={officeSearch}
+      onChangeText={setOfficeSearch}
+      placeholder="Search postal office (e.g. Sitaphalmandi, GPO)…"
+      autoFocus
+     />
+     {officeSearch.trim() ? (
+      <Pressable
+       onPress={() => {
+        setMemberOffice(officeSearch.trim());
+        setOfficeSheet(false);
+       }}
+       style={({ pressed }) => ({
+        padding: 10,
+        paddingHorizontal: 12,
+        borderRadius: radius.m,
+        backgroundColor: pressed ? colors.surfaceHover : colors.surfaceSelected,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+       })}
+      >
+       <Icon name="plus" size={16} color={colors.accent} />
+       <Txt variant="bodyS" color={colors.accent}>
+        {`Use custom office: "${officeSearch.trim()}"`}
+       </Txt>
+      </Pressable>
+     ) : null}
+     <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false}>
+      <View style={{ gap: 4 }}>
+       {availableOffices.filter((off) => !officeSearch.trim() || off.toLowerCase().includes(officeSearch.toLowerCase())).map((off) => {
+        const isSelected = off === memberOffice;
+        return (
+         <Pressable
+          key={off}
+          onPress={() => {
+           setMemberOffice(off);
+           setOfficeSheet(false);
+          }}
+          style={({ pressed }) => ({
+           paddingVertical: 10,
+           paddingHorizontal: 12,
+           borderRadius: radius.m,
+           backgroundColor: isSelected ? colors.surfaceSelected : pressed ? colors.surfaceHover : 'transparent',
+           flexDirection: 'row',
+           alignItems: 'center',
+           justifyContent: 'space-between',
+          })}
+         >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+           <Icon name="map-pin" size={15} color={isSelected ? colors.accent : colors.textMuted} />
+           <Txt variant="body" color={isSelected ? colors.accent : colors.textPrimary}>
+            {off}
+           </Txt>
+          </View>
+          {isSelected ? <Icon name="check" size={18} color={colors.accent} /> : null}
+         </Pressable>
+        );
+       })}
+      </View>
+     </ScrollView>
+    </View>
+   </Sheet>
+  </Screen >
  );
 }

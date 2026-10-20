@@ -14,7 +14,7 @@ export default function Org() {
 
  const myGroup = activeMember?.groups[0]?.toLowerCase();
  const geoName = (id: string | null) => geoUnits.find((g) => g.id === id)?.name?.toLowerCase();
- const matchGroup = (c: CommitteeInfo) => (c.functionalGroup || '').toLowerCase() === myGroup;
+ const matchGroup = (c: CommitteeInfo) => (c.functionalGroup || '').toLowerCase().split(',').map(s => s.trim()).includes(myGroup || '');
 
  // My escalation route: same rules the server uses (group committee at my city → configured
  // escalation target or next level for my group → general committee at the top).
