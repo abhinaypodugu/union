@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Pressable, Share, ScrollView } from 'react-native';
 import { Redirect, router } from 'expo-router';
 import {
-  Avatar, Badge, Button, Card, Icon, IconTile, KeyValue, ListCard, ListRow, LoadingState, Notice, Screen, SectionLabel, Select, StackHeader,
+  Avatar, Badge, Button, Card, Icon, IconButton, IconTile, KeyValue, ListCard, ListRow, LoadingState, Notice, Screen, SectionLabel, Select, StackHeader,
   Switch, Tag, Txt, Sheet, Field, Input, VerifiedCheck,
 } from '../src/components';
 import { colors, palette, radius } from '../src/theme';
@@ -14,6 +14,9 @@ const PREFS: Array<[keyof NotificationPrefs, string, boolean]> = [
   ['groupActivity', 'Group activity', false],
   ['caseUpdates', 'Case updates', true],
 ];
+const DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0'));
+const MONTHS = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+const YEARS = Array.from({ length: 55 }, (_, i) => String(2005 - i));
 
 export default function Profile() {
   const {
@@ -30,6 +33,10 @@ export default function Profile() {
   const [join, setJoin] = React.useState({ code: '', unit: '', region: '', group: '' });
   const [joinOrg, setJoinOrg] = React.useState<Tenant | null>(null);
   const [postalSheet, setPostalSheet] = React.useState(false);
+  const [dobSheet, setDobSheet] = React.useState(false);
+  const [dobDay, setDobDay] = React.useState('06');
+  const [dobMonth, setDobMonth] = React.useState('04');
+  const [dobYear, setDobYear] = React.useState('1972');
   const [phoneSheet, setPhoneSheet] = React.useState(false);
   const [newPhone, setNewPhone] = React.useState('');
   const [phoneOtp, setPhoneOtp] = React.useState('');
@@ -66,7 +73,14 @@ export default function Profile() {
     setEditEmpId(activeMember.employeeId || '');
     setEditDesig(activeMember.designation || (isOrgAdmin ? 'Founding President' : 'Member'));
     setEditCategory(activeMember.category || (activeMember.groups && activeMember.groups[0]) || 'Supervisors');
-    setEditDob(activeMember.dob || '06-04-1972');
+    const curDob = activeMember.dob || '06-04-1972';
+    setEditDob(curDob);
+    const parts = curDob.split('-');
+    if (parts.length === 3) {
+      setDobDay(parts[0].padStart(2, '0'));
+      setDobMonth(parts[1].padStart(2, '0'));
+      setDobYear(parts[2]);
+    }
     setEditOffice(activeMember.officeEmployed || 'Sitaphalmandi SO');
     setEditDivision(activeMember.division || activeMember.unit);
     setEditCircle(activeMember.circle || activeMember.region);
@@ -214,7 +228,7 @@ export default function Profile() {
         </>
       )}
 
-      <SectionLabel right={<Button size="sm" variant="secondary" icon="edit-2" onPress={openPostalEdit}>Edit Details</Button>}>Postal Identity & Membership</SectionLabel>
+      <SectionLabel>Postal Identity & Membership</SectionLabel>
       <Card padding={14} style={{ marginHorizontal: 12, paddingVertical: 2, gap: 8 }}>
         <KeyValue first k="Employee ID" v={activeMember.employeeId || '—'} />
         <KeyValue k="Category" v={activeMember.category || (activeMember.groups.length ? activeMember.groups[0] : '—')} />
@@ -229,12 +243,16 @@ export default function Profile() {
         <View style={{ paddingTop: 8, paddingBottom: 6 }}>
           <Button
             size="md"
-            variant="secondary"
+            variant="primary"
             icon="edit-2"
             block
             onPress={openPostalEdit}
+            style={{
+              backgroundColor: colors.accent,
+              borderColor: colors.accent,
+            }}
           >
-            Edit Workplace & Mobile
+            Edit Workplace & Contact Details
           </Button>
         </View>
       </Card>
@@ -438,8 +456,19 @@ export default function Profile() {
             </View>
           </View>
 
-          <Field label="Date of Birth" infoText="Format: DD-MM-YYYY">
-            <Input value={editDob} onChangeText={setEditDob} placeholder="e.g. 06-04-1972" />
+          {/* Date of Birth with Calendar Button & Picker */}
+          <Field label="Date of Birth" required infoText="Format: DD-MM-YYYY">
+            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+              <View style={{ flex: 1 }}>
+                <Input value={editDob} onChangeText={setEditDob} placeholder="e.g. 06-04-1972" />
+              </View>
+              <IconButton
+                icon="calendar"
+                label="Open calendar"
+                variant="secondary"
+                onPress={() => setDobSheet(true)}
+              />
+            </View>
           </Field>
           <Button block size="lg" icon="check" disabled={!editOffice.trim() || busy} onPress={savePostalEdit}>
             {busy ? 'Saving…' : 'Save Workplace Details'}
@@ -506,6 +535,38 @@ export default function Profile() {
               </Button>
             </>
           )}
+        </View>
+      </Sheet>
+      {/* Date of Birth Picker Sheet */}
+      <Sheet visible={dobSheet} onClose={() => setDobSheet(false)} title="Select Date of Birth">
+        <View style={{ paddingHorizontal: 16, gap: 16, paddingBottom: 24 }}>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <View style={{ flex: 1 }}>
+              <Field label="Day">
+                <Select value={dobDay} onChange={setDobDay} options={DAYS} />
+              </Field>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="Month">
+                <Select value={dobMonth} onChange={setDobMonth} options={MONTHS} />
+              </Field>
+            </View>
+            <View style={{ flex: 1.2 }}>
+              <Field label="Year">
+                <Select value={dobYear} onChange={setDobYear} options={YEARS} />
+              </Field>
+            </View>
+          </View>
+          <Button
+            block
+            icon="check"
+            onPress={() => {
+              setEditDob(`${dobDay}-${dobMonth}-${dobYear}`);
+              setDobSheet(false);
+            }}
+          >
+            Confirm Date of Birth
+          </Button>
         </View>
       </Sheet>
     </Screen >
