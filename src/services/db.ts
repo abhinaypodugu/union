@@ -330,8 +330,14 @@ export const dbService = {
 
   // ---------------------------------------------------------------- Directory & membership admin
   async getMembers(tenantId: string): Promise<Persona[]> {
-    const rows = await must(supabase.from('profiles').select(PROFILE_COLS).eq('tenant_id', tenantId).order('name'));
-    return ((rows as any[]) || []).map(mapProfile);
+    try {
+      const rows = await must(supabase.from('profiles').select(PROFILE_COLS).eq('tenant_id', tenantId).order('name'));
+      return ((rows as any[]) || []).map(mapProfile);
+    } catch {
+      const BASELINE_COLS = 'id, user_id, tenant_id, member_number, name, unit, region, country, groups, roles, status, created_at';
+      const rows = await must(supabase.from('profiles').select(BASELINE_COLS).eq('tenant_id', tenantId).order('name')).catch(() => []);
+      return ((rows as any[]) || []).map(mapProfile);
+    }
   },
 
   async adminListMembers(tenantId: string): Promise<Persona[]> {

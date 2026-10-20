@@ -71,16 +71,49 @@ export default function Org() {
  }, [committees, byId]);
  const topRole = (key: string) => { const r = appointments.get(key)?.[0]?.role; return r && r !== 'Member' ? r : r ? 'Committee member' : undefined; };
 
- const bearersAt = React.useCallback((geoId: string): Bearer[] => {
-  const seen = new Map<string, Bearer>();
-  committees.filter((c) => c.geoUnitId === geoId).forEach((c) => c.members.filter((m) => m.status === 'active').forEach((m) => {
-   const key = m.profileId || 'n:' + low(m.name);
-   const b: Bearer = { key, name: m.name, role: m.role, committee: c, person: m.profileId ? byId.get(m.profileId) : undefined };
-   const prev = seen.get(key);
-   if (!prev || rank(b.role) < rank(prev.role)) seen.set(key, b);
-  }));
-  return [...seen.values()].sort((a, b) => rank(a.role) - rank(b.role) || a.name.localeCompare(b.name));
- }, [committees, byId]);
+ const bearersAt = React.useCallback(
+  (geoId: string, geoNameStr?: string): Bearer[] => {
+   const seen = new Map<string, Bearer>();
+   committees
+    .filter((c) => c.geoUnitId === geoId || (!c.geoUnitId && c.level >= 3))
+    .forEach((c) =>
+     c.members
+      .filter((m) => m.status === 'active')
+      .forEach((m) => {
+       const key = m.profileId || 'n:' + low(m.name);
+       const person = m.profileId ? byId.get(m.profileId) : undefined;
+       if (!c.geoUnitId && geoNameStr && person) {
+        if (low(person.unit) !== low(geoNameStr) && low(person.region) !== low(geoNameStr)) {
+         return;
+        }
+       }
+       const b: Bearer = { key, name: m.name, role: m.role, committee: c, person };
+       const prev = seen.get(key);
+       if (!prev || rank(b.role) < rank(prev.role)) seen.set(key, b);
+      })
+    );
+
+   if (geoNameStr) {
+    verified
+     .filter((m) => low(m.unit) === low(geoNameStr) || low(m.region) === low(geoNameStr))
+     .filter((m) => m.designation && m.designation !== 'Member')
+     .forEach((m) => {
+      if (!seen.has(m.id)) {
+       seen.set(m.id, {
+        key: m.id,
+        name: m.name,
+        role: m.designation || 'Leader',
+        committee: committees.find((c) => c.level >= 3) || committees[0],
+        person: m,
+       });
+      }
+     });
+   }
+
+   return [...seen.values()].sort((a, b) => rank(a.role) - rank(b.role) || a.name.localeCompare(b.name));
+  },
+  [committees, byId, verified]
+ );
 
  const roleLabel = (b: Bearer) => (b.role === 'Member' ? 'Committee member' : b.role);
  const sub = (p?: Persona) => [p?.designation && p.designation !== 'Member' ? p.designation : null, p?.officeEmployed].filter(Boolean).join(' · ') || undefined;
@@ -93,7 +126,7 @@ export default function Org() {
   .filter((m) => `${m.name} ${m.designation || ''} ${m.officeEmployed || ''} ${m.unit} ${m.memberId}`.toLowerCase().includes(needle))
   .sort((a, b) => a.name.localeCompare(b.name)).slice(0, 60), [needle, verified, circle?.name]);
 
- const divBearers = div ? bearersAt(div.id) : [];
+ const divBearers = div ? bearersAt(div.id, div.name) : [];
  const divMembers = React.useMemo(() => {
   if (!div) return [];
   const skip = new Set(divBearers.map((b) => b.key));
@@ -101,6 +134,12 @@ export default function Org() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
  }, [div?.id, verified, committees]);
 
+ const circleMembers = React.useMemo(() => {
+  if (!circle) return [];
+  return verified.filter((m) => low(m.region) === low(circle.name)).sort((a, b) => a.name.localeCompare(b.name));
+ }, [circle?.name, verified]);
+
+ const divCount = (divName: string) => verified.filter((m) => low(m.unit) === low(divName)).length;
  // Escalation route — same rules the server uses (kept from the previous Org screen).
  const myGroup = low(activeMember?.groups[0]);
  const geoName = (id: string | null) => low(geoUnits.find((g) => g.id === id)?.name);
@@ -164,7 +203,7 @@ export default function Org() {
       <>
        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, paddingHorizontal: 16, paddingTop: 18 }}>
         <Txt variant="displayS" style={{ flex: 1 }}>{`${div.name} ${terminology.level1Label}`}</Txt>
-        <Txt variant="mono" color={colors.textMuted}>{`${compactCount(div.memberCount)} members`}</Txt>
+        <Txt variant="mono" color={colors.textMuted}>{`${divCount(div.name)} members`}</Txt>
        </View>
 
        <SectionLabel>Office-bearers</SectionLabel>
@@ -193,9 +232,9 @@ export default function Org() {
      ) : (
       <>
        <SectionLabel>{`${terminology.level2Label} office-bearers`}</SectionLabel>
-       {circle && bearersAt(circle.id).length ? (
+       {circle && bearersAt(circle.id, circle.name).length ? (
         <ListCard style={{ marginHorizontal: 12, borderColor: colors.officialBorder }}>
-         {bearersAt(circle.id).map((b) => <PersonRow key={b.key} size={36} name={b.name} role={roleLabel(b)} sub={sub(b.person)} you={isMe(b.key)} onPress={() => open(b.name, b.key, b.person)} />)}
+         {bearersAt(circle.id, circle.name).map((b) => <PersonRow key={b.key} size={36} name={b.name} role={roleLabel(b)} sub={sub(b.person)} you={isMe(b.key)} onPress={() => open(b.name, b.key, b.person)} />)}
         </ListCard>
        ) : (
         <Card style={{ marginHorizontal: 12, padding: 16 }}><Txt variant="bodyS" color={colors.textMuted}>No office-bearers appointed yet.</Txt></Card>
@@ -204,13 +243,13 @@ export default function Org() {
        <SectionLabel>{`${terminology.level1Label}s · ${divisions.length}`}</SectionLabel>
        <View style={{ paddingHorizontal: 12, gap: 8 }}>
         {divisions.map((d) => {
-         const head = bearersAt(d.id)[0];
+         const head = bearersAt(d.id, d.name)[0];
          return (
           <Card key={d.id} padding={14} onPress={() => { setView(d.id); setLimit(PAGE); }} style={{ gap: 10, borderColor: d.id === myDiv?.id ? palette.blue200 : undefined }}>
            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Txt variant="titleS" style={{ flex: 1 }} numberOfLines={1}>{d.name}</Txt>
             {d.id === myDiv?.id ? <YouPill label="Yours" /> : null}
-            <Txt variant="mono" color={colors.textMuted}>{compactCount(d.memberCount)}</Txt>
+            <Txt variant="mono" color={colors.textMuted}>{`${divCount(d.name)} members`}</Txt>
             <Icon name="chevron-right" size={18} color={palette.ink400} />
            </View>
            {head ? (
@@ -224,6 +263,19 @@ export default function Org() {
          );
         })}
        </View>
+       <SectionLabel>{`${circle?.name || ''} ${terminology.level2Label} members · ${circleMembers.length}`}</SectionLabel>
+       {circleMembers.length === 0 ? (
+        <Card style={{ marginHorizontal: 12, padding: 16 }}><Txt variant="bodyS" color={colors.textMuted}>{`No members registered in ${circle?.name || ''} yet.`}</Txt></Card>
+       ) : (
+        <ListCard style={{ marginHorizontal: 12 }}>
+         {circleMembers.slice(0, limit).map((m) => <PersonRow key={m.id} size={36} name={m.name} role={topRole(m.id)} sub={[m.unit, sub(m)].filter(Boolean).join(' · ')} you={isMe(m.id)} onPress={() => open(m.name, m.id, m)} />)}
+         {circleMembers.length > limit ? (
+          <Pressable accessibilityRole="button" onPress={() => setLimit((n) => n + PAGE * 2)} style={({ pressed }) => ({ minHeight: 48, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? colors.surfaceHover : 'transparent' })}>
+           <Txt variant="label" color={colors.textAccent}>{`Show more (${circleMembers.length - limit})`}</Txt>
+          </Pressable>
+         ) : null}
+        </ListCard>
+       )}
 
        {route.length && circle?.id === myCircle?.id ? (
         <>
