@@ -35,6 +35,13 @@
         {
           "color": "#1E40AF"
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app needs access to your photos to let you set your profile photo.",
+          "cameraPermission": "The app needs access to your camera to let you take a profile photo."
+        }
       ]
     ],
     "extra": {

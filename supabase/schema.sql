@@ -104,6 +104,7 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS dob DATE;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS office_employed TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS division TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS circle TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
 ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_id_fkey;
 ALTER TABLE profiles ALTER COLUMN id SET DEFAULT gen_random_uuid();
 UPDATE profiles p SET user_id = p.id
@@ -2148,6 +2149,37 @@ CREATE POLICY "evidence: upload with case access" ON storage.objects FOR INSERT
   WITH CHECK (bucket_id = 'evidence'
     AND (is_my_issue(split_part(name, '/', 2)) OR can_handle_issue(split_part(name, '/', 2)))
     AND split_part(name, '/', 1) = (SELECT tenant_id FROM issues WHERE id = split_part(name, '/', 2)));
+INSERT INTO storage.buckets (id, name, public, file_size_limit)
+VALUES ('avatars', 'avatars', TRUE, 5242880)
+ON CONFLICT (id) DO UPDATE SET public = TRUE, file_size_limit = 5242880;
+
+DROP POLICY IF EXISTS "avatars: public read" ON storage.objects;
+CREATE POLICY "avatars: public read" ON storage.objects FOR SELECT
+  USING (bucket_id = 'avatars');
+
+DROP POLICY IF EXISTS "avatars: authenticated upload" ON storage.objects;
+CREATE POLICY "avatars: authenticated upload" ON storage.objects FOR INSERT
+  WITH CHECK (
+    bucket_id = 'avatars'
+    AND auth.uid() IS NOT NULL
+    AND (split_part(name, '/', 2) = auth.uid()::text OR is_platform_admin())
+  );
+
+DROP POLICY IF EXISTS "avatars: authenticated update" ON storage.objects;
+CREATE POLICY "avatars: authenticated update" ON storage.objects FOR UPDATE
+  USING (
+    bucket_id = 'avatars'
+    AND auth.uid() IS NOT NULL
+    AND (split_part(name, '/', 2) = auth.uid()::text OR is_platform_admin())
+  );
+
+DROP POLICY IF EXISTS "avatars: authenticated delete" ON storage.objects;
+CREATE POLICY "avatars: authenticated delete" ON storage.objects FOR DELETE
+  USING (
+    bucket_id = 'avatars'
+    AND auth.uid() IS NOT NULL
+    AND (split_part(name, '/', 2) = auth.uid()::text OR is_platform_admin())
+  );
 
 -- ==============================================================================
 -- 18. FUNCTION PRIVILEGES — nothing is callable anonymously; internal helpers and

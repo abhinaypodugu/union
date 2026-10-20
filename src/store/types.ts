@@ -196,6 +196,7 @@ export interface Persona {
   officeEmployed?: string;
   division?: string;
   circle?: string;
+  avatarUrl?: string;
 }
 
 export interface Issue {

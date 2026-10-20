@@ -14,7 +14,7 @@ export { normalizePhoneNumber };
 
 import { DEFAULT_TERMINOLOGY } from '../store/types';
 
-const PROFILE_COLS = 'id, user_id, tenant_id, member_number, name, email, phone, unit, region, country, groups, roles, status, employee_id, designation, category, dob, office_employed, division, circle, created_at';
+const PROFILE_COLS = 'id, user_id, tenant_id, member_number, name, email, phone, unit, region, country, groups, roles, status, employee_id, designation, category, dob, office_employed, division, circle, avatar_url, created_at';
 async function must<T>(p: PromiseLike<{ data: T | null; error: unknown }>): Promise<T> {
   const { data, error } = await p;
   if (error) throw new Error(errorMessage(error));
@@ -46,6 +46,7 @@ function mapProfile(r: Record<string, any>): Persona {
     officeEmployed: r.office_employed ?? undefined,
     division: r.division ?? r.unit,
     circle: r.circle ?? r.region,
+    avatarUrl: r.avatar_url ?? undefined,
   };
 }
 
@@ -319,6 +320,7 @@ export const dbService = {
       officeEmployed?: string;
       division?: string;
       circle?: string;
+      avatarUrl?: string;
     }
   ): Promise<boolean> {
     try {
@@ -350,6 +352,7 @@ export const dbService = {
         updateData.circle = data.circle || null;
         updateData.region = data.circle || null;
       }
+      if (data.avatarUrl !== undefined) updateData.avatar_url = data.avatarUrl || null;
 
       if (data.division && data.circle) {
         await supabase.rpc('ensure_geo_path', {
@@ -364,6 +367,44 @@ export const dbService = {
       return !error;
     } catch {
       return false;
+    }
+  },
+  async uploadAvatar(tenantId: string, userId: string, localUri: string): Promise<{ ok: boolean; url?: string; error?: string }> {
+    try {
+      const ext = localUri.split('.').pop()?.toLowerCase() || 'jpg';
+      const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+      const fileName = `${tenantId}/${userId}/avatar_${Date.now()}.${ext}`;
+
+      const response = await fetch(localUri);
+      const blob = await response.blob();
+      const arrayBuffer = await new Response(blob).arrayBuffer();
+
+      const { data, error } = await supabase.storage.from('avatars').upload(fileName, arrayBuffer, {
+        contentType: mime,
+        upsert: true,
+      });
+
+      if (error) {
+        return { ok: false, error: errorMessage(error) };
+      }
+
+      const { data: pubData } = supabase.storage.from('avatars').getPublicUrl(fileName);
+      const publicUrl = pubData.publicUrl;
+
+      await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('user_id', userId).eq('tenant_id', tenantId);
+
+      return { ok: true, url: publicUrl };
+    } catch (e: any) {
+      return { ok: false, error: errorMessage(e) };
+    }
+  },
+
+  async removeAvatar(tenantId: string, userId: string): Promise<{ ok: boolean; error?: string }> {
+    try {
+      await supabase.from('profiles').update({ avatar_url: null }).eq('user_id', userId).eq('tenant_id', tenantId);
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: errorMessage(e) };
     }
   },
 

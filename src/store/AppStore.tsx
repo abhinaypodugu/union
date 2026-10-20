@@ -29,6 +29,8 @@ interface Store {
   verifyOtp: (phone: string, code: string) => Promise<{ ok: boolean; memberships: Persona[]; isPlatformAdmin: boolean }>;
   requestPhoneChangeOtp: (phone: string) => Promise<{ ok: boolean; phone: string; error?: string }>;
   verifyPhoneChangeOtp: (phone: string, code: string) => Promise<{ ok: boolean; error?: string }>;
+  uploadAvatar: (localUri: string) => Promise<{ ok: boolean; url?: string; error?: string }>;
+  removeAvatar: () => Promise<{ ok: boolean; error?: string }>;
   logout: () => Promise<void>;
   // Organizations & memberships
   tenant: Tenant | null;
@@ -424,6 +426,33 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     }
     return res;
   };
+  const uploadAvatar: Store['uploadAvatar'] = async (localUri) => {
+    if (!activeMember || !currentTenantId || !userId) return { ok: false, error: 'Not signed in' };
+    const res = await dbService.uploadAvatar(currentTenantId, userId, localUri);
+    if (res.ok && res.url) {
+      const updated: Persona = { ...activeMember, avatarUrl: res.url };
+      setMemberships((prev) => prev.map((m) => (m.id === activeMember.id ? updated : m)));
+      await AsyncStorage.setItem(`postal_profile_${currentTenantId.toLowerCase()}`, JSON.stringify(updated));
+      toast({ title: 'Profile photo updated' });
+    } else if (res.error) {
+      toast({ title: 'Failed to upload photo', description: res.error });
+    }
+    return res;
+  };
+
+  const removeAvatar: Store['removeAvatar'] = async () => {
+    if (!activeMember || !currentTenantId || !userId) return { ok: false, error: 'Not signed in' };
+    const res = await dbService.removeAvatar(currentTenantId, userId);
+    if (res.ok) {
+      const updated: Persona = { ...activeMember, avatarUrl: undefined };
+      setMemberships((prev) => prev.map((m) => (m.id === activeMember.id ? updated : m)));
+      await AsyncStorage.setItem(`postal_profile_${currentTenantId.toLowerCase()}`, JSON.stringify(updated));
+      toast({ title: 'Profile photo removed' });
+    } else if (res.error) {
+      toast({ title: 'Failed to remove photo', description: res.error });
+    }
+    return res;
+  };
 
   const switchTenant = (id: string) => {
     if (!memberships.some((m) => m.tenantId === id)) return; // only your own organizations
@@ -540,8 +569,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           circle: data.circle || newRegion,
           unit: newUnit,
           region: newRegion,
+          avatarUrl: data.avatarUrl !== undefined ? data.avatarUrl : activeMember.avatarUrl,
         };
-
       const merged: Persona = {
         ...activeMember,
         ...safeData,
@@ -805,6 +834,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     verifyOtp,
     requestPhoneChangeOtp,
     verifyPhoneChangeOtp,
+    uploadAvatar,
+    removeAvatar,
     logout,
     tenant,
     tenants,

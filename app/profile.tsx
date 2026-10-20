@@ -1,11 +1,18 @@
 import React from 'react';
-import { View, Pressable, Share, ScrollView } from 'react-native';
+import { View, Pressable, Share, ScrollView, Modal } from 'react-native';
 import { Redirect, router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+let ImagePicker: any = null;
+try {
+  ImagePicker = require('expo-image-picker');
+} catch {
+  ImagePicker = null;
+}
 import {
   Avatar, Badge, Button, Card, Icon, IconButton, IconTile, KeyValue, ListCard, ListRow, LoadingState, Notice, Screen, SectionLabel, Select, StackHeader,
   Switch, Tag, Txt, Sheet, Field, Input, VerifiedCheck,
 } from '../src/components';
-import { colors, palette, radius } from '../src/theme';
+import { colors, fonts, palette, radius } from '../src/theme';
 import { useStore, NotificationPrefs, Tenant, DEFAULT_POSTAL_CADRES, UNION_DESIGNATIONS } from '../src/store/AppStore';
 import { POSTAL_CIRCLES, getDivisionsForCircle, getOfficesForDivision } from '../src/lib/postalData';
 const PREFS: Array<[keyof NotificationPrefs, string, boolean]> = [
@@ -22,8 +29,15 @@ export default function Profile() {
   const {
     tenant, tenants, memberships, switchTenant, activeMember, authReady, signedIn, isPlatformSuperAdmin, isOrgAdmin, isMembershipAdmin,
     adminMembers, loadAdminMembers, setupOrganization, registerMember, lookupOrgByCode, updatePrefs, logout, myAppointments,
-    committees, toast, updatePostalProfile, requestPhoneChangeOtp, verifyPhoneChangeOtp,
+    committees, toast, updatePostalProfile, requestPhoneChangeOtp, verifyPhoneChangeOtp, uploadAvatar, removeAvatar,
   } = useStore();
+  const insets = useSafeAreaInsets();
+  const [avatarModalOpen, setAvatarModalOpen] = React.useState(false);
+  const [photoActionSheet, setPhotoActionSheet] = React.useState(false);
+  const [urlSheet, setUrlSheet] = React.useState(false);
+  const [imageUrlInput, setImageUrlInput] = React.useState('');
+  const [previewUri, setPreviewUri] = React.useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = React.useState(false);
 
   const [orgSheet, setOrgSheet] = React.useState(false);
   const [createOpen, setCreateOpen] = React.useState(false);
@@ -137,6 +151,97 @@ export default function Profile() {
       setPhoneBusy(false);
     }
   };
+  const handleTakePhoto = async () => {
+    setPhotoActionSheet(false);
+    if (!ImagePicker) {
+      toast({
+        title: 'Native Camera module pending',
+        description: 'Camera requires building the APK with native camera permissions.',
+      });
+      return;
+    }
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        toast({ title: 'Camera permission denied', description: 'Enable camera access in settings to take a photo.' });
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets && result.assets[0]?.uri) {
+        setPreviewUri(result.assets[0].uri);
+      }
+    } catch (e: any) {
+      toast({ title: 'Camera error', description: e.message || 'Could not launch camera' });
+    }
+  };
+
+  const handlePickFromGallery = async () => {
+    setPhotoActionSheet(false);
+    if (!ImagePicker) {
+      toast({
+        title: 'Native Gallery module pending',
+        description: 'Gallery requires building the APK with native photo permissions.',
+      });
+      return;
+    }
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        toast({ title: 'Photos permission denied', description: 'Enable photo gallery access in settings.' });
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets && result.assets[0]?.uri) {
+        setPreviewUri(result.assets[0].uri);
+      }
+    } catch (e: any) {
+      toast({ title: 'Gallery error', description: e.message || 'Could not open gallery' });
+    }
+  };
+
+  const handleSaveAvatar = async () => {
+    if (!previewUri || uploadingPhoto) return;
+    setUploadingPhoto(true);
+    try {
+      if (previewUri.startsWith('http://') || previewUri.startsWith('https://')) {
+        await updatePostalProfile({ avatarUrl: previewUri });
+        setPreviewUri(null);
+        setAvatarModalOpen(false);
+        toast({ title: 'Profile photo updated' });
+      } else {
+        const res = await uploadAvatar(previewUri);
+        if (res.ok) {
+          setPreviewUri(null);
+          setAvatarModalOpen(false);
+        }
+      }
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    setPhotoActionSheet(false);
+    setUploadingPhoto(true);
+    try {
+      const res = await removeAvatar();
+      if (res.ok) {
+        setPreviewUri(null);
+        setAvatarModalOpen(false);
+      }
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
   React.useEffect(() => { if (isMembershipAdmin) void loadAdminMembers(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [isMembershipAdmin, tenant?.id]);
 
   if (!authReady) return <LoadingState subtitle="Signing you in…" />;
@@ -190,7 +295,38 @@ export default function Profile() {
       <StackHeader onBack={() => router.back()} title="Profile" />
 
       <View style={{ alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 8 }}>
-        <Avatar name={activeMember.name} size={80} />
+        <Pressable
+          onPress={() => {
+            setPreviewUri(null);
+            setAvatarModalOpen(true);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="View profile photo"
+          style={({ pressed }) => ({
+            opacity: pressed ? 0.85 : 1,
+            position: 'relative',
+          })}
+        >
+          <Avatar name={activeMember.name} uri={activeMember.avatarUrl} size={88} />
+          <View
+            style={{
+              position: 'absolute',
+              bottom: 0,
+              right: 0,
+              width: 28,
+              height: 28,
+              borderRadius: 14,
+              backgroundColor: colors.accent,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderWidth: 2,
+              borderColor: colors.surfaceCard,
+              elevation: 4,
+            }}
+          >
+            <Icon name="camera" size={14} color="#fff" />
+          </View>
+        </Pressable>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
           <Txt variant="displayM">{activeMember.name}</Txt>
           <VerifiedCheck size={20} />
@@ -569,6 +705,258 @@ export default function Profile() {
           </Button>
         </View>
       </Sheet>
+      {/* WhatsApp-Style Profile Photo Full Screen Modal */}
+      <Modal
+        visible={avatarModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!uploadingPhoto) {
+            setAvatarModalOpen(false);
+            setPreviewUri(null);
+          }
+        }}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(10, 10, 14, 0.95)',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingTop: insets.top + 16,
+            paddingBottom: insets.bottom + 24,
+            paddingHorizontal: 20,
+          }}
+        >
+          {/* Top Bar */}
+          <View style={{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Pressable
+              onPress={() => {
+                if (!uploadingPhoto) {
+                  setAvatarModalOpen(false);
+                  setPreviewUri(null);
+                }
+              }}
+              style={{ padding: 8, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.12)' }}
+            >
+              <Icon name="x" size={24} color="#fff" />
+            </Pressable>
+            <Txt style={{ color: '#fff', fontSize: 17, fontFamily: fonts.sans600 }}>Profile photo</Txt>
+            <View style={{ width: 40 }} />
+          </View>
+
+          {/* Center Circle with Bottom-Right Edit Button */}
+          <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ width: 240, height: 240, position: 'relative' }}>
+              <View
+                style={{
+                  width: 240,
+                  height: 240,
+                  borderRadius: 120,
+                  backgroundColor: 'rgba(255,255,255,0.06)',
+                  borderWidth: 3,
+                  borderColor: previewUri ? colors.accent : 'rgba(255,255,255,0.15)',
+                  overflow: 'hidden',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Avatar
+                  name={activeMember.name}
+                  uri={previewUri || activeMember.avatarUrl}
+                  size={234}
+                />
+              </View>
+
+              {/* WhatsApp-Style Floating Edit Button at Bottom-Right */}
+              {!previewUri && (
+                <Pressable
+                  onPress={() => {
+                    setUrlSheet(false);
+                    setPhotoActionSheet(true);
+                  }}
+                  disabled={uploadingPhoto}
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit profile photo"
+                  style={({ pressed }) => ({
+                    position: 'absolute',
+                    bottom: 4,
+                    right: 4,
+                    width: 56,
+                    height: 56,
+                    borderRadius: 28,
+                    backgroundColor: colors.accent,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderWidth: 3,
+                    borderColor: '#18181b',
+                    elevation: 10,
+                    shadowColor: '#000',
+                    shadowOpacity: 0.5,
+                    shadowRadius: 6,
+                    shadowOffset: { width: 0, height: 3 },
+                    transform: [{ scale: pressed ? 0.92 : 1 }],
+                  })}
+                >
+                  <Icon name="camera" size={26} color="#fff" />
+                </Pressable>
+              )}
+            </View>
+
+            {/* Name and Details under the circle */}
+            {!photoActionSheet && !urlSheet && (
+              <View style={{ alignItems: 'center', gap: 6, marginTop: 20 }}>
+                <Txt style={{ color: '#fff', fontSize: 22, fontFamily: fonts.display600 }}>{activeMember.name}</Txt>
+                <Txt style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14, fontFamily: fonts.sans400 }}>
+                  {activeMember.designation || 'Member'} · {activeMember.division || activeMember.unit}
+                </Txt>
+              </View>
+            )}
+          </View>
+
+          {/* Bottom Action Area: If Previewing cropped photo, show Retake / Save buttons */}
+          {/* Bottom Action Area */}
+          {previewUri ? (
+            <View style={{ width: '100%', maxWidth: 320, gap: 12 }}>
+              <Button
+                variant="primary"
+                size="lg"
+                block
+                icon="check"
+                disabled={uploadingPhoto}
+                onPress={handleSaveAvatar}
+              >
+                {uploadingPhoto ? 'Saving Photo…' : 'Save & Set Profile Photo'}
+              </Button>
+              <Button
+                variant="ghost"
+                size="md"
+                block
+                disabled={uploadingPhoto}
+                onPress={() => setPreviewUri(null)}
+                style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}
+              >
+                Retake / Cancel
+              </Button>
+            </View>
+          ) : urlSheet ? (
+            <View
+              style={{
+                width: '100%',
+                backgroundColor: colors.surfaceCard,
+                borderRadius: radius.l,
+                padding: 16,
+                gap: 12,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Txt variant="titleS">Enter Photo URL</Txt>
+                <Pressable onPress={() => setUrlSheet(false)}>
+                  <Icon name="x" size={20} color={colors.textSecondary} />
+                </Pressable>
+              </View>
+              <Input
+                value={imageUrlInput}
+                onChangeText={setImageUrlInput}
+                placeholder="https://example.com/photo.jpg"
+              />
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <View style={{ flex: 1 }}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    block
+                    onPress={() => {
+                      setPreviewUri('https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&q=80');
+                      setUrlSheet(false);
+                    }}
+                  >
+                    Sample 1
+                  </Button>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    block
+                    onPress={() => {
+                      setPreviewUri('https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&q=80');
+                      setUrlSheet(false);
+                    }}
+                  >
+                    Sample 2
+                  </Button>
+                </View>
+              </View>
+              <Button
+                block
+                size="md"
+                icon="check"
+                disabled={!imageUrlInput.includes('http')}
+                onPress={() => {
+                  const m = imageUrlInput.match(/https?:\/\/[^\s]+/);
+                  const valid = m ? m[0] : imageUrlInput.trim();
+                  setPreviewUri(valid);
+                  setUrlSheet(false);
+                }}
+              >
+                Preview Photo
+              </Button>
+            </View>
+          ) : photoActionSheet ? (
+            <View
+              style={{
+                width: '100%',
+                backgroundColor: colors.surfaceCard,
+                borderRadius: radius.l,
+                padding: 16,
+                gap: 6,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 6 }}>
+                <Txt variant="titleS">Profile photo</Txt>
+                <Pressable onPress={() => setPhotoActionSheet(false)}>
+                  <Icon name="x" size={20} color={colors.textSecondary} />
+                </Pressable>
+              </View>
+              <ListRow
+                title="Take photo"
+                subtitle="Use camera to capture and crop"
+                left={<IconTile icon="camera" tone="committee" />}
+                onPress={handleTakePhoto}
+              />
+              <ListRow
+                title="Choose from gallery"
+                subtitle="Pick an existing image and crop"
+                left={<IconTile icon="image" tone="geo" />}
+                onPress={handlePickFromGallery}
+              />
+              <ListRow
+                title="Paste image link"
+                subtitle="Use a web photo URL for instant preview"
+                left={<IconTile icon="link" tone="group" />}
+                onPress={() => {
+                  setPhotoActionSheet(false);
+                  setImageUrlInput('');
+                  setUrlSheet(true);
+                }}
+              />
+              {activeMember.avatarUrl ? (
+                <ListRow
+                  title="Remove current photo"
+                  subtitle="Revert back to color initials"
+                  left={<IconTile icon="trash-2" tone="group" />}
+                  onPress={handleRemovePhoto}
+                />
+              ) : null}
+            </View>
+          ) : (
+            <Txt style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, textAlign: 'center' }}>
+              Tap the camera button on your photo to edit
+            </Txt>
+          )}
+        </View>
+      </Modal>
     </Screen >
   );
 }
