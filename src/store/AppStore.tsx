@@ -557,17 +557,25 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
 
       const safeData = isOrgAdmin || isPlatformSuperAdmin
         ? {
-          ...data,
+          employeeId: data.employeeId !== undefined ? data.employeeId : activeMember.employeeId,
+          designation: data.designation !== undefined ? data.designation : activeMember.designation,
+          category: data.category !== undefined ? data.category : activeMember.category,
+          dob: data.dob !== undefined ? data.dob : activeMember.dob,
+          officeEmployed: data.officeEmployed !== undefined ? data.officeEmployed : activeMember.officeEmployed,
+          division: data.division || activeMember.division || newUnit,
+          circle: data.circle || activeMember.circle || newRegion,
           unit: newUnit,
           region: newRegion,
-          division: data.division || newUnit,
-          circle: data.circle || newRegion,
+          avatarUrl: data.avatarUrl !== undefined ? data.avatarUrl : activeMember.avatarUrl,
         }
         : {
-          dob: data.dob,
-          officeEmployed: data.officeEmployed,
-          division: data.division || newUnit,
-          circle: data.circle || newRegion,
+          employeeId: activeMember.employeeId,
+          designation: activeMember.designation,
+          category: activeMember.category,
+          dob: data.dob !== undefined ? data.dob : activeMember.dob,
+          officeEmployed: data.officeEmployed !== undefined ? data.officeEmployed : activeMember.officeEmployed,
+          division: data.division || activeMember.division || newUnit,
+          circle: data.circle || activeMember.circle || newRegion,
           unit: newUnit,
           region: newRegion,
           avatarUrl: data.avatarUrl !== undefined ? data.avatarUrl : activeMember.avatarUrl,
