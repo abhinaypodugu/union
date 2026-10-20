@@ -777,36 +777,42 @@ export default function Profile() {
                   justifyContent: 'center',
                 }}
               >
-                {previewUri && !previewUri.startsWith('default:') ? (
-                  <Image
-                    source={{ uri: previewUri }}
-                    style={{
-                      width: 234,
-                      height: 234,
-                      transform: [{ scale: cropScale }, { translateX: cropX }, { translateY: cropY }],
-                    }}
-                    resizeMode="cover"
-                  />
+                {previewUri ? (
+                  <View style={{ width: 234, height: 234, alignItems: 'center', justifyContent: 'center' }}>
+                    {previewUri.startsWith('default:') ? (
+                      <View style={{ transform: [{ scale: cropScale }, { translateX: cropX }, { translateY: cropY }] }}>
+                        <CuteAvatar id={previewUri.replace('default:', '')} size={234} />
+                      </View>
+                    ) : (
+                      <Image
+                        source={{ uri: previewUri }}
+                        style={{
+                          width: 234,
+                          height: 234,
+                          transform: [{ scale: cropScale }, { translateX: cropX }, { translateY: cropY }],
+                        }}
+                        resizeMode="cover"
+                      />
+                    )}
+                    {/* Circular Framing Crosshair Overlay while Cropping */}
+                    <View
+                      pointerEvents="none"
+                      style={{
+                        position: 'absolute',
+                        width: 234,
+                        height: 234,
+                        borderRadius: 117,
+                        borderWidth: 1.5,
+                        borderColor: 'rgba(255,255,255,0.7)',
+                        borderStyle: 'dashed',
+                      }}
+                    />
+                  </View>
                 ) : (
                   <Avatar
                     name={activeMember.name}
-                    uri={previewUri || activeMember.avatarUrl}
+                    uri={activeMember.avatarUrl}
                     size={234}
-                  />
-                )}
-                {/* Circular Framing Crosshair Overlay while Cropping */}
-                {previewUri && !previewUri.startsWith('default:') && (
-                  <View
-                    pointerEvents="none"
-                    style={{
-                      position: 'absolute',
-                      width: 234,
-                      height: 234,
-                      borderRadius: 117,
-                      borderWidth: 1.5,
-                      borderColor: 'rgba(255,255,255,0.7)',
-                      borderStyle: 'dashed',
-                    }}
                   />
                 )}
               </View>
@@ -861,86 +867,84 @@ export default function Profile() {
           {/* Bottom Action Area */}
           {previewUri ? (
             <View style={{ width: '100%', maxWidth: 320, gap: 10 }}>
-              {/* Interactive Framing & Crop Controls (only for custom photos) */}
-              {!previewUri.startsWith('default:') && (
-                <View
-                  style={{
-                    backgroundColor: 'rgba(255,255,255,0.08)',
-                    borderRadius: radius.m,
-                    padding: 10,
-                    gap: 8,
-                    borderWidth: 1,
-                    borderColor: 'rgba(255,255,255,0.12)',
-                  }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Txt style={{ color: '#fff', fontSize: 12, fontFamily: fonts.sans600 }}>Frame & Crop</Txt>
+              {/* Interactive Framing & Crop Controls */}
+              <View
+                style={{
+                  backgroundColor: 'rgba(255,255,255,0.08)',
+                  borderRadius: radius.m,
+                  padding: 10,
+                  gap: 8,
+                  borderWidth: 1,
+                  borderColor: 'rgba(255,255,255,0.12)',
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Txt style={{ color: '#fff', fontSize: 13, fontFamily: fonts.sans600 }}>Adjust Crop & Frame</Txt>
+                  <Pressable
+                    onPress={() => {
+                      setCropScale(1.0);
+                      setCropX(0);
+                      setCropY(0);
+                    }}
+                    style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.15)' }}
+                  >
+                    <Txt style={{ color: '#fff', fontSize: 11 }}>↺ Reset</Txt>
+                  </Pressable>
+                </View>
+
+                {/* Zoom Controls */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Txt style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>Zoom</Txt>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                     <Pressable
-                      onPress={() => {
-                        setCropScale(1.0);
-                        setCropX(0);
-                        setCropY(0);
-                      }}
-                      style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.15)' }}
+                      onPress={() => setCropScale((s) => Math.max(1.0, +(s - 0.15).toFixed(2)))}
+                      style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
                     >
-                      <Txt style={{ color: '#fff', fontSize: 11 }}>↺ Reset</Txt>
+                      <Icon name="minus" size={14} color="#fff" />
+                    </Pressable>
+                    <Txt style={{ color: '#fff', fontSize: 13, fontFamily: fonts.mono600, minWidth: 38, textAlign: 'center' }}>
+                      {cropScale.toFixed(1)}x
+                    </Txt>
+                    <Pressable
+                      onPress={() => setCropScale((s) => Math.min(3.0, +(s + 0.15).toFixed(2)))}
+                      style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <Icon name="plus" size={14} color="#fff" />
                     </Pressable>
                   </View>
+                </View>
 
-                  {/* Zoom Controls */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Txt style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>Zoom</Txt>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Pressable
-                        onPress={() => setCropScale((s) => Math.max(1.0, +(s - 0.15).toFixed(2)))}
-                        style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        <Icon name="minus" size={14} color="#fff" />
-                      </Pressable>
-                      <Txt style={{ color: '#fff', fontSize: 12, fontFamily: fonts.mono600, minWidth: 36, textAlign: 'center' }}>
-                        {cropScale.toFixed(1)}x
-                      </Txt>
-                      <Pressable
-                        onPress={() => setCropScale((s) => Math.min(3.0, +(s + 0.15).toFixed(2)))}
-                        style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        <Icon name="plus" size={14} color="#fff" />
-                      </Pressable>
-                    </View>
-                  </View>
-
-                  {/* Pan Nudge Controls */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <Txt style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>Position</Txt>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Pressable
-                        onPress={() => setCropX((x) => x - 10)}
-                        style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        <Icon name="arrow-left" size={13} color="#fff" />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setCropY((y) => y - 10)}
-                        style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        <Icon name="arrow-up" size={13} color="#fff" />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setCropY((y) => y + 10)}
-                        style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        <Icon name="arrow-down" size={13} color="#fff" />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setCropX((x) => x + 10)}
-                        style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
-                      >
-                        <Icon name="arrow-right" size={13} color="#fff" />
-                      </Pressable>
-                    </View>
+                {/* Pan Position Controls */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Txt style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>Position</Txt>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Pressable
+                      onPress={() => setCropX((x) => x - 10)}
+                      style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <Icon name="arrow-left" size={14} color="#fff" />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setCropY((y) => y - 10)}
+                      style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <Icon name="arrow-up" size={14} color="#fff" />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setCropY((y) => y + 10)}
+                      style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <Icon name="arrow-down" size={14} color="#fff" />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setCropX((x) => x + 10)}
+                      style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      <Icon name="arrow-right" size={14} color="#fff" />
+                    </Pressable>
                   </View>
                 </View>
-              )}
+              </View>
 
               <Button
                 variant="primary"
@@ -980,7 +984,7 @@ export default function Profile() {
               }}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Txt variant="titleS">Choose a Cute Avatar</Txt>
+                <Txt variant="titleS">Choose an Avatar</Txt>
                 <Pressable onPress={() => setCuteIconsSheet(false)}>
                   <Icon name="x" size={20} color={colors.textSecondary} />
                 </Pressable>
@@ -1051,14 +1055,36 @@ export default function Profile() {
                 onPress={handlePickFromGallery}
               />
               <ListRow
-                title="Choose cute icon"
-                subtitle="Select from animated illustrated characters"
+                title="Choose an avatar"
+                subtitle="Select from professional portraits"
                 left={<IconTile icon="smile" tone="group" />}
                 onPress={() => {
                   setPhotoActionSheet(false);
                   setCuteIconsSheet(true);
                 }}
               />
+              {activeMember.avatarUrl ? (
+                <ListRow
+                  title="Adjust crop & frame"
+                  subtitle="Fine-tune zoom and position in circle"
+                  left={<IconTile icon="crop" tone="committee" />}
+                  onPress={() => {
+                    const [pure, crop] = (activeMember.avatarUrl || '').split('#crop=');
+                    setPreviewUri(pure);
+                    if (crop) {
+                      const p = crop.split(',');
+                      setCropScale(parseFloat(p[0]) || 1.0);
+                      setCropX(parseFloat(p[1]) || 0);
+                      setCropY(parseFloat(p[2]) || 0);
+                    } else {
+                      setCropScale(1.0);
+                      setCropX(0);
+                      setCropY(0);
+                    }
+                    setPhotoActionSheet(false);
+                  }}
+                />
+              ) : null}
               {activeMember.avatarUrl ? (
                 <ListRow
                   title="Remove current photo"
