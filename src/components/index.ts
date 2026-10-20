@@ -27,6 +27,7 @@ export * from './domain/OrgTree';
 export * from './domain/NotificationItem';
 export * from './domain/MetricTile';
 export * from './domain/AudienceSummary';
+export * from './domain/RoleTag';
 export * from './LoadingState';
 export * from './layout';
 export * from './VerifiedCheck';
