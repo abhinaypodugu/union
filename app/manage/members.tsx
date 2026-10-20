@@ -26,7 +26,7 @@ import {
 } from '../../src/components';
 import { Restricted } from '../../src/components/Restricted';
 import { colors, fonts, palette, radius } from '../../src/theme';
-import { useStore, Persona } from '../../src/store/AppStore';
+import { useStore, Persona, UNION_DESIGNATIONS } from '../../src/store/AppStore';
 import { dbService } from '../../src/services/db';
 
 const ROLE_INFO: Array<{ role: string; label: string; desc: string }> = [
@@ -308,12 +308,15 @@ export default function Members() {
       {isOrgAdmin ? (
        <View style={{ gap: 10 }}>
         <Txt variant="overline" color={colors.textMuted}>UNION DESIGNATION & VERIFICATION</Txt>
-        <Field label="Union Designation" infoText="Leadership post or baseline membership">
+        <Field label="Union Designation" infoText="Increasing constitutional rank (Member to President)">
          <Select
           value={currentMember.designation || 'Member'}
           onChange={(v) => updateMemberDesignation(currentMember.id, v)}
-          options={['Founding President', 'President', 'General Secretary', 'Division Secretary', 'Circle Secretary', 'Treasurer', 'Vice President', 'Member']}
+          options={UNION_DESIGNATIONS.map((d) => d.title)}
          />
+         <Txt variant="caption" color={colors.textMuted} style={{ marginTop: 2 }}>
+          {UNION_DESIGNATIONS.find((d) => d.title === (currentMember.designation || 'Member'))?.meaning || ''}
+         </Txt>
         </Field>
         <Field label="Employee ID" infoText="Department of Posts staff number">
          <Input

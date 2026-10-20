@@ -6,7 +6,7 @@ import {
   Switch, Tag, Txt, Sheet, Field, Input, VerifiedCheck,
 } from '../src/components';
 import { colors, palette, radius } from '../src/theme';
-import { useStore, NotificationPrefs, Tenant, DEFAULT_POSTAL_CADRES } from '../src/store/AppStore';
+import { useStore, NotificationPrefs, Tenant, DEFAULT_POSTAL_CADRES, UNION_DESIGNATIONS } from '../src/store/AppStore';
 import { POSTAL_CIRCLES, getDivisionsForCircle, getOfficesForDivision } from '../src/lib/postalData';
 const PREFS: Array<[keyof NotificationPrefs, string, boolean]> = [
   ['announcements', 'Official announcements', false],
@@ -286,12 +286,15 @@ export default function Profile() {
                 <Input value={editEmpId} onChangeText={setEditEmpId} placeholder="e.g. 10125634" keyboardType="number-pad" />
               </Field>
 
-              <Field label="Union Designation" required infoText="Your executive leadership post">
+              <Field label="Union Designation" required infoText="Ascending constitutional rank (Member to President)">
                 <Select
                   value={editDesig}
                   onChange={setEditDesig}
-                  options={['Founding President', 'President', 'General Secretary', 'Division Secretary', 'Circle Secretary', 'Treasurer', 'Vice President', 'Member']}
+                  options={['Founding President', ...UNION_DESIGNATIONS.map((d) => d.title)]}
                 />
+                <Txt variant="caption" color={colors.textMuted} style={{ marginTop: 2 }}>
+                  {UNION_DESIGNATIONS.find((d) => d.title === editDesig)?.meaning || (editDesig === 'Founding President' ? 'Founding constitutional head of the organization.' : '')}
+                </Txt>
               </Field>
 
               <Field label="Affiliated Association" required infoText="Your primary trade association affiliation">

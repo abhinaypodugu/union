@@ -55,6 +55,74 @@ export const AFFILIATED_ASSOCIATIONS: AffiliatedAssociation[] = [
 ];
 
 export const DEFAULT_POSTAL_CADRES = AFFILIATED_ASSOCIATIONS.map((a) => a.category);
+export interface UnionDesignation {
+  title: string;
+  level: number;
+  levelBadge: string;
+  meaning: string;
+  tone: 'neutral' | 'officer' | 'head';
+}
+
+/** Union designations in strictly increasing order from Member to President */
+export const UNION_DESIGNATIONS: UnionDesignation[] = [
+  {
+    title: 'Member',
+    level: 0,
+    levelBadge: 'L0 · Base',
+    meaning: 'Baseline union membership with workplace representation and voting rights.',
+    tone: 'neutral',
+  },
+  {
+    title: 'Executive Committee Member',
+    level: 1,
+    levelBadge: 'L1 · Branch',
+    meaning: 'Elected workplace delegate representing fellow staff in committee deliberations.',
+    tone: 'officer',
+  },
+  {
+    title: 'Assistant Secretary',
+    level: 2,
+    levelBadge: 'L2 · Officer',
+    meaning: 'Assists in branch administration, records meeting minutes, and handles member correspondence.',
+    tone: 'officer',
+  },
+  {
+    title: 'Vice President',
+    level: 3,
+    levelBadge: 'L3 · Officer',
+    meaning: 'Supports the President and chairs executive meetings and delegations in their absence.',
+    tone: 'officer',
+  },
+  {
+    title: 'Treasurer',
+    level: 4,
+    levelBadge: 'L4 · Finance',
+    meaning: 'Custodian of union funds, collects subscriptions, and maintains financial audits.',
+    tone: 'officer',
+  },
+  {
+    title: 'Division Secretary',
+    level: 5,
+    levelBadge: 'L5 · Division Head',
+    meaning: 'Chief executive officer of the postal division; coordinates grievances and local stewards.',
+    tone: 'head',
+  },
+  {
+    title: 'Circle Secretary',
+    level: 6,
+    levelBadge: 'L6 · Circle Head',
+    meaning: 'State-level executive coordinating all divisions and CPMG administrative matters.',
+    tone: 'head',
+  },
+  {
+    title: 'President',
+    level: 7,
+    levelBadge: 'L7 · Supreme Head',
+    meaning: 'Highest constitutional head representing the entire union in all official matters.',
+    tone: 'head',
+  },
+];
+
 
 export const DEFAULT_TERMINOLOGY: TerminologyConfig = {
   orgLabel: 'Union',

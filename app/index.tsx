@@ -20,7 +20,7 @@ import {
  Txt,
 } from '../src/components';
 import { colors, fonts, palette, radius } from '../src/theme';
-import { useStore, Tenant, HierarchyLevel, AFFILIATED_ASSOCIATIONS, DEFAULT_POSTAL_CADRES } from '../src/store/AppStore';
+import { useStore, Tenant, HierarchyLevel, AFFILIATED_ASSOCIATIONS, DEFAULT_POSTAL_CADRES, UNION_DESIGNATIONS } from '../src/store/AppStore';
 import { safeStorage as AsyncStorage } from '../src/services/supabase';
 import { dbService } from '../src/services/db';
 import { autofillFromDevice } from '../src/lib/location';
@@ -178,6 +178,7 @@ export default function Index() {
  const [dobYear, setDobYear] = useState('1972');
  const [officeSheet, setOfficeSheet] = useState(false);
  const [officeSearch, setOfficeSearch] = useState('');
+ const [desigSheet, setDesigSheet] = useState(false);
  const availableDivisions = React.useMemo(() => getDivisionsForCircle(memberRegion), [memberRegion]);
  const availableOffices = React.useMemo(() => getOfficesForDivision(memberRegion, memberUnit), [memberRegion, memberUnit]);
 
@@ -887,12 +888,33 @@ export default function Index() {
         <Input value={memberEmpId} onChangeText={setMemberEmpId} placeholder="e.g. 10125634" keyboardType="number-pad" />
        </Field>
 
-       <Field label="Union Designation" infoText="Your elected designation or standard membership">
-        <Select
-         value={memberDesignation}
-         onChange={setMemberDesignation}
-         options={['Member', 'President', 'Division Secretary', 'Circle Secretary', 'Treasurer', 'Vice President', 'Assistant Secretary', 'Committee Member']}
-        />
+       {/* Union Designation Selector (Rich Card + Sheet) */}
+       <Field label="Union Designation" infoText="Your union role. Leadership posts require review during onboarding.">
+        <Pressable
+         onPress={() => setDesigSheet(true)}
+         style={({ pressed }) => ({
+          padding: 12,
+          borderRadius: radius.l,
+          borderWidth: 1,
+          borderColor: colors.borderDefault,
+          backgroundColor: pressed ? colors.surfaceHover : colors.surfaceCard,
+          gap: 6,
+         })}
+        >
+         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+           <IconTile icon="shield" tone={memberDesignation !== 'Member' ? 'committee' : 'group'} size={28} />
+           <Txt variant="titleS">{memberDesignation}</Txt>
+           <Badge size="sm" tone={memberDesignation !== 'Member' ? 'warning' : 'neutral'}>
+            {UNION_DESIGNATIONS.find((d) => d.title === memberDesignation)?.levelBadge || 'L0 · Base'}
+           </Badge>
+          </View>
+          <Icon name="chevron-down" size={18} color={colors.textMuted} />
+         </View>
+         <Txt variant="caption" color={colors.textMuted} numberOfLines={2}>
+          {UNION_DESIGNATIONS.find((d) => d.title === memberDesignation)?.meaning || 'Baseline union membership with workplace representation and voting rights.'}
+         </Txt>
+        </Pressable>
        </Field>
 
        {/* Affiliated Association / Category Selector (Rich Design System Card + Sheet) */}
@@ -1258,6 +1280,53 @@ export default function Index() {
            </Txt>
           </View>
           {isSelected ? <Icon name="check" size={20} color={colors.accent} strokeWidth={2.5} /> : null}
+         </Pressable>
+        );
+       })}
+      </View>
+     </ScrollView>
+    </View>
+   </Sheet>
+   {/* Union Designation Selector Sheet — Increasing Order with Role Meanings */}
+   <Sheet visible={desigSheet} onClose={() => setDesigSheet(false)} title="Select Union Designation">
+    <View style={{ paddingHorizontal: 16, gap: 12, paddingBottom: 24, flexShrink: 1 }}>
+     <Notice tone="info" title="Role Hierarchy">
+      Roles are listed in ascending constitutional order (L0 to L7). Leadership posts (L1+) require verification by union officials.
+     </Notice>
+     <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false}>
+      <View style={{ gap: 8 }}>
+       {UNION_DESIGNATIONS.map((d) => {
+        const isSelected = d.title === memberDesignation;
+        return (
+         <Pressable
+          key={d.title}
+          onPress={() => {
+           setMemberDesignation(d.title);
+           setDesigSheet(false);
+          }}
+          style={({ pressed }) => ({
+           padding: 12,
+           borderRadius: radius.m,
+           borderWidth: 1,
+           borderColor: isSelected ? colors.accent : colors.borderSubtle,
+           backgroundColor: isSelected ? colors.accentSoft : pressed ? colors.surfaceHover : colors.surfaceCard,
+           gap: 4,
+          })}
+         >
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Txt variant="titleS" style={{ color: isSelected ? colors.accent : colors.textPrimary }}>
+             {d.title}
+            </Txt>
+            <Badge size="sm" tone={d.level > 0 ? (d.level >= 5 ? 'info' : 'warning') : 'neutral'}>
+             {d.levelBadge}
+            </Badge>
+           </View>
+           {isSelected ? <Icon name="check" size={18} color={colors.accent} strokeWidth={2.5} /> : null}
+          </View>
+          <Txt variant="caption" color={colors.textSecondary} style={{ lineHeight: 17 }}>
+           {d.meaning}
+          </Txt>
          </Pressable>
         );
        })}
