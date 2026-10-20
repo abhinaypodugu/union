@@ -6,7 +6,7 @@ import { Toast, ToastData } from '../components/Toast';
 import { dbService } from '../services/db';
 import { supabase } from '../services/supabase';
 import { registerForPush, unregisterPush } from '../services/push';
-import { errorMessage, median, relativeTime } from '../lib/format';
+import { errorMessage, median, relativeTime, normalizePhoneNumber } from '../lib/format';
 import type {
   AppNotification, AudienceOption, AudienceScope, AuditEntry, Case, CommitteeInfo, CommitteeMember, FunctionalGroup, GeoUnit,
   GroupItem, GroupSection, Issue, IssueAction, NotificationPrefs, Persona, Post, RoutingRule, Tenant, TenantSettings,
@@ -27,8 +27,9 @@ interface Store {
   isLiveDatabase: boolean;
   requestOtp: (phone: string) => Promise<{ ok: boolean; phone: string; error?: string }>;
   verifyOtp: (phone: string, code: string) => Promise<{ ok: boolean; memberships: Persona[]; isPlatformAdmin: boolean }>;
+  requestPhoneChangeOtp: (phone: string) => Promise<{ ok: boolean; phone: string; error?: string }>;
+  verifyPhoneChangeOtp: (phone: string, code: string) => Promise<{ ok: boolean; error?: string }>;
   logout: () => Promise<void>;
-
   // Organizations & memberships
   tenant: Tenant | null;
   tenants: Tenant[];
@@ -405,6 +406,23 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     await dbService.signOut();
     await AsyncStorage.removeItem(ACTIVE_TENANT_KEY).catch(() => undefined);
     toast({ title: 'Signed out', description: 'You have been signed out.' });
+  };
+  const requestPhoneChangeOtp: Store['requestPhoneChangeOtp'] = async (phone) => {
+    return dbService.requestPhoneChangeOtp(phone);
+  };
+
+  const verifyPhoneChangeOtp: Store['verifyPhoneChangeOtp'] = async (phone, code) => {
+    const res = await dbService.verifyPhoneChangeOtp(phone, code);
+    if (res.ok) {
+      const { normalized } = normalizePhoneNumber(phone);
+      if (activeMember && currentTenantId) {
+        const updatedMember: Persona = { ...activeMember, phone: normalized };
+        setMemberships((prev) => prev.map((m) => (m.id === activeMember.id ? updatedMember : m)));
+        await AsyncStorage.setItem(`postal_profile_${currentTenantId.toLowerCase()}`, JSON.stringify(updatedMember));
+      }
+      toast({ title: 'Mobile number updated', description: `Your verified phone is now +${normalized}` });
+    }
+    return res;
   };
 
   const switchTenant = (id: string) => {
@@ -785,6 +803,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     isLiveDatabase: dbService.isLive,
     requestOtp,
     verifyOtp,
+    requestPhoneChangeOtp,
+    verifyPhoneChangeOtp,
     logout,
     tenant,
     tenants,

@@ -19,7 +19,7 @@ export default function Profile() {
   const {
     tenant, tenants, memberships, switchTenant, activeMember, authReady, signedIn, isPlatformSuperAdmin, isOrgAdmin, isMembershipAdmin,
     adminMembers, loadAdminMembers, setupOrganization, registerMember, lookupOrgByCode, updatePrefs, logout, myAppointments,
-    committees, toast, updatePostalProfile,
+    committees, toast, updatePostalProfile, requestPhoneChangeOtp, verifyPhoneChangeOtp,
   } = useStore();
 
   const [orgSheet, setOrgSheet] = React.useState(false);
@@ -30,6 +30,11 @@ export default function Profile() {
   const [join, setJoin] = React.useState({ code: '', unit: '', region: '', group: '' });
   const [joinOrg, setJoinOrg] = React.useState<Tenant | null>(null);
   const [postalSheet, setPostalSheet] = React.useState(false);
+  const [phoneSheet, setPhoneSheet] = React.useState(false);
+  const [newPhone, setNewPhone] = React.useState('');
+  const [phoneOtp, setPhoneOtp] = React.useState('');
+  const [otpSent, setOtpSent] = React.useState(false);
+  const [phoneBusy, setPhoneBusy] = React.useState(false);
   const [editEmpId, setEditEmpId] = React.useState('');
   const [editDesig, setEditDesig] = React.useState('');
   const [editCategory, setEditCategory] = React.useState('');
@@ -84,6 +89,39 @@ export default function Profile() {
     });
     setBusy(false);
     setPostalSheet(false);
+  };
+  const handleRequestPhoneOtp = async () => {
+    if (!newPhone.trim() || phoneBusy) return;
+    setPhoneBusy(true);
+    try {
+      const res = await requestPhoneChangeOtp(newPhone);
+      if (res.ok) {
+        setOtpSent(true);
+        toast({ title: 'Verification code sent', description: `SMS sent to ${res.phone}` });
+      } else {
+        toast({ title: 'Failed to send OTP', description: res.error || 'Please enter a valid mobile number.' });
+      }
+    } finally {
+      setPhoneBusy(false);
+    }
+  };
+
+  const handleVerifyPhoneChange = async () => {
+    if (phoneOtp.trim().length < 6 || phoneBusy) return;
+    setPhoneBusy(true);
+    try {
+      const res = await verifyPhoneChangeOtp(newPhone, phoneOtp);
+      if (res.ok) {
+        setPhoneSheet(false);
+        setOtpSent(false);
+        setNewPhone('');
+        setPhoneOtp('');
+      } else {
+        toast({ title: 'Verification failed', description: res.error || 'Invalid or expired code.' });
+      }
+    } finally {
+      setPhoneBusy(false);
+    }
   };
   React.useEffect(() => { if (isMembershipAdmin) void loadAdminMembers(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [isMembershipAdmin, tenant?.id]);
 
@@ -176,8 +214,8 @@ export default function Profile() {
         </>
       )}
 
-      <SectionLabel right={<Button size="sm" variant="ghost" icon="edit-2" onPress={openPostalEdit}>Edit</Button>}>Postal Identity & Membership</SectionLabel>
-      <Card padding={14} style={{ marginHorizontal: 12, paddingVertical: 2 }}>
+      <SectionLabel right={<Button size="sm" variant="secondary" icon="edit-2" onPress={openPostalEdit}>Edit Details</Button>}>Postal Identity & Membership</SectionLabel>
+      <Card padding={14} style={{ marginHorizontal: 12, paddingVertical: 2, gap: 8 }}>
         <KeyValue first k="Employee ID" v={activeMember.employeeId || '—'} />
         <KeyValue k="Category" v={activeMember.category || (activeMember.groups.length ? activeMember.groups[0] : '—')} />
         <KeyValue k="Designation" v={activeMember.designation || 'Member'} />
@@ -188,6 +226,17 @@ export default function Profile() {
         <KeyValue k="Verified mobile" v={activeMember.phone ? '+' + activeMember.phone.replace(/^\+/, '') : '—'} />
         <KeyValue k="Roles" v={activeMember.roles.join(', ')} />
         <KeyValue k="Member since" v={activeMember.since} />
+        <View style={{ paddingTop: 8, paddingBottom: 6 }}>
+          <Button
+            size="md"
+            variant="secondary"
+            icon="edit-2"
+            block
+            onPress={openPostalEdit}
+          >
+            Edit Workplace & Mobile
+          </Button>
+        </View>
       </Card>
       <SectionLabel>Notifications</SectionLabel>
       <Card padding={14} style={{ marginHorizontal: 12, paddingVertical: 2 }}>
@@ -364,6 +413,31 @@ export default function Profile() {
             />
           </Field>
 
+          {/* Mobile Phone & Change Phone via OTP Section */}
+          <View style={{ gap: 6, padding: 12, borderRadius: radius.m, backgroundColor: colors.surfaceCard, borderWidth: 1, borderColor: colors.borderDefault }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ gap: 2, flex: 1 }}>
+                <Txt variant="caption" color={colors.textMuted}>VERIFIED MOBILE NUMBER</Txt>
+                <Txt variant="bodyStrong" color={colors.textPrimary}>
+                  {activeMember.phone ? '+' + activeMember.phone.replace(/^\+/, '') : 'No number'}
+                </Txt>
+              </View>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="phone"
+                onPress={() => {
+                  setNewPhone('');
+                  setPhoneOtp('');
+                  setOtpSent(false);
+                  setPhoneSheet(true);
+                }}
+              >
+                Change (OTP)
+              </Button>
+            </View>
+          </View>
+
           <Field label="Date of Birth" infoText="Format: DD-MM-YYYY">
             <Input value={editDob} onChangeText={setEditDob} placeholder="e.g. 06-04-1972" />
           </Field>
@@ -371,6 +445,68 @@ export default function Profile() {
             {busy ? 'Saving…' : 'Save Workplace Details'}
           </Button>
         </ScrollView>
+      </Sheet>
+      {/* Change Mobile Number via OTP Sheet */}
+      <Sheet visible={phoneSheet} onClose={() => setPhoneSheet(false)} title="Change Mobile Number">
+        <View style={{ paddingHorizontal: 16, gap: 14, paddingBottom: 28, flexShrink: 1 }}>
+          {!otpSent ? (
+            <>
+              <Txt variant="bodyS" color={colors.textSecondary}>
+                Enter your new mobile number. An SMS verification code will be sent to confirm your identity.
+              </Txt>
+              <Field label="New Mobile Number" required infoText="Enter 10-digit mobile number">
+                <Input
+                  value={newPhone}
+                  onChangeText={setNewPhone}
+                  placeholder="e.g. 9876543210"
+                  keyboardType="phone-pad"
+                  autoFocus
+                />
+              </Field>
+              <Button
+                size="lg"
+                block
+                icon="send"
+                disabled={!newPhone.trim() || phoneBusy}
+                onPress={handleRequestPhoneOtp}
+              >
+                {phoneBusy ? 'Sending OTP…' : 'Send Verification Code (SMS)'}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Notice tone="info" title="Verification Code Sent">
+                We sent a 6-digit code to your new mobile number. Enter it below to update your account.
+              </Notice>
+              <Field label="6-Digit Verification Code" required>
+                <Input
+                  value={phoneOtp}
+                  onChangeText={setPhoneOtp}
+                  placeholder="123456"
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  autoFocus
+                />
+              </Field>
+              <Button
+                size="lg"
+                block
+                icon="check"
+                disabled={phoneOtp.trim().length < 6 || phoneBusy}
+                onPress={handleVerifyPhoneChange}
+              >
+                {phoneBusy ? 'Verifying…' : 'Verify & Update Mobile Number'}
+              </Button>
+              <Button
+                variant="ghost"
+                block
+                onPress={() => setOtpSent(false)}
+              >
+                Enter a different number
+              </Button>
+            </>
+          )}
+        </View>
       </Sheet>
     </Screen >
   );

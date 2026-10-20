@@ -161,6 +161,28 @@ export const dbService = {
     if (error || !data?.session) return { ok: false, error: errorMessage(error) || 'Invalid or expired verification code.' };
     return { ok: true };
   },
+  async requestPhoneChangeOtp(rawPhone: string): Promise<{ ok: boolean; phone: string; error?: string }> {
+    const { normalized, digits } = normalizePhoneNumber(rawPhone);
+    if (digits.length < 10) return { ok: false, phone: normalized, error: 'Enter a valid 10-digit mobile number.' };
+    const { error } = await supabase.auth.updateUser({ phone: normalized });
+    return error ? { ok: false, phone: normalized, error: errorMessage(error) } : { ok: true, phone: normalized };
+  },
+
+  async verifyPhoneChangeOtp(rawPhone: string, code: string): Promise<{ ok: boolean; error?: string }> {
+    const { normalized } = normalizePhoneNumber(rawPhone);
+    if (!/^\d{6}$/.test(code.trim())) return { ok: false, error: 'Enter the 6-digit verification code.' };
+    const { error } = await supabase.auth.verifyOtp({ phone: normalized, token: code.trim(), type: 'phone_change' });
+    if (error) return { ok: false, error: errorMessage(error) || 'Invalid or expired verification code.' };
+    try {
+      const user = (await supabase.auth.getUser()).data.user;
+      if (user?.id) {
+        await supabase.from('profiles').update({ phone: normalized }).eq('user_id', user.id);
+      }
+    } catch {
+      // ignore
+    }
+    return { ok: true };
+  },
 
   async signOut(): Promise<void> {
     await supabase.auth.signOut();
