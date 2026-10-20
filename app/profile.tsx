@@ -1149,7 +1149,7 @@ export default function Profile() {
               />
               <ListRow
                 title="Choose an avatar"
-                subtitle="Select from professional portraits"
+                subtitle="Select from illustrated avatars"
                 left={<IconTile icon="smile" tone="group" />}
                 onPress={() => {
                   setPhotoActionSheet(false);
