@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Pressable, Share, ScrollView, Modal } from 'react-native';
+import { View, Pressable, Share, ScrollView, Modal, Image } from 'react-native';
 import { Redirect, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 let ImagePicker: any = null;
@@ -10,7 +10,7 @@ try {
 }
 import {
   Avatar, Badge, Button, Card, Icon, IconButton, IconTile, KeyValue, ListCard, ListRow, LoadingState, Notice, Screen, SectionLabel, Select, StackHeader,
-  Switch, Tag, Txt, Sheet, Field, Input, VerifiedCheck,
+  Switch, Tag, Txt, Sheet, Field, Input, VerifiedCheck, CuteAvatar, CUTE_AVATARS,
 } from '../src/components';
 import { colors, fonts, palette, radius } from '../src/theme';
 import { useStore, NotificationPrefs, Tenant, DEFAULT_POSTAL_CADRES, UNION_DESIGNATIONS } from '../src/store/AppStore';
@@ -34,9 +34,11 @@ export default function Profile() {
   const insets = useSafeAreaInsets();
   const [avatarModalOpen, setAvatarModalOpen] = React.useState(false);
   const [photoActionSheet, setPhotoActionSheet] = React.useState(false);
-  const [urlSheet, setUrlSheet] = React.useState(false);
-  const [imageUrlInput, setImageUrlInput] = React.useState('');
+  const [cuteIconsSheet, setCuteIconsSheet] = React.useState(false);
   const [previewUri, setPreviewUri] = React.useState<string | null>(null);
+  const [cropScale, setCropScale] = React.useState(1.0);
+  const [cropX, setCropX] = React.useState(0);
+  const [cropY, setCropY] = React.useState(0);
   const [uploadingPhoto, setUploadingPhoto] = React.useState(false);
 
   const [orgSheet, setOrgSheet] = React.useState(false);
@@ -212,14 +214,28 @@ export default function Profile() {
     if (!previewUri || uploadingPhoto) return;
     setUploadingPhoto(true);
     try {
-      if (previewUri.startsWith('http://') || previewUri.startsWith('https://')) {
+      if (previewUri.startsWith('default:')) {
         await updatePostalProfile({ avatarUrl: previewUri });
+        setPreviewUri(null);
+        setAvatarModalOpen(false);
+        toast({ title: 'Avatar updated' });
+      } else if (previewUri.startsWith('http://') || previewUri.startsWith('https://')) {
+        const cropSuffix = cropScale !== 1 || cropX !== 0 || cropY !== 0
+          ? `#crop=${cropScale.toFixed(2)},${cropX.toFixed(0)},${cropY.toFixed(0)}`
+          : '';
+        await updatePostalProfile({ avatarUrl: previewUri + cropSuffix });
         setPreviewUri(null);
         setAvatarModalOpen(false);
         toast({ title: 'Profile photo updated' });
       } else {
         const res = await uploadAvatar(previewUri);
-        if (res.ok) {
+        if (res.ok && res.url) {
+          const cropSuffix = cropScale !== 1 || cropX !== 0 || cropY !== 0
+            ? `#crop=${cropScale.toFixed(2)},${cropX.toFixed(0)},${cropY.toFixed(0)}`
+            : '';
+          if (cropSuffix) {
+            await updatePostalProfile({ avatarUrl: res.url + cropSuffix });
+          }
           setPreviewUri(null);
           setAvatarModalOpen(false);
         }
@@ -761,18 +777,45 @@ export default function Profile() {
                   justifyContent: 'center',
                 }}
               >
-                <Avatar
-                  name={activeMember.name}
-                  uri={previewUri || activeMember.avatarUrl}
-                  size={234}
-                />
+                {previewUri && !previewUri.startsWith('default:') ? (
+                  <Image
+                    source={{ uri: previewUri }}
+                    style={{
+                      width: 234,
+                      height: 234,
+                      transform: [{ scale: cropScale }, { translateX: cropX }, { translateY: cropY }],
+                    }}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <Avatar
+                    name={activeMember.name}
+                    uri={previewUri || activeMember.avatarUrl}
+                    size={234}
+                  />
+                )}
+                {/* Circular Framing Crosshair Overlay while Cropping */}
+                {previewUri && !previewUri.startsWith('default:') && (
+                  <View
+                    pointerEvents="none"
+                    style={{
+                      position: 'absolute',
+                      width: 234,
+                      height: 234,
+                      borderRadius: 117,
+                      borderWidth: 1.5,
+                      borderColor: 'rgba(255,255,255,0.7)',
+                      borderStyle: 'dashed',
+                    }}
+                  />
+                )}
               </View>
 
               {/* WhatsApp-Style Floating Edit Button at Bottom-Right */}
               {!previewUri && (
                 <Pressable
                   onPress={() => {
-                    setUrlSheet(false);
+                    setCuteIconsSheet(false);
                     setPhotoActionSheet(true);
                   }}
                   disabled={uploadingPhoto}
@@ -804,8 +847,8 @@ export default function Profile() {
             </View>
 
             {/* Name and Details under the circle */}
-            {!photoActionSheet && !urlSheet && (
-              <View style={{ alignItems: 'center', gap: 6, marginTop: 20 }}>
+            {!photoActionSheet && !cuteIconsSheet && (
+              <View style={{ alignItems: 'center', gap: 6, marginTop: 16 }}>
                 <Txt style={{ color: '#fff', fontSize: 22, fontFamily: fonts.display600 }}>{activeMember.name}</Txt>
                 <Txt style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14, fontFamily: fonts.sans400 }}>
                   {activeMember.designation || 'Member'} · {activeMember.division || activeMember.unit}
@@ -817,91 +860,167 @@ export default function Profile() {
           {/* Bottom Action Area: If Previewing cropped photo, show Retake / Save buttons */}
           {/* Bottom Action Area */}
           {previewUri ? (
-            <View style={{ width: '100%', maxWidth: 320, gap: 12 }}>
+            <View style={{ width: '100%', maxWidth: 320, gap: 10 }}>
+              {/* Interactive Framing & Crop Controls (only for custom photos) */}
+              {!previewUri.startsWith('default:') && (
+                <View
+                  style={{
+                    backgroundColor: 'rgba(255,255,255,0.08)',
+                    borderRadius: radius.m,
+                    padding: 10,
+                    gap: 8,
+                    borderWidth: 1,
+                    borderColor: 'rgba(255,255,255,0.12)',
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Txt style={{ color: '#fff', fontSize: 12, fontFamily: fonts.sans600 }}>Frame & Crop</Txt>
+                    <Pressable
+                      onPress={() => {
+                        setCropScale(1.0);
+                        setCropX(0);
+                        setCropY(0);
+                      }}
+                      style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.15)' }}
+                    >
+                      <Txt style={{ color: '#fff', fontSize: 11 }}>↺ Reset</Txt>
+                    </Pressable>
+                  </View>
+
+                  {/* Zoom Controls */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Txt style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>Zoom</Txt>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Pressable
+                        onPress={() => setCropScale((s) => Math.max(1.0, +(s - 0.15).toFixed(2)))}
+                        style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <Icon name="minus" size={14} color="#fff" />
+                      </Pressable>
+                      <Txt style={{ color: '#fff', fontSize: 12, fontFamily: fonts.mono600, minWidth: 36, textAlign: 'center' }}>
+                        {cropScale.toFixed(1)}x
+                      </Txt>
+                      <Pressable
+                        onPress={() => setCropScale((s) => Math.min(3.0, +(s + 0.15).toFixed(2)))}
+                        style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <Icon name="plus" size={14} color="#fff" />
+                      </Pressable>
+                    </View>
+                  </View>
+
+                  {/* Pan Nudge Controls */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Txt style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>Position</Txt>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Pressable
+                        onPress={() => setCropX((x) => x - 10)}
+                        style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <Icon name="arrow-left" size={13} color="#fff" />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setCropY((y) => y - 10)}
+                        style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <Icon name="arrow-up" size={13} color="#fff" />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setCropY((y) => y + 10)}
+                        style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <Icon name="arrow-down" size={13} color="#fff" />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setCropX((x) => x + 10)}
+                        style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <Icon name="arrow-right" size={13} color="#fff" />
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+              )}
+
               <Button
                 variant="primary"
-                size="lg"
+                size="md"
                 block
                 icon="check"
                 disabled={uploadingPhoto}
                 onPress={handleSaveAvatar}
               >
-                {uploadingPhoto ? 'Saving Photo…' : 'Save & Set Profile Photo'}
+                {uploadingPhoto ? 'Saving Photo…' : 'Save Framed Photo'}
               </Button>
               <Button
                 variant="ghost"
-                size="md"
+                size="sm"
                 block
                 disabled={uploadingPhoto}
-                onPress={() => setPreviewUri(null)}
+                onPress={() => {
+                  setPreviewUri(null);
+                  setCropScale(1.0);
+                  setCropX(0);
+                  setCropY(0);
+                }}
                 style={{ backgroundColor: 'rgba(255,255,255,0.1)' }}
               >
-                Retake / Cancel
+                Cancel / Change
               </Button>
             </View>
-          ) : urlSheet ? (
+          ) : cuteIconsSheet ? (
             <View
               style={{
                 width: '100%',
                 backgroundColor: colors.surfaceCard,
                 borderRadius: radius.l,
-                padding: 16,
-                gap: 12,
+                padding: 14,
+                gap: 10,
+                maxHeight: 340,
               }}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Txt variant="titleS">Enter Photo URL</Txt>
-                <Pressable onPress={() => setUrlSheet(false)}>
+                <Txt variant="titleS">Choose a Cute Avatar</Txt>
+                <Pressable onPress={() => setCuteIconsSheet(false)}>
                   <Icon name="x" size={20} color={colors.textSecondary} />
                 </Pressable>
               </View>
-              <Input
-                value={imageUrlInput}
-                onChangeText={setImageUrlInput}
-                placeholder="https://example.com/photo.jpg"
-              />
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                <View style={{ flex: 1 }}>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    block
-                    onPress={() => {
-                      setPreviewUri('https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&q=80');
-                      setUrlSheet(false);
-                    }}
-                  >
-                    Sample 1
-                  </Button>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    block
-                    onPress={() => {
-                      setPreviewUri('https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&q=80');
-                      setUrlSheet(false);
-                    }}
-                  >
-                    Sample 2
-                  </Button>
-                </View>
-              </View>
-              <Button
-                block
-                size="md"
-                icon="check"
-                disabled={!imageUrlInput.includes('http')}
-                onPress={() => {
-                  const m = imageUrlInput.match(/https?:\/\/[^\s]+/);
-                  const valid = m ? m[0] : imageUrlInput.trim();
-                  setPreviewUri(valid);
-                  setUrlSheet(false);
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  gap: 10,
+                  justifyContent: 'space-between',
+                  paddingVertical: 4,
                 }}
               >
-                Preview Photo
-              </Button>
+                {CUTE_AVATARS.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => {
+                      setPreviewUri('default:' + item.id);
+                      setCropScale(1.0);
+                      setCropX(0);
+                      setCropY(0);
+                      setCuteIconsSheet(false);
+                      setPhotoActionSheet(false);
+                    }}
+                    style={({ pressed }) => ({
+                      alignItems: 'center',
+                      gap: 4,
+                      width: '22%',
+                      opacity: pressed ? 0.75 : 1,
+                      transform: [{ scale: pressed ? 0.94 : 1 }],
+                    })}
+                  >
+                    <CuteAvatar id={item.id} size={50} />
+                    <Txt variant="caption" numberOfLines={1} align="center" style={{ fontSize: 10 }}>
+                      {item.name}
+                    </Txt>
+                  </Pressable>
+                ))}
+              </ScrollView>
             </View>
           ) : photoActionSheet ? (
             <View
@@ -921,24 +1040,23 @@ export default function Profile() {
               </View>
               <ListRow
                 title="Take photo"
-                subtitle="Use camera to capture and crop"
+                subtitle="Use camera to capture"
                 left={<IconTile icon="camera" tone="committee" />}
                 onPress={handleTakePhoto}
               />
               <ListRow
                 title="Choose from gallery"
-                subtitle="Pick an existing image and crop"
+                subtitle="Pick from photo library"
                 left={<IconTile icon="image" tone="geo" />}
                 onPress={handlePickFromGallery}
               />
               <ListRow
-                title="Paste image link"
-                subtitle="Use a web photo URL for instant preview"
-                left={<IconTile icon="link" tone="group" />}
+                title="Choose cute icon"
+                subtitle="Select from animated illustrated characters"
+                left={<IconTile icon="smile" tone="group" />}
                 onPress={() => {
                   setPhotoActionSheet(false);
-                  setImageUrlInput('');
-                  setUrlSheet(true);
+                  setCuteIconsSheet(true);
                 }}
               />
               {activeMember.avatarUrl ? (

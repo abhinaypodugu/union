@@ -68,7 +68,7 @@ export default function Home() {
             <IconButton icon="search" label="Search" size="lg" onPress={() => router.push('/search')} />
             {isLeader ? <IconButton icon="shield" label="Management" size="lg" onPress={() => router.push('/manage')} /> : null}
             <Pressable accessibilityLabel="Your profile" onPress={() => router.push('/profile')} style={{ marginLeft: 4 }}>
-              <Avatar name={activeMember?.name || 'User'} size={34} />
+              <Avatar name={activeMember?.name || 'User'} uri={activeMember?.avatarUrl} size={34} />
             </Pressable>
           </>
         }
@@ -113,7 +113,7 @@ export default function Home() {
                 backgroundColor: pressed ? colors.surfaceHover : colors.surfaceCard,
               })}
             >
-              <Avatar name={activeMember?.name || 'User'} size={28} />
+              <Avatar name={activeMember?.name || 'User'} uri={activeMember?.avatarUrl} size={28} />
               <Txt style={{ flex: 1, fontFamily: fonts.sans400, fontSize: 14 }} color={colors.textMuted} numberOfLines={1}>
                 Share an update…
               </Txt>

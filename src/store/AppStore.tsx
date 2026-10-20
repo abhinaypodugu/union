@@ -201,6 +201,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
               officeEmployed: m.officeEmployed || cached.officeEmployed,
               division: m.division || cached.division || m.unit,
               circle: m.circle || cached.circle || m.region,
+              avatarUrl: m.avatarUrl || cached.avatarUrl,
             };
           }
         } catch {

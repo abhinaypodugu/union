@@ -31,3 +31,4 @@ export * from './domain/RoleTag';
 export * from './LoadingState';
 export * from './layout';
 export * from './VerifiedCheck';
+export * from './CuteAvatar';

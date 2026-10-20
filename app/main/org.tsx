@@ -18,11 +18,11 @@ const PAGE = 25;
 
 type Bearer = { key: string; name: string; role: string; committee: CommitteeInfo; person?: Persona };
 
-function PersonRow({ name, sub, role, you, onPress, size = 40 }: { name: string; sub?: string; role?: string; you?: boolean; onPress: () => void; size?: number }) {
+function PersonRow({ name, sub, role, you, onPress, size = 40, uri }: { name: string; sub?: string; role?: string; you?: boolean; onPress: () => void; size?: number; uri?: string }) {
  return (
   <Pressable accessibilityRole="button" accessibilityLabel={[name, role, sub].filter(Boolean).join(', ')} onPress={onPress}
    style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 60, paddingVertical: 10, paddingHorizontal: 14, backgroundColor: pressed ? colors.surfaceHover : 'transparent' })}>
-   <Avatar name={name} size={size} />
+   <Avatar name={name} uri={uri} size={size} />
    <View style={{ flex: 1, gap: 4 }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
      <Txt variant="titleS" numberOfLines={1} style={{ flexShrink: 1 }}>{name}</Txt>
@@ -226,7 +226,7 @@ export default function Org() {
         <Card style={{ marginHorizontal: 12, padding: 16 }}><Txt variant="bodyS" color={colors.textMuted}>{`No office-bearers appointed for this ${terminology.level1Label.toLowerCase()} yet.`}</Txt></Card>
        ) : (
         <ListCard style={{ marginHorizontal: 12 }}>
-         {divBearers.map((b) => <PersonRow key={b.key} name={b.name} role={roleLabel(b)} sub={sub(b.person)} you={isMe(b.key)} onPress={() => open(b.name, b.key, b.person)} />)}
+         {divBearers.map((b) => <PersonRow key={b.key} name={b.name} role={roleLabel(b)} sub={sub(b.person)} you={isMe(b.key)} uri={b.person?.avatarUrl} onPress={() => open(b.name, b.key, b.person)} />)}
         </ListCard>
        )}
 
@@ -235,7 +235,7 @@ export default function Org() {
         <Card style={{ marginHorizontal: 12, padding: 16 }}><Txt variant="bodyS" color={colors.textMuted}>No other members visible to you here.</Txt></Card>
        ) : (
         <ListCard style={{ marginHorizontal: 12 }}>
-         {divMembers.slice(0, limit).map((m) => <PersonRow key={m.id} size={36} name={m.name} sub={sub(m)} you={isMe(m.id)} onPress={() => open(m.name, m.id, m)} />)}
+         {divMembers.slice(0, limit).map((m) => <PersonRow key={m.id} size={36} name={m.name} sub={sub(m)} you={isMe(m.id)} uri={m.avatarUrl} onPress={() => open(m.name, m.id, m)} />)}
          {divMembers.length > limit ? (
           <Pressable accessibilityRole="button" onPress={() => setLimit((n) => n + PAGE * 2)} style={({ pressed }) => ({ minHeight: 48, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? colors.surfaceHover : 'transparent' })}>
            <Txt variant="label" color={colors.textAccent}>{`Show more (${divMembers.length - limit})`}</Txt>
@@ -328,7 +328,7 @@ export default function Org() {
      <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 28, gap: 14 }} showsVerticalScrollIndicator={false}>
       {/* Member Header */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-       <Avatar name={sheet.name} size={56} />
+       <Avatar name={sheet.name} uri={sp?.avatarUrl} size={56} />
        <View style={{ flex: 1, gap: 4 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
          <Txt variant="displayS">{sheet.name}</Txt>

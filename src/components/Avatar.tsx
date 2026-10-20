@@ -3,6 +3,7 @@ import { Image, View, ViewStyle } from 'react-native';
 import { colors, fonts, nameHue, oklchToHex, palette } from '../theme';
 import { Icon } from './Icon';
 import { Txt } from './Txt';
+import { CuteAvatar } from './CuteAvatar';
 
 const initials = (name: string) => {
   const p = name.trim().split(/\s+/);
@@ -23,6 +24,25 @@ export interface AvatarProps {
 export function Avatar({ name, uri, size = 40, official, ring, style }: AvatarProps) {
   const h = nameHue(name);
   const seal = Math.max(14, Math.round(size * 0.38));
+
+  // Parse any crop framing parameters (#crop=scale,dx,dy)
+  const [actualUri, cropParams] = (uri || '').split('#crop=');
+  let scale = 1;
+  let translateX = 0;
+  let translateY = 0;
+  if (cropParams) {
+    const parts = cropParams.split(',');
+    if (parts.length >= 3) {
+      scale = parseFloat(parts[0]) || 1;
+      const ratio = size / 240;
+      translateX = (parseFloat(parts[1]) || 0) * ratio;
+      translateY = (parseFloat(parts[2]) || 0) * ratio;
+    }
+  }
+
+  const isDefaultIcon = actualUri && actualUri.startsWith('default:');
+  const defaultIconId = isDefaultIcon ? actualUri.replace('default:', '') : null;
+
   return (
     <View
       accessibilityLabel={name}
@@ -43,8 +63,17 @@ export function Avatar({ name, uri, size = 40, official, ring, style }: AvatarPr
           overflow: 'hidden',
         }}
       >
-        {uri ? (
-          <Image source={{ uri }} style={{ width: size, height: size }} />
+        {isDefaultIcon && defaultIconId ? (
+          <CuteAvatar id={defaultIconId} size={size} />
+        ) : actualUri ? (
+          <Image
+            source={{ uri: actualUri }}
+            style={{
+              width: size,
+              height: size,
+              transform: [{ scale }, { translateX }, { translateY }],
+            }}
+          />
         ) : (
           <Txt
             style={{
