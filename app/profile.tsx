@@ -52,49 +52,79 @@ export default function Profile() {
   cropYRef.current = cropY;
 
   const panResponder = React.useMemo(() => {
-    let baseScale = 1.0;
-    let baseDistance = 0;
-    let basePanX = 0;
-    let basePanY = 0;
+    let initialPinchDistance = 0;
+    let initialPinchScale = 1.0;
+    let initialSingleTouchX = 0;
+    let initialSingleTouchY = 0;
+    let initialPanX = 0;
+    let initialPanY = 0;
+    let isPinching = false;
 
     return PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: (evt) => {
-        basePanX = cropXRef.current;
-        basePanY = cropYRef.current;
-        baseScale = cropScaleRef.current;
         const touches = evt.nativeEvent.touches;
+        initialPanX = cropXRef.current;
+        initialPanY = cropYRef.current;
+        initialPinchScale = cropScaleRef.current;
         if (touches && touches.length >= 2) {
-          baseDistance = calcDistance(
+          isPinching = true;
+          initialPinchDistance = calcDistance(
             touches[0].pageX, touches[0].pageY,
             touches[1].pageX, touches[1].pageY
           );
-        } else {
-          baseDistance = 0;
+        } else if (touches && touches.length === 1) {
+          isPinching = false;
+          initialSingleTouchX = touches[0].pageX;
+          initialSingleTouchY = touches[0].pageY;
+          initialPinchDistance = 0;
         }
       },
-      onPanResponderMove: (evt, gestureState) => {
+      onPanResponderMove: (evt) => {
         const touches = evt.nativeEvent.touches;
         if (touches && touches.length >= 2) {
-          if (baseDistance > 0) {
-            const curDist = calcDistance(
-              touches[0].pageX, touches[0].pageY,
-              touches[1].pageX, touches[1].pageY
-            );
-            const factor = curDist / baseDistance;
-            const nextScale = Math.min(3.5, Math.max(1.0, +(baseScale * factor).toFixed(2)));
+          const curDist = calcDistance(
+            touches[0].pageX, touches[0].pageY,
+            touches[1].pageX, touches[1].pageY
+          );
+          // If second finger touched down mid-gesture
+          if (!isPinching || initialPinchDistance <= 0) {
+            isPinching = true;
+            initialPinchDistance = curDist;
+            initialPinchScale = cropScaleRef.current;
+            return;
+          }
+          if (initialPinchDistance > 10) {
+            const factor = curDist / initialPinchDistance;
+            const nextScale = Math.min(3.5, Math.max(1.0, +(initialPinchScale * factor).toFixed(2)));
             setCropScale(nextScale);
           }
         } else if (touches && touches.length === 1) {
-          const nextX = Math.round(basePanX + gestureState.dx);
-          const nextY = Math.round(basePanY + gestureState.dy);
+          if (isPinching) {
+            isPinching = false;
+            initialPinchDistance = 0;
+            initialSingleTouchX = touches[0].pageX;
+            initialSingleTouchY = touches[0].pageY;
+            initialPanX = cropXRef.current;
+            initialPanY = cropYRef.current;
+            return;
+          }
+          const dx = touches[0].pageX - initialSingleTouchX;
+          const dy = touches[0].pageY - initialSingleTouchY;
+          const nextX = Math.round(initialPanX + dx);
+          const nextY = Math.round(initialPanY + dy);
           setCropX(nextX);
           setCropY(nextY);
         }
       },
       onPanResponderRelease: () => {
-        baseDistance = 0;
+        isPinching = false;
+        initialPinchDistance = 0;
+      },
+      onPanResponderTerminate: () => {
+        isPinching = false;
+        initialPinchDistance = 0;
       },
     });
   }, []);
@@ -925,22 +955,77 @@ export default function Profile() {
           {/* Bottom Action Area */}
           {previewUri ? (
             <View style={{ width: '100%', maxWidth: 320, gap: 14, alignItems: 'center' }}>
-              {/* Intuitive Gesture Tip Badge */}
+              {/* Zoom Slider & Status Bar */}
               <View
                 style={{
+                  width: '100%',
                   flexDirection: 'row',
                   alignItems: 'center',
-                  gap: 8,
-                  backgroundColor: 'rgba(255,255,255,0.12)',
+                  gap: 10,
+                  backgroundColor: 'rgba(255,255,255,0.08)',
                   paddingHorizontal: 14,
-                  paddingVertical: 7,
-                  borderRadius: radius.pill,
+                  paddingVertical: 10,
+                  borderRadius: radius.l,
                 }}
               >
-                <Icon name="move" size={14} color="#fff" />
-                <Txt style={{ color: '#fff', fontSize: 12, fontFamily: fonts.sans500 }}>
-                  Pinch to zoom ({cropScale.toFixed(1)}x) · Drag to frame
+                <Pressable
+                  onPress={() => setCropScale((s) => Math.max(1.0, +(s - 0.2).toFixed(2)))}
+                  style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <Icon name="minus" size={14} color="#fff" />
+                </Pressable>
+
+                {/* Interactive Slider Track Bar */}
+                <View
+                  style={{ flex: 1, height: 28, justifyContent: 'center' }}
+                  onStartShouldSetResponder={() => true}
+                  onResponderGrant={(e) => {
+                    const width = 140;
+                    const x = Math.max(0, Math.min(width, e.nativeEvent.locationX));
+                    const ratio = x / width;
+                    setCropScale(+(1.0 + ratio * 2.5).toFixed(2));
+                  }}
+                  onResponderMove={(e) => {
+                    const width = 140;
+                    const x = Math.max(0, Math.min(width, e.nativeEvent.locationX));
+                    const ratio = x / width;
+                    setCropScale(+(1.0 + ratio * 2.5).toFixed(2));
+                  }}
+                >
+                  <View style={{ height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.2)', width: '100%' }}>
+                    <View
+                      style={{
+                        height: 4,
+                        borderRadius: 2,
+                        backgroundColor: colors.accent,
+                        width: `${Math.min(100, Math.max(0, ((cropScale - 1.0) / 2.5) * 100))}%`,
+                      }}
+                    />
+                  </View>
+                  <View
+                    style={{
+                      position: 'absolute',
+                      left: `${Math.min(92, Math.max(0, ((cropScale - 1.0) / 2.5) * 92))}%`,
+                      width: 16,
+                      height: 16,
+                      borderRadius: 8,
+                      backgroundColor: '#fff',
+                      elevation: 3,
+                    }}
+                  />
+                </View>
+
+                <Pressable
+                  onPress={() => setCropScale((s) => Math.min(3.5, +(s + 0.2).toFixed(2)))}
+                  style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <Icon name="plus" size={14} color="#fff" />
+                </Pressable>
+
+                <Txt style={{ color: '#fff', fontSize: 13, fontFamily: fonts.mono600, minWidth: 36, textAlign: 'center' }}>
+                  {cropScale.toFixed(1)}x
                 </Txt>
+
                 <Pressable
                   onPress={() => {
                     setCropScale(1.0);
@@ -948,14 +1033,13 @@ export default function Profile() {
                     setCropY(0);
                   }}
                   style={{
-                    marginLeft: 4,
-                    paddingHorizontal: 7,
-                    paddingVertical: 3,
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
                     borderRadius: 4,
-                    backgroundColor: 'rgba(255,255,255,0.22)',
+                    backgroundColor: 'rgba(255,255,255,0.18)',
                   }}
                 >
-                  <Txt style={{ color: '#fff', fontSize: 11, fontFamily: fonts.sans600 }}>↺ Reset</Txt>
+                  <Txt style={{ color: '#fff', fontSize: 11, fontFamily: fonts.sans600 }}>↺</Txt>
                 </Pressable>
               </View>
 
