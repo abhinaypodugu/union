@@ -812,6 +812,19 @@ BEGIN
   END IF;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+-- Full peer directory for verified members (peer discovery and member contacts)
+CREATE OR REPLACE FUNCTION get_all_members(p_tenant TEXT)
+RETURNS SETOF profiles AS $$
+BEGIN
+  IF NOT (is_member(p_tenant) OR is_platform_admin()) THEN
+    RAISE EXCEPTION 'Not a member of this organization';
+  END IF;
+  RETURN QUERY
+    SELECT * FROM profiles
+    WHERE tenant_id = p_tenant AND status = 'verified'
+    ORDER BY name ASC;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
 -- Organization creation — Platform Super Admin only (PRD §5.11, AC #1).
 CREATE OR REPLACE FUNCTION create_organization(
@@ -2102,10 +2115,8 @@ GRANT SELECT ON geo_units, functional_groups, committees, committee_members, rou
                 issues, internal_notes, member_replies, issue_attachments, posts, comments,
                 post_likes, post_reports, notifications, audit_logs, group_messages TO authenticated;
 
--- Privacy on profiles: phone and email are never exposed to directory queries
-REVOKE ALL ON profiles FROM anon, authenticated;
-GRANT SELECT (id, user_id, tenant_id, member_number, name, unit, region, country, groups, roles, status, created_at)
-  ON profiles TO authenticated;
+-- Every verified member can view the full directory including phone, email, and postal profile
+GRANT SELECT ON public.profiles TO authenticated;
 
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO postgres, anon, authenticated, service_role;

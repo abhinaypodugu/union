@@ -1,7 +1,7 @@
 import React from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, View, Linking, ScrollView } from 'react-native';
 import { router } from 'expo-router';
-import { Avatar, Button, Card, CommitteeBadge, Icon, Input, ListCard, RoleTag, Screen, ScreenHeader, SectionLabel, Sheet, Tag, Txt, YouPill } from '../../src/components';
+import { Avatar, Button, Card, CommitteeBadge, Icon, IconButton, Input, ListCard, RoleTag, Screen, ScreenHeader, SectionLabel, Sheet, Tag, Txt, YouPill } from '../../src/components';
 import { colors, palette, radius } from '../../src/theme';
 import { useStore, CommitteeInfo } from '../../src/store/AppStore';
 import type { Persona } from '../../src/store/types';
@@ -308,18 +308,86 @@ export default function Org() {
     </ListCard>
    </Sheet>
 
-   <Sheet visible={!!sheet} onClose={() => setSheet(null)}>
+   <Sheet visible={!!sheet} onClose={() => setSheet(null)} title="Member Profile">
     {sheet ? (
-     <View style={{ padding: 16, gap: 14 }}>
+     <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 28, gap: 14 }} showsVerticalScrollIndicator={false}>
+      {/* Member Header */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
        <Avatar name={sheet.name} size={56} />
        <View style={{ flex: 1, gap: 4 }}>
-        <Txt variant="displayS">{sheet.name}</Txt>
-        <Txt variant="bodyS" color={colors.textMuted}>{[sp?.unit, sp?.region].filter(Boolean).join(' · ') || terminology.orgLabel}</Txt>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+         <Txt variant="displayS">{sheet.name}</Txt>
+         {isMe(sheet.key) ? <YouPill /> : null}
+        </View>
+        <Txt variant="bodyS" color={colors.textMuted}>
+         {[sp?.memberId, sp?.unit, sp?.region].filter(Boolean).join(' · ') || terminology.orgLabel}
+        </Txt>
        </View>
       </View>
+
+      {/* Postal & Trade Badges */}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+       <RoleTag role={sp?.designation || topRole(sheet.key) || 'Member'} />
+       {sp?.category || (sp?.groups && sp?.groups[0]) ? (
+        <Tag icon="briefcase">{sp?.category || (sp?.groups && sp?.groups[0]) || ''}</Tag>
+       ) : null}
+       {sp?.employeeId ? <Tag icon="hash">{`Staff ID: ${sp.employeeId}`}</Tag> : null}
+      </View>
+
+      {/* Workplace & Postal Office */}
+      <Card padding={14} style={{ gap: 6 }}>
+       <Txt variant="overline" color={colors.textMuted}>WORKPLACE DETAILS</Txt>
+       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Icon name="building-2" size={16} color={colors.accent} />
+        <Txt variant="bodyStrong">{sp?.officeEmployed || 'Main Postal Office'}</Txt>
+       </View>
+       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Icon name="map-pin" size={16} color={colors.textMuted} />
+        <Txt variant="bodyS" color={colors.textSecondary}>
+         {[sp?.unit ? `${sp.unit} Division` : null, sp?.region ? `${sp.region} Circle` : null].filter(Boolean).join(', ')}
+        </Txt>
+       </View>
+       {sp?.dob ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 4 }}>
+         <Icon name="calendar" size={16} color={colors.textMuted} />
+         <Txt variant="bodyS" color={colors.textSecondary}>{`DOB: ${sp.dob}`}</Txt>
+        </View>
+       ) : null}
+      </Card>
+
+      {/* Direct Contact Card (Call, WhatsApp, Email) */}
+      <Card padding={14} style={{ gap: 10 }}>
+       <Txt variant="overline" color={colors.textMuted}>PEER CONTACT</Txt>
+       {sp?.phone ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+          <Icon name="phone" size={16} color={colors.accent} />
+          <Txt variant="bodyStrong">{sp.phone.startsWith('+') ? sp.phone : '+' + sp.phone}</Txt>
+         </View>
+         <View style={{ flexDirection: 'row', gap: 8 }}>
+          <IconButton icon="phone-call" label="Call" size="sm" variant="secondary" onPress={() => void Linking.openURL(`tel:${sp.phone}`)} />
+          <IconButton icon="message-circle" label="WhatsApp" size="sm" variant="secondary" onPress={() => void Linking.openURL(`https://wa.me/${sp.phone.replace(/\D/g, '')}`)} />
+         </View>
+        </View>
+       ) : (
+        <Txt variant="bodyS" color={colors.textMuted}>No phone number listed.</Txt>
+       )}
+
+       {sp?.email ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: colors.borderSubtle, paddingTop: 8 }}>
+         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+          <Icon name="mail" size={16} color={colors.accent} />
+          <Txt variant="bodyS" numberOfLines={1}>{sp.email}</Txt>
+         </View>
+         <IconButton icon="send" label="Email" size="sm" variant="secondary" onPress={() => void Linking.openURL(`mailto:${sp.email}`)} />
+        </View>
+       ) : null}
+      </Card>
+
+      {/* Committee Appointments (if appointed) */}
       {sheetRoles.length ? (
        <View style={{ gap: 8 }}>
+        <Txt variant="overline" color={colors.textMuted}>COMMITTEE APPOINTMENTS</Txt>
         {sheetRoles.map((b) => (
          <View key={b.committee.id + b.role} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <RoleTag role={roleLabel(b)} />
@@ -328,18 +396,19 @@ export default function Org() {
         ))}
        </View>
       ) : null}
-      {sp?.designation || sp?.officeEmployed || sp?.groups?.length ? (
-       <Card padding={14} style={{ gap: 6 }}>
-        {sp?.designation ? <Txt variant="body">{sp.designation}</Txt> : null}
-        {sp?.officeEmployed ? <Txt variant="bodyS" color={colors.textMuted}>{sp.officeEmployed}</Txt> : null}
-        {sp?.groups?.length ? <Txt variant="bodyS" color={colors.textMuted}>{sp.groups.filter((g) => functionalGroups.some((f) => f.name === g)).join(', ')}</Txt> : null}
-       </Card>
-      ) : null}
-      <Txt variant="caption" color={colors.textMuted}>Contact details are shown only if your role allows it.</Txt>
+
+      {/* Action Buttons */}
       {sheetRoles.length && sheet.key !== activeMember?.id ? (
-       <Button onPress={() => { setSheet(null); router.push('/raise' as never); }}>{`Raise a ${terminology.caseLabel.toLowerCase()}`}</Button>
+       <Button icon="file-plus" block onPress={() => { setSheet(null); router.push('/raise' as never); }}>
+        {`Raise a ${terminology.caseLabel.toLowerCase()}`}
+       </Button>
       ) : null}
-     </View>
+      {sp?.phone && sheet.key !== activeMember?.id ? (
+       <Button variant="secondary" icon="message-circle" block onPress={() => { setSheet(null); void Linking.openURL(`https://wa.me/${sp.phone?.replace(/\D/g, '')}`); }}>
+        Chat on WhatsApp
+       </Button>
+      ) : null}
+     </ScrollView>
     ) : null}
    </Sheet>
   </Screen>

@@ -348,6 +348,14 @@ export const dbService = {
   // ---------------------------------------------------------------- Directory & membership admin
   async getMembers(tenantId: string): Promise<Persona[]> {
     try {
+      const { data, error } = await supabase.rpc('get_all_members', { p_tenant: tenantId });
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return (data as Array<Record<string, unknown>>).map(mapProfile);
+      }
+    } catch {
+      // ignore
+    }
+    try {
       const rows = await must(supabase.from('profiles').select(PROFILE_COLS).eq('tenant_id', tenantId).order('name'));
       return ((rows as any[]) || []).map(mapProfile);
     } catch {
