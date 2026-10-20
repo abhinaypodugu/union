@@ -301,3 +301,9 @@ Fixes for the findings in the review of the four commits merged after PR #1. Ver
 | R13 | Post bodies capped at 6 lines everywhere, including post detail — full text unreadable | `PostCard` `bodyLines` + "Read more" in feed and group lists; detail shows the full body | — |
 | R14 | Compose sheet showed the audience twice (Select + Tags) | Tags removed | — |
 | R15 | Docs: mobile-only PRD vs web-admin note | `docs/OPERATIONS.md` §6 now states the mobile target, web build as convenience; §7 documents the guarded test seed. PRD §15.1 still mentions Next.js — product decision left to you | — |
+
+
+## Organization tab — people-first restructure (2026-10-20)
+- `app/main/org.tsx`: rewritten. Opens on the member's own division; office-bearers (active committee appointments at that unit) pinned with role tags; members list below with "Show more". Division chips + Overview; circle picker sheet; circle-wide search by name/role/office; person sheet with all appointments. Escalation route kept in Overview (own circle only).
+- `src/components/domain/RoleTag.tsx`: new `RoleTag`, `roleTone`, `YouPill`; exported from `src/components/index.ts`.
+- OrgTree is no longer used by the member Org screen (still exported).
