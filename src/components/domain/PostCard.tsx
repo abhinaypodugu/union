@@ -11,7 +11,7 @@ import { AudienceScope } from './AudienceLabel';
 export interface PostCardProps {
  /** member = ordinary post · official = announcement · committee = private channel */
  kind?: 'member' | 'official' | 'committee';
- author: { name: string; role?: string; official?: boolean };
+ author: { name: string; role?: string; official?: boolean; avatarUrl?: string };
  source?: string;
  audience?: { scope: AudienceScope; label: string };
  time?: string;
@@ -65,11 +65,11 @@ export function PostCard(p: PostCardProps) {
   }
   if (scope === 'group') {
    const raw = audience?.label || metaSource || '';
-   const label = raw ? (raw.toLowerCase().includes('cadre') || raw.toLowerCase().includes('group') ? raw : `${raw} · Cadre`) : 'Cadre';
+   const label = raw ? (raw.toLowerCase().includes('association') || raw.toLowerCase().includes('group') ? raw : `${raw} · Affiliated Association`) : 'Affiliated Association';
    return { icon: 'briefcase', label };
   }
   const raw = audience?.label || metaSource;
-  const label = raw ? (raw.toLowerCase().includes('all members') || raw.toLowerCase().includes('organization') ? raw : `${raw} · All members`) : 'Organization-wide';
+  const label = raw ? (raw.toLowerCase().includes('all members') || raw.toLowerCase().includes('organization') || raw.toLowerCase().includes('federation') || raw.toLowerCase().includes('bpef') ? raw : `${raw} · All members`) : 'BPEF · All members';
   return { icon: 'globe', label };
  };
 
@@ -149,7 +149,7 @@ export function PostCard(p: PostCardProps) {
 
    {/* 2. Header: Avatar (moved top-left), reactive Who block, top-anchored options button */}
    <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingLeft: 12, paddingRight: 8, paddingTop: 10 }}>
-    <Avatar name={author.name} size={40} official={official || author.official} />
+    <Avatar name={author.name} uri={author.avatarUrl} size={40} official={official || author.official} />
 
     <View style={{ flex: 1, minWidth: 0, justifyContent: 'flex-start', gap: 2, paddingRight: 4 }}>
      {/* Line 1: Author Name + Role */}
@@ -184,6 +184,8 @@ export function PostCard(p: PostCardProps) {
         style={{ fontFamily: fonts.sans500, fontSize: 11.5, lineHeight: 15 }}
         color={isCommittee ? colors.privateFg : palette.ink800}
         numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}
         ellipsizeMode="tail"
        >
         {badge.label}
@@ -312,7 +314,7 @@ export function PostCard(p: PostCardProps) {
 }
 
 /** Body text; when capped and actually truncated, shows "Read more" (PRD §8.1: posts must stay readable). */
-function PostBody({ body, lines = 5, canOpen, onOpen }: { body: string; lines?: number; canOpen: boolean; onOpen?: () => void }) {
+function PostBody({ body, lines, canOpen, onOpen }: { body: string; lines?: number; canOpen: boolean; onOpen?: () => void }) {
  const [truncated, setTruncated] = React.useState(false);
  const heuristic = !!lines && (body.length > lines * 55 || body.split('\n').length > lines);
  return (

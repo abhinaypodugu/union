@@ -1,7 +1,7 @@
 import React from 'react';
 import { View } from 'react-native';
 import { router } from 'expo-router';
-import { AudienceSummary, Button, Card, Field, Input, Notice, PostCard, Screen, SectionLabel, StackHeader, Switch, Tag, TextArea, Txt } from '../../src/components';
+import { AudienceSummary, Button, Card, Field, Input, Notice, PostCard, Screen, SectionLabel, StackHeader, SuccessOverlay, Switch, Tag, TextArea, Txt } from '../../src/components';
 import { Restricted } from '../../src/components/Restricted';
 import { colors } from '../../src/theme';
 import { useStore, AudienceOption } from '../../src/store/AppStore';
@@ -21,6 +21,9 @@ export default function Announce() {
   const [body, setBody] = React.useState('');
   const [count, setCount] = React.useState(0);
   const [busy, setBusy] = React.useState(false);
+  const [success, setSuccess] = React.useState(false);
+  const mounted = React.useRef(true);
+  React.useEffect(() => () => { mounted.current = false; }, []);
 
   React.useEffect(() => { if (!segs.length && options[0]) setSegs([options[0]]); }, [options, segs.length]);
   React.useEffect(() => {
@@ -46,6 +49,15 @@ export default function Announce() {
       expiresAt: days ? new Date(Date.now() + days * 86400000).toISOString() : null,
     });
     setBusy(false);
+    if (!ok) return;
+    setSuccess(true);
+    setTimeout(() => {
+      if (!mounted.current) return;
+      setSuccess(false);
+      // dismissTo pops the manage stack; if /main is not in history (deep link)
+      // it falls back to a replace, so either way the editor closes.
+      router.dismissTo('/main');
+    }, 1400);
   };
 
   return (
@@ -74,7 +86,7 @@ export default function Announce() {
       </View>
       <SectionLabel>Member preview</SectionLabel>
       <View style={{ paddingHorizontal: 12 }}>
-        <PostCard kind={isOrgAdmin || isPlatformSuperAdmin || segs.some((s) => s.scope === 'org') ? 'official' : 'committee'} pinned={pin} author={{ name: activeMember?.name || 'Leadership', role: isOrgAdmin ? 'Organization admin' : 'Committee leadership', official: isOrgAdmin || isPlatformSuperAdmin }}
+        <PostCard kind={isOrgAdmin || isPlatformSuperAdmin || segs.some((s) => s.scope === 'org') ? 'official' : 'committee'} pinned={pin} author={{ name: activeMember?.name || 'Leadership', role: isOrgAdmin ? 'Organization admin' : 'Committee leadership', official: isOrgAdmin || isPlatformSuperAdmin, avatarUrl: activeMember?.avatarUrl }}
           source={segs.map((s) => s.label).join(', ') || 'No audience'} time="now" title={title} body={body}
           audience={segs[0] ? { scope: segs[0].scope, label: segs[0].label } : undefined} />
       </View>
@@ -83,6 +95,11 @@ export default function Announce() {
           {busy ? 'Publishing…' : notify ? 'Publish & notify' : 'Publish'}
         </Button>
       </View>
+      <SuccessOverlay
+        visible={success}
+        title={notify ? 'Published and sent' : 'Announcement published'}
+        description={`Sent to ${segs.map((s) => s.label).join(', ')}`}
+      />
     </Screen>
   );
 }

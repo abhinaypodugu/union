@@ -46,7 +46,7 @@ export default function Search() {
      <SectionLabel>{`${members.length} members`}</SectionLabel>
      <ListCard style={{ marginHorizontal: 12 }}>
       {members.map((m) => (
-       <ListRow key={m.id} title={m.name} subtitle={`${m.unit} · ${m.groups.join(', ') || terminology.groupLabel}`} left={<Avatar name={m.name} size={32} />} chevron={false} />
+       <ListRow key={m.id} title={m.name} subtitle={`${m.unit} · ${m.groups.join(', ') || terminology.groupLabel}`} left={<Avatar name={m.name} uri={m.avatarUrl} size={32} />} chevron={false} />
       ))}
      </ListCard>
     </>
@@ -68,6 +68,7 @@ export default function Search() {
      {foundCases.length === 0 ? <Card style={{ padding: 16, alignItems: 'center', gap: 8 }}><Txt variant="bodyS" color={colors.textMuted}>No cases match this search.</Txt></Card> : foundCases.map((c) => (
       <IssueCard key={c.id} id={c.id} title={c.title} status={c.status} level={c.level} category={c.category} location={c.location}
        committee={c.committee} due={c.due} dueState={c.dueState} nextAction={c.nextAction} confidential={c.confidential}
+       assigneeAvatarUrl={c.assigneeId ? allMembers.find((m) => m.id === c.assigneeId)?.avatarUrl : undefined}
        onPress={() => router.push((issues.some((i) => i.id === c.id) ? '/issue?id=' : '/manage/case?id=') + encodeURIComponent(c.id) as never)} />
      ))}
     </View>

@@ -14,7 +14,10 @@ export { normalizePhoneNumber };
 
 import { DEFAULT_TERMINOLOGY } from '../store/types';
 
-const PROFILE_COLS = 'id, user_id, tenant_id, member_number, name, email, phone, unit, region, country, groups, roles, status, employee_id, designation, category, dob, office_employed, division, circle, avatar_url, created_at';
+// Directory-safe profile columns. Contact fields (email/phone) and notification
+// preferences are intentionally not granted to authenticated; own/admin RPCs
+// return them where appropriate.
+const DIRECTORY_COLS = 'id, user_id, tenant_id, member_number, name, email, phone, unit, region, country, groups, roles, status, employee_id, designation, category, dob, office_employed, division, circle, avatar_url, status_reason, created_at';
 async function must<T>(p: PromiseLike<{ data: T | null; error: unknown }>): Promise<T> {
   const { data, error } = await p;
   if (error) throw new Error(errorMessage(error));
@@ -174,14 +177,10 @@ export const dbService = {
     if (!/^\d{6}$/.test(code.trim())) return { ok: false, error: 'Enter the 6-digit verification code.' };
     const { error } = await supabase.auth.verifyOtp({ phone: normalized, token: code.trim(), type: 'phone_change' });
     if (error) return { ok: false, error: errorMessage(error) || 'Invalid or expired verification code.' };
-    try {
-      const user = (await supabase.auth.getUser()).data.user;
-      if (user?.id) {
-        await supabase.from('profiles').update({ phone: normalized }).eq('user_id', user.id);
-      }
-    } catch {
-      // ignore
-    }
+    // auth.users holds the verified number; mirror it into the directory row
+    // through the RPC (authenticated has no write grants on profiles).
+    const { error: syncError } = await supabase.rpc('update_my_phone', { p_phone: normalized });
+    if (syncError) return { ok: false, error: errorMessage(syncError) };
     return { ok: true };
   },
 
@@ -202,40 +201,10 @@ export const dbService = {
 
   async getMyTenants(): Promise<Tenant[]> {
     const rows = await must(supabase.from('tenants').select('id, name, short_name, code, description, terminology, settings').eq('active', true));
-    return ((rows as any[]) || []).map(mapTenant);
-  },
-
-  async findTenantByCode(code: string): Promise<Tenant | null> {
-    const rows = (await must(supabase.rpc('find_org_by_code', { p_code: code.trim() }))) as any[];
-    return rows && rows[0] ? mapTenant(rows[0]) : null;
-  },
-  async listPublicOrgs(search = ''): Promise<Tenant[]> {
-    try {
-      const { data, error } = await supabase.rpc('list_public_orgs', { p_search: search });
-      if (!error && Array.isArray(data) && data.length > 0) {
-        return (data as Array<Record<string, unknown>>).map(mapTenant);
-      }
-    } catch {
-      // ignore
-    }
-    try {
-      const single = await this.findTenantByCode(search || 'TU');
-      if (single) return [single];
-    } catch {
-      // ignore
-    }
-    return [];
-  },
-
-  async createOrganization(org: {
-    name: string; code: string; short: string; description: string; terminology?: Partial<TerminologyConfig>;
-    adminName: string; adminEmail: string; hqCity: string; hqRegion: string;
-  }): Promise<string> {
-    return (await must(supabase.rpc('create_organization', {
-      p_name: org.name, p_code: org.code, p_short: org.short, p_description: org.description,
-      p_terminology: org.terminology || {}, p_admin_name: org.adminName, p_admin_email: org.adminEmail,
-      p_hq_city: org.hqCity, p_hq_region: org.hqRegion,
-    }))) as string;
+    const list = ((rows as unknown as Array<Record<string, unknown>>) || []).map(mapTenant);
+    const bpef = list.find((t) => t.id === 'bpef' || t.code === 'BPEF');
+    if (bpef) return [bpef];
+    return list;
   },
 
   async registerMember(d: {
@@ -292,17 +261,13 @@ export const dbService = {
           p_country: 'India',
         }))) as string;
         if (pid) {
-          try {
-            await supabase.from('profiles').update({
-              employee_id: d.employeeId || null,
-              designation: d.designation || 'Member',
-              category: d.category || null,
-              dob: dobIso,
-              office_employed: d.officeEmployed || null,
-            }).eq('id', pid);
-          } catch {
-            // ignore if columns not in DB yet
-          }
+          await this.updatePostalProfile(pid, {
+            employeeId: d.employeeId,
+            designation: d.designation,
+            category: d.category,
+            dob: d.dob,
+            officeEmployed: d.officeEmployed,
+          });
         }
         return pid;
       }
@@ -310,7 +275,6 @@ export const dbService = {
     }
   },
   async updatePostalProfile(
-    tenantId: string,
     profileId: string,
     data: {
       employeeId?: string;
@@ -344,27 +308,27 @@ export const dbService = {
         updateData.dob = dobIso;
       }
       if (data.officeEmployed !== undefined) updateData.office_employed = data.officeEmployed || null;
-      if (data.division !== undefined) {
-        updateData.division = data.division || null;
-        updateData.unit = data.division || null;
-      }
-      if (data.circle !== undefined) {
-        updateData.circle = data.circle || null;
-        updateData.region = data.circle || null;
-      }
+      if (data.division !== undefined) updateData.division = data.division || null;
+      if (data.circle !== undefined) updateData.circle = data.circle || null;
       if (data.avatarUrl !== undefined) updateData.avatar_url = data.avatarUrl || null;
 
-      if (data.division && data.circle) {
-        await supabase.rpc('ensure_geo_path', {
-          p_tenant: tenantId,
-          p_city: data.division,
-          p_region: data.circle,
-          p_country: 'India',
-        });
-      }
+      // The RPC is the only write path: authenticated holds SELECT-only grants
+      // on profiles, so a direct table update could never succeed. The RPC also
+      // ensures the geo path and derives unit/region from division/circle.
+      const { error: rpcErr } = await supabase.rpc('update_postal_profile', {
+        p_profile_id: profileId,
+        p_employee_id: updateData.employee_id ?? null,
+        p_designation: updateData.designation ?? null,
+        p_category: updateData.category ?? null,
+        p_dob: updateData.dob ?? null,
+        p_office_employed: updateData.office_employed ?? null,
+        p_division: updateData.division ?? null,
+        p_circle: updateData.circle ?? null,
+        p_avatar_url: updateData.avatar_url ?? null,
+      });
+      if (rpcErr) throw new Error(errorMessage(rpcErr));
+      return true;
 
-      const { error } = await supabase.from('profiles').update(updateData).eq('id', profileId);
-      return !error;
     } catch {
       return false;
     }
@@ -390,22 +354,20 @@ export const dbService = {
 
       const { data: pubData } = supabase.storage.from('avatars').getPublicUrl(fileName);
       const publicUrl = pubData.publicUrl;
-
-      await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('user_id', userId).eq('tenant_id', tenantId);
+      // Persist through the self-service RPC; authenticated has SELECT-only
+      // grants on profiles, so a direct table update could never work.
+      const { error: rpcErr } = await supabase.rpc('update_my_avatar', { p_avatar_url: publicUrl });
+      if (rpcErr) return { ok: false, error: errorMessage(rpcErr) };
 
       return { ok: true, url: publicUrl };
-    } catch (e: any) {
+    } catch (e: unknown) {
       return { ok: false, error: errorMessage(e) };
     }
   },
 
-  async removeAvatar(tenantId: string, userId: string): Promise<{ ok: boolean; error?: string }> {
-    try {
-      await supabase.from('profiles').update({ avatar_url: null }).eq('user_id', userId).eq('tenant_id', tenantId);
-      return { ok: true };
-    } catch (e: any) {
-      return { ok: false, error: errorMessage(e) };
-    }
+  async removeAvatar(): Promise<{ ok: boolean; error?: string }> {
+    const { error } = await supabase.rpc('update_my_avatar', { p_avatar_url: '' });
+    return error ? { ok: false, error: errorMessage(error) } : { ok: true };
   },
 
   // ---------------------------------------------------------------- Directory & membership admin
@@ -430,21 +392,10 @@ export const dbService = {
       // ignore
     }
 
-    // 3. Fallback to direct table select
-    try {
-      const rows = await must(supabase.from('profiles').select(PROFILE_COLS).eq('tenant_id', tenantId).order('name'));
-      return ((rows as any[]) || []).map(mapProfile);
-    } catch {
-      try {
-        const CONTACT_COLS = 'id, user_id, tenant_id, member_number, name, email, phone, unit, region, country, groups, roles, status, created_at';
-        const rows = await must(supabase.from('profiles').select(CONTACT_COLS).eq('tenant_id', tenantId).order('name'));
-        return ((rows as any[]) || []).map(mapProfile);
-      } catch {
-        const SAFE_COLS = 'id, user_id, tenant_id, member_number, name, unit, region, country, groups, roles, status, created_at';
-        const rows = await must(supabase.from('profiles').select(SAFE_COLS).eq('tenant_id', tenantId).order('name')).catch(() => []);
-        return ((rows as any[]) || []).map(mapProfile);
-      }
-    }
+    // 3. Fallback to the directory-safe column set. Contact fields are not
+    // granted to authenticated; they only come from the own/admin RPCs above.
+    const rows = await must(supabase.from('profiles').select(DIRECTORY_COLS).eq('tenant_id', tenantId).order('name')).catch(() => []);
+    return ((rows as unknown as Array<Record<string, unknown>>) || []).map(mapProfile);
   },
 
   async adminListMembers(tenantId: string): Promise<Persona[]> {

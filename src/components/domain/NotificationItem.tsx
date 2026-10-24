@@ -28,19 +28,72 @@ export interface NotificationItemProps {
 export function NotificationItem({ kind, title, context, time, unread, mandatory, onPress }: NotificationItemProps) {
   const [bg, fg] = TILE[kind];
   return (
-    <Pressable onPress={onPress} accessibilityRole="button" style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 14, paddingHorizontal: 16, backgroundColor: pressed ? colors.surfaceHover : unread ? colors.surfaceCard : 'transparent' })}>
-      {unread ? <View accessibilityLabel="Unread" style={{ position: 'absolute', left: 5, top: 30, width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accent }} /> : null}
-      <View style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: bg }}><Icon name={ICON[kind]} size={17} color={fg} strokeWidth={2} /></View>
-      <View style={{ flex: 1, gap: 3 }}>
-        <RichText value={title} variant="body" />
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 12,
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        backgroundColor: pressed ? colors.surfaceHover : unread ? colors.surfaceCard : 'transparent',
+      })}
+    >
+      {/* Icon with anchored unread badge */}
+      <View style={{ position: 'relative' }}>
+        <View style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: bg }}>
+          <Icon name={ICON[kind]} size={18} color={fg} strokeWidth={2} />
+        </View>
+        {unread ? (
+          <View
+            accessibilityLabel="Unread"
+            style={{
+              position: 'absolute',
+              top: -1,
+              left: -1,
+              width: 10,
+              height: 10,
+              borderRadius: 5,
+              backgroundColor: colors.accent,
+              borderWidth: 2,
+              borderColor: colors.surfaceCard,
+            }}
+          />
+        ) : null}
+      </View>
+
+      {/* Content Column: Fluid flex with clean text wrap */}
+      <View style={{ flex: 1, minWidth: 0, gap: 4 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <RichText value={title} variant="body" />
+          </View>
+          {time ? (
+            <Txt style={{ fontFamily: fonts.mono500, fontSize: 11.5, lineHeight: 20, flexShrink: 0 }} color={colors.textMuted}>
+              {time}
+            </Txt>
+          ) : null}
+        </View>
+
         {context || mandatory ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            {mandatory ? <><Icon name="lock" size={11} color={colors.textMuted} strokeWidth={2.25} /><Txt variant="caption" color={colors.textMuted}>{'Required' + (context ? ' · ' : '')}</Txt></> : null}
-            {context ? <Txt variant="caption" color={colors.textMuted} style={{ fontFamily: fonts.sans400 }}>{context}</Txt> : null}
+          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginTop: 1 }}>
+            {mandatory ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                <Icon name="lock" size={11} color={colors.textMuted} strokeWidth={2.25} />
+                <Txt variant="caption" color={colors.textMuted}>
+                  {'Required' + (context ? ' · ' : '')}
+                </Txt>
+              </View>
+            ) : null}
+            {context ? (
+              <Txt variant="caption" color={colors.textMuted} style={{ fontFamily: fonts.sans400, flexShrink: 1 }}>
+                {context}
+              </Txt>
+            ) : null}
           </View>
         ) : null}
       </View>
-      {time ? <Txt style={{ fontFamily: fonts.mono500, fontSize: 11.5, lineHeight: 20 }} color={colors.textMuted}>{time}</Txt> : null}
     </Pressable>
   );
 }

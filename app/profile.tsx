@@ -13,8 +13,9 @@ import {
   Switch, Tag, Txt, Sheet, Field, Input, VerifiedCheck, CuteAvatar, CUTE_AVATARS,
 } from '../src/components';
 import { colors, fonts, palette, radius } from '../src/theme';
-import { useStore, NotificationPrefs, Tenant, DEFAULT_POSTAL_CADRES, UNION_DESIGNATIONS } from '../src/store/AppStore';
+import { useStore, NotificationPrefs, Tenant, DEFAULT_POSTAL_CADRES, UNION_DESIGNATIONS, AFFILIATED_ASSOCIATIONS } from '../src/store/AppStore';
 import { POSTAL_CIRCLES, getDivisionsForCircle, getOfficesForDivision } from '../src/lib/postalData';
+import { AVATAR_EDITOR_SIZE } from '../src/lib/format';
 const PREFS: Array<[keyof NotificationPrefs, string, boolean]> = [
   ['announcements', 'Official announcements', false],
   ['replies', 'Replies & mentions', false],
@@ -30,8 +31,8 @@ const YEARS = Array.from({ length: 55 }, (_, i) => String(2005 - i));
 
 export default function Profile() {
   const {
-    tenant, tenants, memberships, switchTenant, activeMember, authReady, signedIn, isPlatformSuperAdmin, isOrgAdmin, isMembershipAdmin,
-    adminMembers, loadAdminMembers, setupOrganization, registerMember, lookupOrgByCode, updatePrefs, logout, myAppointments,
+    tenant, activeMember, authReady, signedIn, isPlatformSuperAdmin, isOrgAdmin, isMembershipAdmin,
+    adminMembers, loadAdminMembers, updatePrefs, logout, myAppointments,
     committees, toast, updatePostalProfile, requestPhoneChangeOtp, verifyPhoneChangeOtp, uploadAvatar, removeAvatar,
   } = useStore();
   const insets = useSafeAreaInsets();
@@ -128,13 +129,7 @@ export default function Profile() {
       },
     });
   }, []);
-  const [orgSheet, setOrgSheet] = React.useState(false);
-  const [createOpen, setCreateOpen] = React.useState(false);
-  const [joinOpen, setJoinOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
-  const [org, setOrg] = React.useState({ name: '', code: '', desc: '', caseLabel: 'Grievance', groupLabel: 'Sector', city: '', region: '' });
-  const [join, setJoin] = React.useState({ code: '', unit: '', region: '', group: '' });
-  const [joinOrg, setJoinOrg] = React.useState<Tenant | null>(null);
   const [postalSheet, setPostalSheet] = React.useState(false);
   const [dobSheet, setDobSheet] = React.useState(false);
   const [dobDay, setDobDay] = React.useState('06');
@@ -153,7 +148,10 @@ export default function Profile() {
   const [editOfficeSearch, setEditOfficeSearch] = React.useState('');
   const [editDivision, setEditDivision] = React.useState('');
   const [editCircle, setEditCircle] = React.useState('');
-
+  const [desigSheet, setDesigSheet] = React.useState(false);
+  const [assocSheet, setAssocSheet] = React.useState(false);
+  const [assocSearch, setAssocSearch] = React.useState('');
+  const selectedDesig = React.useMemo(() => UNION_DESIGNATIONS.find((d) => d.title === editDesig), [editDesig]);
   const editDivisions = React.useMemo(() => getDivisionsForCircle(editCircle), [editCircle]);
   const editOffices = React.useMemo(() => getOfficesForDivision(editCircle, editDivision), [editCircle, editDivision]);
 
@@ -193,7 +191,7 @@ export default function Profile() {
 
   const savePostalEdit = async () => {
     setBusy(true);
-    await updatePostalProfile({
+    const ok = await updatePostalProfile({
       employeeId: (isOrgAdmin || isPlatformSuperAdmin) ? editEmpId.trim() || undefined : undefined,
       designation: (isOrgAdmin || isPlatformSuperAdmin) ? editDesig.trim() || undefined : undefined,
       category: (isOrgAdmin || isPlatformSuperAdmin) ? editCategory.trim() || undefined : undefined,
@@ -205,7 +203,7 @@ export default function Profile() {
       region: editCircle.trim() || undefined,
     });
     setBusy(false);
-    setPostalSheet(false);
+    if (ok) setPostalSheet(false);
   };
   const handleRequestPhoneOtp = async () => {
     if (!newPhone.trim() || phoneBusy) return;
@@ -306,7 +304,7 @@ export default function Profile() {
         : '';
 
       let targetUrl = '';
-      if (previewUri.startsWith('http://') || previewUri.startsWith('https://')) {
+      if (previewUri.startsWith('http://') || previewUri.startsWith('https://') || previewUri.startsWith('default:')) {
         targetUrl = previewUri;
       } else {
         const res = await uploadAvatar(previewUri);
@@ -316,7 +314,8 @@ export default function Profile() {
       }
 
       if (targetUrl) {
-        await updatePostalProfile({ avatarUrl: targetUrl + cropSuffix });
+        const ok = await updatePostalProfile({ avatarUrl: targetUrl + cropSuffix });
+        if (!ok) return;
         setPreviewUri(null);
         setAvatarModalOpen(false);
         toast({ title: 'Profile photo updated' });
@@ -347,40 +346,6 @@ export default function Profile() {
   const prefs = activeMember.prefs || {};
   const quiet = Boolean(prefs.quietHours);
   const pendingCount = adminMembers.filter((m) => m.status === 'pending').length;
-  const tenantName = (id: string) => tenants.find((t) => t.id === id)?.name || id;
-
-  const handleShareCode = () => Share.share({
-    message: `Join ${tenant.name} on Union.\n\nOrganization Code: ${tenant.code}\n\nSign in with your mobile number and enter this code to apply for membership.`,
-  });
-
-  const createOrg = async () => {
-    if (!org.name.trim() || !org.code.trim() || !org.city.trim()) return;
-    setBusy(true);
-    const created = await setupOrganization(
-      {
-        name: org.name.trim(), code: org.code.trim().toUpperCase(), short: org.code.trim().slice(0, 4).toUpperCase(), description: org.desc.trim(),
-        terminology: { caseLabel: org.caseLabel.trim() || 'Issue', groupLabel: org.groupLabel.trim() || 'Functional Group' }
-      },
-      { name: activeMember.name, email: activeMember.email || '', unit: org.city.trim(), region: org.region.trim() || 'Central' },
-    );
-    setBusy(false);
-    if (created) { setCreateOpen(false); setOrg({ name: '', code: '', desc: '', caseLabel: 'Grievance', groupLabel: 'Sector', city: '', region: '' }); }
-  };
-
-  const checkJoin = async () => {
-    const t = await lookupOrgByCode(join.code);
-    if (!t) { toast({ title: 'Organization code not found' }); return; }
-    if (memberships.some((m) => m.tenantId === t.id)) { toast({ title: 'You already have a membership there' }); return; }
-    setJoinOrg(t);
-  };
-
-  const submitJoin = async () => {
-    if (!joinOrg || !join.unit.trim()) return;
-    setBusy(true);
-    const m = await registerMember({ name: activeMember.name, email: activeMember.email || '', unit: join.unit.trim(), region: join.region.trim(), group: join.group.trim(), orgCode: joinOrg.code });
-    setBusy(false);
-    if (m) { setJoinOpen(false); setJoinOrg(null); setJoin({ code: '', unit: '', region: '', group: '' }); if (m.status !== 'verified') router.replace('/pending'); }
-  };
 
   const setPref = (key: keyof NotificationPrefs, val: boolean) => void updatePrefs({ [key]: val } as NotificationPrefs);
   const setQuiet = (on: boolean) => void updatePrefs({
@@ -429,37 +394,24 @@ export default function Profile() {
           <VerifiedCheck size={20} />
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-          <Txt variant="mono" color={colors.textSecondary}>{activeMember.memberId}</Txt>
-          {isOrgAdmin ? <Badge tone="info" variant="outline" icon="shield">Org admin</Badge> : null}
-          {isPlatformSuperAdmin ? <Badge tone="danger" variant="outline" icon="shield">Platform admin</Badge> : null}
+          {isOrgAdmin || isPlatformSuperAdmin ? (
+            <Badge tone="info" variant="outline" icon="shield">Federation Admin</Badge>
+          ) : (
+            <Badge tone="neutral">{activeMember.designation || 'Member'}</Badge>
+          )}
         </View>
       </View>
 
-      <SectionLabel>Organization</SectionLabel>
+      <SectionLabel>Federation</SectionLabel>
       <ListCard style={{ marginHorizontal: 12 }}>
         <ListRow
-          title={tenant.name}
-          subtitle={memberships.length > 1 ? `You belong to ${memberships.length} organizations · tap to switch` : `Organization code: ${tenant.code}`}
-          left={<IconTile icon="building-2" tone="geo" />}
-          right={<Badge size="sm" tone="info">{tenant.code}</Badge>}
-          onPress={() => setOrgSheet(true)}
+          title={tenant.name || 'Bharatiya Postal Employees Federation'}
+          subtitle="Apex Federation of Postal Trade Unions in India Post"
+          left={<Image source={require('../assets/bpef-logo.png')} style={{ width: 40, height: 40, borderRadius: 8 }} resizeMode="contain" />}
+          right={<Badge size="sm" tone="info">{tenant.code || 'BPEF'}</Badge>}
+          chevron={false}
         />
       </ListCard>
-
-      {isMembershipAdmin && (
-        <>
-          <SectionLabel>Member onboarding</SectionLabel>
-          <Card padding={16} style={{ marginHorizontal: 12, gap: 12 }}>
-            <Txt variant="overline" color={colors.textMuted}>SHAREABLE ORGANIZATION CODE</Txt>
-            <Txt variant="displayM" color={colors.accent} style={{ letterSpacing: 2 }}>{tenant.code}</Txt>
-            <Txt variant="bodyS" color={colors.textSecondary}>New members apply with this code; applications wait for your approval.</Txt>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <View style={{ flex: 1 }}><Button variant="secondary" block icon="share-2" onPress={handleShareCode}>Share code</Button></View>
-              <View style={{ flex: 1 }}><Button block icon="user-check" onPress={() => router.push('/manage/members')}>{pendingCount ? `Review ${pendingCount}` : 'Members'}</Button></View>
-            </View>
-          </Card>
-        </>
-      )}
 
       <SectionLabel>Postal Identity & Membership</SectionLabel>
       <Card padding={14} style={{ marginHorizontal: 12, paddingVertical: 2, gap: 8 }}>
@@ -511,71 +463,6 @@ export default function Profile() {
         <Button variant="danger" size="lg" block icon="log-out" onPress={async () => { await logout(); router.replace('/'); }}>Sign out</Button>
       </View>
 
-      {/* Your organizations — only memberships you hold (PRD §4.1) */}
-      <Sheet visible={orgSheet} onClose={() => setOrgSheet(false)} title="Your organizations">
-        <Txt variant="bodyS" color={colors.textMuted} style={{ paddingHorizontal: 16, paddingBottom: 8 }}>
-          Each membership is separate: its own groups, cases, roles and notifications.
-        </Txt>
-        {memberships.map((m) => (
-          <Pressable key={m.id} onPress={() => { switchTenant(m.tenantId); setOrgSheet(false); if (m.status !== 'verified') router.replace('/pending'); }}
-            style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, minHeight: 56, backgroundColor: pressed ? palette.paper100 : 'transparent', gap: 12 })}>
-            <View style={{ flex: 1 }}>
-              <Txt variant="titleS">{tenantName(m.tenantId)}</Txt>
-              <Txt variant="bodyS" color={colors.textMuted}>{m.memberId} · {m.unit}</Txt>
-            </View>
-            {tenant.id === m.tenantId ? <Badge tone="info">Active</Badge> : <Badge size="sm" tone={m.status === 'verified' ? 'success' : 'warning'}>{m.status}</Badge>}
-          </Pressable>
-        ))}
-        <View style={{ padding: 16, gap: 10 }}>
-          <Button variant="secondary" block icon="user-plus" onPress={() => { setOrgSheet(false); setJoinOpen(true); }}>Join another organization</Button>
-          {isPlatformSuperAdmin ? (
-            <Button variant="secondary" block icon="plus" onPress={() => { setOrgSheet(false); setCreateOpen(true); }}>Create new organization</Button>
-          ) : null}
-        </View>
-      </Sheet>
-
-      <Sheet visible={joinOpen} onClose={() => setJoinOpen(false)} title="Join another organization">
-        <View style={{ paddingHorizontal: 16, gap: 12, paddingBottom: 24 }}>
-          {!joinOrg ? (
-            <>
-              <Field label="Organization code" required>
-                <Input value={join.code} onChangeText={(t) => setJoin({ ...join, code: t.toUpperCase() })} autoCapitalize="characters" placeholder="e.g. NHWU" />
-              </Field>
-              <Button block icon="chevron-right" disabled={!join.code.trim()} onPress={checkJoin}>Continue</Button>
-            </>
-          ) : (
-            <>
-              <Notice tone="info" title={`Applying to ${joinOrg.name}`}>Your application will be reviewed by its administrators.</Notice>
-              <Field label={joinOrg.terminology.level1Label} required><Input value={join.unit} onChangeText={(t) => setJoin({ ...join, unit: t })} /></Field>
-              <Field label={joinOrg.terminology.level2Label}><Input value={join.region} onChangeText={(t) => setJoin({ ...join, region: t })} /></Field>
-              <Field label={joinOrg.terminology.groupLabel}><Input value={join.group} onChangeText={(t) => setJoin({ ...join, group: t })} /></Field>
-              <Button block icon="user-plus" disabled={!join.unit.trim() || busy} onPress={submitJoin}>{busy ? 'Submitting…' : 'Submit application'}</Button>
-            </>
-          )}
-        </View>
-      </Sheet>
-
-      {isPlatformSuperAdmin && (
-        <Sheet visible={createOpen} onClose={() => setCreateOpen(false)} title="Create new organization">
-          <View style={{ paddingHorizontal: 16, gap: 12, paddingBottom: 28 }}>
-            <Notice tone="info" title="Platform Super Admin action">Creates an isolated organization; you become its founding administrator. Recorded in the audit trail.</Notice>
-            <Field label="Organization name" required><Input value={org.name} onChangeText={(t) => setOrg({ ...org, name: t })} /></Field>
-            <Field label="Organization code" required><Input value={org.code} onChangeText={(t) => setOrg({ ...org, code: t.toUpperCase() })} autoCapitalize="characters" /></Field>
-            <Field label="Description"><Input value={org.desc} onChangeText={(t) => setOrg({ ...org, desc: t })} /></Field>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <View style={{ flex: 1 }}><Field label="Headquarters city" required><Input value={org.city} onChangeText={(t) => setOrg({ ...org, city: t })} /></Field></View>
-              <View style={{ flex: 1 }}><Field label="State / region"><Input value={org.region} onChangeText={(t) => setOrg({ ...org, region: t })} /></Field></View>
-            </View>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <View style={{ flex: 1 }}><Field label="Case noun"><Input value={org.caseLabel} onChangeText={(t) => setOrg({ ...org, caseLabel: t })} /></Field></View>
-              <View style={{ flex: 1 }}><Field label="Group noun"><Input value={org.groupLabel} onChangeText={(t) => setOrg({ ...org, groupLabel: t })} /></Field></View>
-            </View>
-            <Button block size="lg" icon="plus" disabled={!org.name.trim() || !org.code.trim() || !org.city.trim() || busy} onPress={createOrg}>
-              {busy ? 'Creating…' : 'Create organization'}
-            </Button>
-          </View>
-        </Sheet>
-      )}
       {/* Edit Postal Identity Sheet */}
       <Sheet visible={postalSheet} onClose={() => setPostalSheet(false)} title="Update Workplace Details">
         <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingHorizontal: 16, gap: 14, paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
@@ -586,23 +473,57 @@ export default function Profile() {
                 <Input value={editEmpId} onChangeText={setEditEmpId} placeholder="e.g. 10125634" keyboardType="number-pad" />
               </Field>
 
-              <Field label="Union Designation" required infoText="Ascending constitutional rank (Member to President)">
-                <Select
-                  value={editDesig}
-                  onChange={setEditDesig}
-                  options={['Founding President', ...UNION_DESIGNATIONS.map((d) => d.title)]}
-                />
-                <Txt variant="caption" color={colors.textMuted} style={{ marginTop: 2 }}>
-                  {UNION_DESIGNATIONS.find((d) => d.title === editDesig)?.meaning || (editDesig === 'Founding President' ? 'Founding constitutional head of the organization.' : '')}
-                </Txt>
+              <Field label="Union Designation" required infoText="Constitutional role in BPEF hierarchy (Member to President)">
+                <Pressable
+                  onPress={() => setDesigSheet(true)}
+                  style={({ pressed }) => ({
+                    padding: 12,
+                    borderRadius: radius.l,
+                    borderWidth: 1,
+                    borderColor: colors.borderDefault,
+                    backgroundColor: pressed ? colors.surfaceHover : colors.surfaceCard,
+                    gap: 6,
+                  })}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <IconTile icon="shield" tone={editDesig !== 'Member' ? 'committee' : 'group'} size={28} />
+                      <Txt variant="titleS">{editDesig || 'Member'}</Txt>
+                      <Badge size="sm" tone={editDesig !== 'Member' ? 'info' : 'neutral'}>
+                        {selectedDesig?.levelBadge || 'L0 · Base Member'}
+                      </Badge>
+                    </View>
+                    <Icon name="chevron-down" size={18} color={colors.textMuted} />
+                  </View>
+                  <Txt variant="caption" color={colors.textSecondary} numberOfLines={2}>
+                    {selectedDesig?.meaning || 'Regular union member with voting rights and grievance support.'}
+                  </Txt>
+                </Pressable>
               </Field>
 
-              <Field label="Affiliated Association" required infoText="Your primary trade association affiliation">
-                <Select
-                  value={editCategory}
-                  onChange={setEditCategory}
-                  options={DEFAULT_POSTAL_CADRES}
-                />
+              <Field label="Affiliated Association" required infoText="Your primary trade association in BPEF">
+                <Pressable
+                  onPress={() => setAssocSheet(true)}
+                  style={({ pressed }) => ({
+                    padding: 12,
+                    borderRadius: radius.l,
+                    borderWidth: 1,
+                    borderColor: colors.borderDefault,
+                    backgroundColor: pressed ? colors.surfaceHover : colors.surfaceCard,
+                    gap: 6,
+                  })}
+                >
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <IconTile icon="briefcase" tone="group" size={28} />
+                      <Badge tone="info" icon="users">{editCategory || 'Supervisors'}</Badge>
+                    </View>
+                    <Icon name="chevron-down" size={18} color={colors.textMuted} />
+                  </View>
+                  <Txt variant="bodyS" color={colors.textPrimary} style={{ marginTop: 2 }}>
+                    {AFFILIATED_ASSOCIATIONS.find((a) => a.category === editCategory)?.name || 'Tap to select your affiliated association…'}
+                  </Txt>
+                </Pressable>
               </Field>
             </>
           ) : (
@@ -628,7 +549,7 @@ export default function Profile() {
                   <Txt variant="bodyStrong" color={colors.textPrimary}>{activeMember.designation || 'Member'}</Txt>
                   <Txt variant="bodyS" color={colors.textSecondary}>{activeMember.category || (activeMember.groups.length ? activeMember.groups[0] : 'General')}</Txt>
                 </View>
-                <Txt variant="caption" color={colors.textMuted}>Union post and trade association require committee appointment or admin approval.</Txt>
+                <Txt variant="caption" color={colors.textMuted}>Union post and affiliated association require committee appointment or admin approval.</Txt>
               </View>
             </>
           )}
@@ -802,6 +723,107 @@ export default function Profile() {
           </Button>
         </View>
       </Sheet>
+      {/* Rich Union Designation Sheet */}
+      <Sheet visible={desigSheet} onClose={() => setDesigSheet(false)} title="Select Union Designation">
+        <View style={{ paddingHorizontal: 16, gap: 12, paddingBottom: 24, flexShrink: 1 }}>
+          <Notice tone="info" title="Constitutional Hierarchy">
+            Roles are organized in ascending order from Base Member (L0) to Apex Leadership (L7).
+          </Notice>
+          <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false}>
+            <View style={{ gap: 8 }}>
+              {UNION_DESIGNATIONS.map((d) => {
+                const isSelected = d.title === editDesig;
+                return (
+                  <Pressable
+                    key={d.title}
+                    onPress={() => {
+                      setEditDesig(d.title);
+                      setDesigSheet(false);
+                    }}
+                    style={({ pressed }) => ({
+                      padding: 12,
+                      borderRadius: radius.m,
+                      borderWidth: 1.5,
+                      borderColor: isSelected ? colors.accent : colors.borderSubtle,
+                      backgroundColor: isSelected ? colors.accentSoft : pressed ? colors.surfaceHover : colors.surfaceCard,
+                      gap: 4,
+                    })}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Txt variant="titleS" style={{ color: isSelected ? colors.accent : colors.textPrimary }}>
+                          {d.title}
+                        </Txt>
+                        <Badge size="sm" tone={d.level === 0 ? 'neutral' : d.level >= 5 ? 'info' : 'warning'}>
+                          {d.levelBadge}
+                        </Badge>
+                      </View>
+                      {isSelected ? <Icon name="check" size={18} color={colors.accent} strokeWidth={2.5} /> : null}
+                    </View>
+                    <Txt variant="caption" color={colors.textSecondary} style={{ lineHeight: 18 }}>
+                      {d.meaning}
+                    </Txt>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </ScrollView>
+        </View>
+      </Sheet>
+
+      {/* Affiliated Association Selection Sheet */}
+      <Sheet visible={assocSheet} onClose={() => setAssocSheet(false)} title="Select Affiliated Association">
+        <View style={{ paddingHorizontal: 16, gap: 12, paddingBottom: 24, flexShrink: 1 }}>
+          <Input
+            value={assocSearch}
+            onChangeText={setAssocSearch}
+            placeholder="Search association or category…"
+            autoFocus
+          />
+          <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false}>
+            <View style={{ gap: 8 }}>
+              {AFFILIATED_ASSOCIATIONS.filter(
+                (a) =>
+                  !assocSearch.trim() ||
+                  a.name.toLowerCase().includes(assocSearch.toLowerCase()) ||
+                  a.category.toLowerCase().includes(assocSearch.toLowerCase())
+              ).map((a) => {
+                const isSelected = a.category === editCategory;
+                return (
+                  <Pressable
+                    key={a.name}
+                    onPress={() => {
+                      setEditCategory(a.category);
+                      setAssocSheet(false);
+                    }}
+                    style={({ pressed }) => ({
+                      padding: 12,
+                      borderRadius: radius.m,
+                      borderWidth: 1.5,
+                      borderColor: isSelected ? colors.accent : colors.borderSubtle,
+                      backgroundColor: isSelected ? colors.accentSoft : pressed ? colors.surfaceHover : colors.surfaceCard,
+                      gap: 4,
+                    })}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Badge tone="info" icon="users">{a.shortLabel}</Badge>
+                        <Txt variant="titleS" style={{ color: isSelected ? colors.accent : colors.textPrimary }}>
+                          {a.category}
+                        </Txt>
+                      </View>
+                      {isSelected ? <Icon name="check" size={18} color={colors.accent} strokeWidth={2.5} /> : null}
+                    </View>
+                    <Txt variant="caption" color={colors.textSecondary} style={{ lineHeight: 18 }}>
+                      {a.name}
+                    </Txt>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </ScrollView>
+        </View>
+      </Sheet>
       {/* WhatsApp-Style Profile Photo Full Screen Modal */}
       <Modal
         visible={avatarModalOpen}
@@ -844,12 +866,12 @@ export default function Profile() {
 
           {/* Center Circle with Bottom-Right Edit Button */}
           <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-            <View style={{ width: 240, height: 240, position: 'relative' }}>
+            <View style={{ width: AVATAR_EDITOR_SIZE, height: AVATAR_EDITOR_SIZE, position: 'relative' }}>
               <View
                 {...(previewUri ? panResponder.panHandlers : {})}
                 style={{
-                  width: 240,
-                  height: 240,
+                  width: AVATAR_EDITOR_SIZE,
+                  height: AVATAR_EDITOR_SIZE,
                   borderRadius: 120,
                   backgroundColor: 'rgba(255,255,255,0.06)',
                   borderWidth: 3,
@@ -1095,8 +1117,10 @@ export default function Profile() {
                 {CUTE_AVATARS.map((item) => (
                   <Pressable
                     key={item.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={item.name}
                     onPress={() => {
-                      setPreviewUri(item.url);
+                      setPreviewUri('default:' + item.id);
                       setCropScale(1.0);
                       setCropX(0);
                       setCropY(0);
@@ -1105,16 +1129,12 @@ export default function Profile() {
                     }}
                     style={({ pressed }) => ({
                       alignItems: 'center',
-                      gap: 4,
                       width: '22%',
                       opacity: pressed ? 0.75 : 1,
                       transform: [{ scale: pressed ? 0.94 : 1 }],
                     })}
                   >
                     <CuteAvatar id={item.id} size={50} />
-                    <Txt variant="caption" numberOfLines={1} align="center" style={{ fontSize: 10 }}>
-                      {item.name}
-                    </Txt>
                   </Pressable>
                 ))}
               </ScrollView>

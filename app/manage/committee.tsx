@@ -119,7 +119,7 @@ export default function Committee() {
                 <SectionLabel>{lvl.label}</SectionLabel>
                 <ListCard style={{ marginHorizontal: 12 }}>
                   {list.map((c) => (
-                    <ListRow key={c.id} title={c.name} subtitle={`${c.functionalGroup ? (c.functionalGroup.includes(',') ? 'Joint: ' + c.functionalGroup : c.functionalGroup) : 'General (All cadres)'} · ${geoName(c.geoUnitId) || 'Organization-wide'} · ${c.members.filter((m) => m.status === 'active').length} active`}
+                    <ListRow key={c.id} title={c.name} subtitle={`${c.functionalGroup ? (c.functionalGroup.includes(',') ? 'Joint: ' + c.functionalGroup : c.functionalGroup) : 'General (All associations)'} · ${geoName(c.geoUnitId) || 'Organization-wide'} · ${c.members.filter((m) => m.status === 'active').length} active`}
                       left={<IconTile icon="users" tone="committee" />} onPress={() => setSelectedId(c.id)} />
                   ))}
                 </ListCard>
@@ -163,7 +163,7 @@ export default function Committee() {
       <ListCard style={{ marginHorizontal: 12 }}>
         {C.members.length === 0 ? <Txt variant="bodyS" style={{ padding: 14 }} color={colors.textMuted}>No appointments yet.</Txt> : C.members.map((m) => (
           <View key={m.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, paddingHorizontal: 14 }}>
-            <Avatar name={m.name} size={38} />
+            <Avatar name={m.name} uri={allMembers.find((p) => p.id === m.profileId)?.avatarUrl} size={38} />
             <View style={{ flex: 1, gap: 4 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <Txt variant="titleS">{m.name}</Txt>
@@ -289,14 +289,14 @@ export default function Committee() {
           </Field>
           <Field
             label={`${terminology.groupLabel}s covered`}
-            infoText="Choose 'All Cadres' for a general committee, or tap multiple to establish a joint committee."
+            infoText="Choose 'All Associations' for a general committee, or tap multiple to establish a joint committee."
           >
             <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
               <Tag
                 selected={selectedCadres.length === 0}
                 onPress={() => setSelectedCadres([])}
               >
-                All Cadres (General)
+                All Associations (General)
               </Tag>
               {allCadres.map((cName) => {
                 const on = selectedCadres.includes(cName);

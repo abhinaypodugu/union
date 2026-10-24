@@ -111,6 +111,21 @@ UPDATE profiles p SET user_id = p.id
   WHERE p.user_id IS NULL AND EXISTS (SELECT 1 FROM auth.users u WHERE u.id = p.id);
 CREATE UNIQUE INDEX IF NOT EXISTS profiles_user_tenant_uq ON profiles(user_id, tenant_id);
 
+-- New profiles without a chosen/uploaded photo start with a random sculpted
+-- icon. Existing profiles are backfilled by 20261024_sculpted_avatars.sql.
+CREATE OR REPLACE FUNCTION assign_random_avatar() RETURNS TRIGGER AS $$
+BEGIN
+  IF coalesce(btrim(NEW.avatar_url), '') = '' THEN
+    NEW.avatar_url := 'default:sculpted_' || lpad((1 + floor(random() * 16))::int::text, 2, '0');
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+DROP TRIGGER IF EXISTS profiles_assign_random_avatar ON profiles;
+CREATE TRIGGER profiles_assign_random_avatar BEFORE INSERT ON profiles
+  FOR EACH ROW EXECUTE FUNCTION assign_random_avatar();
+
 -- Tenant roles only. Committee authority comes from committee_members, and the
 -- platform role lives in platform_admins (PRD §12.1: no inheritance).
 UPDATE profiles SET roles = ARRAY(
@@ -813,17 +828,29 @@ BEGIN
   END IF;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
--- Full peer directory for verified members (peer discovery and member contacts)
+-- Verified-member organization directory (peer discovery and contact details).
+-- Contact/postal fields are intentionally shared with verified members;
+-- notification_prefs stays on the own/admin RPCs only.
+DROP FUNCTION IF EXISTS get_all_members(TEXT);
 CREATE OR REPLACE FUNCTION get_all_members(p_tenant TEXT)
-RETURNS SETOF profiles AS $$
+RETURNS TABLE (
+  id UUID, user_id UUID, tenant_id TEXT, member_number TEXT, name TEXT, email TEXT, phone TEXT,
+  unit TEXT, region TEXT, country TEXT, groups TEXT[], roles TEXT[], status TEXT,
+  created_at TIMESTAMPTZ, employee_id TEXT, designation TEXT, category TEXT, dob DATE,
+  office_employed TEXT, division TEXT, circle TEXT, avatar_url TEXT, status_reason TEXT
+) AS $$
 BEGIN
   IF NOT (is_member(p_tenant) OR is_platform_admin()) THEN
     RAISE EXCEPTION 'Not a member of this organization';
   END IF;
   RETURN QUERY
-    SELECT * FROM profiles
-    WHERE tenant_id = p_tenant AND status = 'verified'
-    ORDER BY name ASC;
+    SELECT p.id, p.user_id, p.tenant_id, p.member_number, p.name, p.email, p.phone,
+           p.unit, p.region, p.country,
+           p.groups, p.roles, p.status, p.created_at, p.employee_id, p.designation, p.category,
+           p.dob, p.office_employed, p.division, p.circle, p.avatar_url, p.status_reason
+    FROM profiles p
+    WHERE p.tenant_id = p_tenant AND p.status = 'verified'
+    ORDER BY p.name ASC;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
@@ -924,10 +951,10 @@ BEGIN
   IF coalesce(trim(p_name), '') = '' OR coalesce(trim(p_city), '') = '' THEN
     RAISE EXCEPTION 'Name and location are required';
   END IF;
-
-  -- Any designation other than 'Member' (e.g. President, Secretary) requires leadership approval
-  -- even if autoApproveMembers is enabled for the organization.
-  IF coalesce(nullif(trim(p_designation), ''), 'Member') <> 'Member' THEN
+  -- Platform Super Admins automatically become verified org_admins of the federation.
+  IF is_platform_admin() THEN
+    v_status := 'verified';
+  ELSIF coalesce(nullif(trim(p_designation), ''), 'Member') <> 'Member' THEN
     v_status := 'pending';
   ELSE
     v_status := CASE WHEN coalesce((v_tenant.settings ->> 'autoApproveMembers')::boolean, FALSE) THEN 'verified' ELSE 'pending' END;
@@ -946,11 +973,12 @@ BEGIN
   VALUES (auth.uid(), v_tenant.id, v_tenant.code || '-' || lpad(nextval('member_seq')::text, 5, '0'), trim(p_name),
           coalesce(p_email, ''), v_phone, trim(p_city), coalesce(nullif(trim(p_region), ''), 'Central'),
           coalesce(p_country, 'India'), CASE WHEN coalesce(trim(p_group), '') = '' THEN '{}'::text[] ELSE ARRAY[trim(p_group)] END,
-          ARRAY['member'], v_status,
+          CASE WHEN is_platform_admin() THEN ARRAY['member', 'org_admin'] ELSE ARRAY['member'] END, v_status,
           nullif(trim(p_employee_id), ''), coalesce(nullif(trim(p_designation), ''), 'Member'),
           nullif(trim(p_category), ''), p_dob, nullif(trim(p_office_employed), ''),
           trim(p_city), coalesce(nullif(trim(p_region), ''), 'Central'),
-          CASE WHEN coalesce(nullif(trim(p_designation), ''), 'Member') <> 'Member'
+          CASE WHEN is_platform_admin() THEN NULL
+               WHEN coalesce(nullif(trim(p_designation), ''), 'Member') <> 'Member'
                THEN 'Designation "' || trim(p_designation) || '" requires leadership verification'
                ELSE NULL END)
   RETURNING id INTO v_profile;
@@ -964,6 +992,92 @@ BEGIN
     PERFORM refresh_member_counts(v_tenant.id);
   END IF;
   RETURN v_profile;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Update postal profile details (PRD §6.2)
+CREATE OR REPLACE FUNCTION update_postal_profile(
+  p_profile_id UUID,
+  p_employee_id TEXT DEFAULT NULL,
+  p_designation TEXT DEFAULT NULL,
+  p_category TEXT DEFAULT NULL,
+  p_dob DATE DEFAULT NULL,
+  p_office_employed TEXT DEFAULT NULL,
+  p_division TEXT DEFAULT NULL,
+  p_circle TEXT DEFAULT NULL,
+  p_avatar_url TEXT DEFAULT NULL
+) RETURNS BOOLEAN AS $$
+DECLARE
+  v_prof profiles%ROWTYPE;
+  v_is_admin BOOLEAN := FALSE;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  SELECT * INTO v_prof FROM profiles WHERE id = p_profile_id;
+  IF v_prof.id IS NULL THEN
+    RAISE EXCEPTION 'Profile not found';
+  END IF;
+
+  IF v_prof.user_id = auth.uid() OR is_platform_admin() OR has_tenant_role(v_prof.tenant_id, 'org_admin') THEN
+    v_is_admin := (is_platform_admin() OR has_tenant_role(v_prof.tenant_id, 'org_admin'));
+  ELSE
+    RAISE EXCEPTION 'Not authorized to update this profile';
+  END IF;
+
+  IF coalesce(p_division, v_prof.division) IS NOT NULL AND coalesce(p_circle, v_prof.circle) IS NOT NULL THEN
+    PERFORM ensure_geo_path(v_prof.tenant_id, coalesce(p_division, v_prof.division), coalesce(p_circle, v_prof.circle), 'India');
+  END IF;
+
+  -- Association (category) decides which channels and audiences a member can
+  -- read through in_audience(), so only administrators may change it.
+  IF v_is_admin AND p_category IS NOT NULL AND trim(p_category) <> '' THEN
+    INSERT INTO functional_groups (id, tenant_id, name, category, geographic_scope)
+    VALUES (v_prof.tenant_id || '-grp-' || slugify(p_category), v_prof.tenant_id, trim(p_category), 'Affiliated Association', 'Organization-wide')
+    ON CONFLICT (id) DO NOTHING;
+  END IF;
+
+  UPDATE profiles
+  SET
+    employee_id = CASE WHEN v_is_admin THEN coalesce(nullif(trim(p_employee_id), ''), employee_id) ELSE employee_id END,
+    designation = CASE WHEN v_is_admin THEN coalesce(nullif(trim(p_designation), ''), designation) ELSE designation END,
+    category = CASE WHEN v_is_admin THEN coalesce(nullif(trim(p_category), ''), category) ELSE category END,
+    dob = coalesce(p_dob, dob),
+    office_employed = coalesce(nullif(trim(p_office_employed), ''), office_employed),
+    division = coalesce(nullif(trim(p_division), ''), division),
+    circle = coalesce(nullif(trim(p_circle), ''), circle),
+    unit = coalesce(nullif(trim(p_division), ''), unit),
+    region = coalesce(nullif(trim(p_circle), ''), region),
+    -- NULL keeps the current photo; an explicit empty string clears it.
+    avatar_url = CASE WHEN p_avatar_url IS NULL THEN avatar_url
+                      WHEN trim(p_avatar_url) = '' THEN NULL
+                      ELSE trim(p_avatar_url) END,
+    groups = CASE
+      WHEN v_is_admin AND p_category IS NOT NULL AND trim(p_category) <> '' THEN ARRAY[trim(p_category)]
+      ELSE groups
+    END
+  WHERE id = p_profile_id;
+
+  RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Self-service avatar update. An empty string clears the photo.
+CREATE OR REPLACE FUNCTION update_my_avatar(p_avatar_url TEXT) RETURNS BOOLEAN AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Not authenticated'; END IF;
+  UPDATE profiles SET avatar_url = NULLIF(trim(p_avatar_url), '') WHERE user_id = auth.uid();
+  RETURN FOUND;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- Mirror the verified auth phone into the member's directory row.
+CREATE OR REPLACE FUNCTION update_my_phone(p_phone TEXT) RETURNS BOOLEAN AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Not authenticated'; END IF;
+  UPDATE profiles SET phone = trim(p_phone) WHERE user_id = auth.uid();
+  RETURN FOUND;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
@@ -1766,10 +1880,14 @@ DECLARE
   v_id TEXT;
   v_role TEXT;
   r RECORD;
+  v_batch TEXT;
   v_official BOOLEAN := p_kind IN ('official', 'committee');
 BEGIN
   IF coalesce(trim(p_body), '') = '' THEN RAISE EXCEPTION 'Message is required'; END IF;
   IF jsonb_array_length(coalesce(p_audiences, '[]'::jsonb)) = 0 THEN RAISE EXCEPTION 'Choose an audience'; END IF;
+  -- Unique per publish call (microsecond clock): two identical announcements in
+  -- the same minute still notify, while multi-audience calls dedupe per member.
+  v_batch := md5(p_tenant || coalesce(p_title, '') || p_body || clock_timestamp()::text);
   SELECT * INTO v_me FROM profiles WHERE user_id = auth.uid() AND tenant_id = p_tenant AND status = 'verified';
   IF v_me.id IS NULL AND NOT is_platform_admin() THEN RAISE EXCEPTION 'Not a verified member'; END IF;
   IF NOT v_official AND (p_pinned OR p_notify) AND NOT has_tenant_role(p_tenant, 'org_admin') THEN
@@ -1809,8 +1927,8 @@ BEGIN
       LOOP
         PERFORM notify_profile(p_tenant, r.id, 'announcement', coalesce(nullif(trim(p_title), ''), 'New announcement'),
                                'Announcement · ' || coalesce(a ->> 'label', 'Organization'), '/post?id=' || v_id,
-                               -- one notification per announcement batch per member, even across several audiences
-                               'announcement-' || md5(p_tenant || coalesce(p_title, '') || p_body || to_char(NOW(), 'YYYYMMDDHH24MI')));
+                               -- one notification per publish call per member, even across audiences
+                               'announcement-' || v_batch);
       END LOOP;
     END IF;
     RETURN NEXT v_id;
@@ -1963,10 +2081,14 @@ CREATE POLICY "tenants: own memberships" ON tenants FOR SELECT
 -- Profiles: own memberships, the tenant directory for verified members, platform admin.
 CREATE POLICY "profiles: own or tenant directory" ON profiles FOR SELECT
   USING (user_id = auth.uid() OR is_member(tenant_id) OR is_platform_admin());
--- Column privileges keep phone/email/prefs out of the shared directory (PRD §4.6, §12.3).
+-- Verified members are the organization directory, so contact columns are
+-- granted to authenticated (RLS limits rows to the member's verified tenant).
+-- notification_prefs stays private on the own/admin RPCs.
 REVOKE ALL ON profiles FROM anon, authenticated;
-GRANT SELECT (id, user_id, tenant_id, member_number, name, unit, region, country, groups, roles, status, created_at)
-  ON profiles TO authenticated;
+GRANT SELECT (
+  id, user_id, tenant_id, member_number, name, email, phone, unit, region, country, groups, roles, status, created_at,
+  employee_id, designation, category, dob, office_employed, division, circle, avatar_url, status_reason
+) ON profiles TO authenticated;
 
 CREATE POLICY "geo_units: tenant members" ON geo_units FOR SELECT USING (is_member(tenant_id) OR is_platform_admin());
 CREATE POLICY "functional_groups: tenant members" ON functional_groups FOR SELECT USING (is_member(tenant_id) OR is_platform_admin());
@@ -2116,11 +2238,10 @@ GRANT SELECT ON geo_units, functional_groups, committees, committee_members, rou
                 issues, internal_notes, member_replies, issue_attachments, posts, comments,
                 post_likes, post_reports, notifications, audit_logs, group_messages TO authenticated;
 
--- Every verified member can view the full directory including phone, email, and postal profile
-GRANT SELECT ON public.profiles TO authenticated;
+-- Profiles are column-granted above; never add table-wide SELECT here.
 
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO postgres, anon, authenticated, service_role;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO postgres, authenticated, service_role;
 
 -- Client direct writes are revoked (except group_messages with WITH CHECK policy)
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
@@ -2130,7 +2251,7 @@ GRANT SELECT ON device_tokens TO authenticated;
 
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO postgres, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO postgres, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO postgres, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO postgres, authenticated, service_role;
 -- ==============================================================================
 -- 17. STORAGE — private evidence bucket with case-scoped access (PRD §9.7, §12.3)
 -- Path convention: <tenant_id>/<issue_id>/<uuid>-<file name>
@@ -2195,7 +2316,8 @@ BEGIN
   LOOP
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon', r.sig);
     IF r.proname IN ('write_audit', 'notify_profile', 'notify_committee', 'notify_org_admins', 'ensure_geo_path',
-                     'refresh_member_counts', 'process_issue_deadlines', 'audit_logs_immutable', 'platform_admins_keep_one') THEN
+                     'refresh_member_counts', 'process_issue_deadlines', 'audit_logs_immutable', 'platform_admins_keep_one',
+                     'assign_random_avatar') THEN
       EXECUTE format('REVOKE ALL ON FUNCTION %s FROM authenticated', r.sig);
     ELSE
       EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', r.sig);

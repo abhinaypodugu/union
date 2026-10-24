@@ -40,14 +40,23 @@ function PersonRow({ name, sub, role, you, onPress, size = 40, uri }: { name: st
 }
 
 export default function Org() {
- const { tenant, activeMember, allMembers, committees, geoUnits, functionalGroups, terminology } = useStore();
+ const { tenant, activeMember, allMembers, committees, geoUnits, functionalGroups, terminology, refresh } = useStore();
  const [circleId, setCircleId] = React.useState<string | null>(null);
  const [view, setView] = React.useState<string | null>(null); // null = my division; 'overview' = circle overview; else division id
  const [q, setQ] = React.useState('');
  const [limit, setLimit] = React.useState(PAGE);
  const [sheet, setSheet] = React.useState<{ name: string; person?: Persona; key: string } | null>(null);
  const [pickCircle, setPickCircle] = React.useState(false);
+ const [refreshing, setRefreshing] = React.useState(false);
 
+ const onPullRefresh = React.useCallback(async () => {
+  setRefreshing(true);
+  try {
+   await refresh();
+  } finally {
+   setRefreshing(false);
+  }
+ }, [refresh]);
  const circles = React.useMemo(() => geoUnits.filter((g) => g.type === 'state').sort((a, b) => a.name.localeCompare(b.name)), [geoUnits]);
  const myCircle = circles.find((c) => low(c.name) === low(activeMember?.region));
  const circle = circles.find((c) => c.id === circleId) || myCircle || circles[0];
@@ -181,7 +190,7 @@ export default function Org() {
  const sp = sheet?.person;
 
  return (
-  <Screen>
+  <Screen refreshing={refreshing} onRefresh={onPullRefresh}>
    <ScreenHeader overline={tenant?.name || terminology.orgLabel} title={terminology.orgLabel} />
 
    <View style={{ paddingHorizontal: 16, gap: 12 }}>
@@ -203,7 +212,7 @@ export default function Org() {
       <Card style={{ marginHorizontal: 12, padding: 16, alignItems: 'center' }}><Txt variant="bodyS" color={colors.textMuted} align="center">{`No one matches “${q.trim()}”. Try another ${terminology.level2Label.toLowerCase()}.`}</Txt></Card>
      ) : (
       <ListCard style={{ marginHorizontal: 12 }}>
-       {results.map((m) => <PersonRow key={m.id} name={m.name} role={topRole(m.id)} sub={[m.unit, sub(m)].filter(Boolean).join(' · ')} you={isMe(m.id)} onPress={() => open(m.name, m.id, m)} />)}
+       {results.map((m) => <PersonRow key={m.id} name={m.name} role={topRole(m.id)} sub={[m.unit, sub(m)].filter(Boolean).join(' · ')} you={isMe(m.id)} uri={m.avatarUrl} onPress={() => open(m.name, m.id, m)} />)}
       </ListCard>
      )}
     </>
@@ -249,7 +258,7 @@ export default function Org() {
        <SectionLabel>{`${terminology.level2Label} office-bearers`}</SectionLabel>
        {circle && bearersAt(circle.id, circle.name).length ? (
         <ListCard style={{ marginHorizontal: 12, borderColor: colors.officialBorder }}>
-         {bearersAt(circle.id, circle.name).map((b) => <PersonRow key={b.key} size={36} name={b.name} role={roleLabel(b)} sub={sub(b.person)} you={isMe(b.key)} onPress={() => open(b.name, b.key, b.person)} />)}
+         {bearersAt(circle.id, circle.name).map((b) => <PersonRow key={b.key} size={36} name={b.name} role={roleLabel(b)} sub={sub(b.person)} you={isMe(b.key)} uri={b.person?.avatarUrl} onPress={() => open(b.name, b.key, b.person)} />)}
         </ListCard>
        ) : (
         <Card style={{ marginHorizontal: 12, padding: 16 }}><Txt variant="bodyS" color={colors.textMuted}>No office-bearers appointed yet.</Txt></Card>
@@ -269,7 +278,7 @@ export default function Org() {
            </View>
            {head ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-             <Avatar name={head.name} size={30} />
+             <Avatar name={head.name} uri={head.person?.avatarUrl} size={30} />
              <Txt variant="bodyS" numberOfLines={1} style={{ flex: 1 }}>{head.name}</Txt>
              <RoleTag role={roleLabel(head)} />
             </View>
@@ -283,7 +292,7 @@ export default function Org() {
         <Card style={{ marginHorizontal: 12, padding: 16 }}><Txt variant="bodyS" color={colors.textMuted}>{`No members registered in ${circle?.name || ''} yet.`}</Txt></Card>
        ) : (
         <ListCard style={{ marginHorizontal: 12 }}>
-         {circleMembers.slice(0, limit).map((m) => <PersonRow key={m.id} size={36} name={m.name} role={topRole(m.id)} sub={[m.unit, sub(m)].filter(Boolean).join(' · ')} you={isMe(m.id)} onPress={() => open(m.name, m.id, m)} />)}
+         {circleMembers.slice(0, limit).map((m) => <PersonRow key={m.id} size={36} name={m.name} role={topRole(m.id)} sub={[m.unit, sub(m)].filter(Boolean).join(' · ')} you={isMe(m.id)} uri={m.avatarUrl} onPress={() => open(m.name, m.id, m)} />)}
          {circleMembers.length > limit ? (
           <Pressable accessibilityRole="button" onPress={() => setLimit((n) => n + PAGE * 2)} style={({ pressed }) => ({ minHeight: 48, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? colors.surfaceHover : 'transparent' })}>
            <Txt variant="label" color={colors.textAccent}>{`Show more (${circleMembers.length - limit})`}</Txt>
@@ -340,7 +349,7 @@ export default function Org() {
        </View>
       </View>
 
-      {/* Postal & Trade Badges */}
+      {/* Postal & Affiliated Association Badges */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
        <RoleTag role={sp?.designation || topRole(sheet.key) || 'Member'} />
        {sp?.category || (sp?.groups && sp?.groups[0]) ? (

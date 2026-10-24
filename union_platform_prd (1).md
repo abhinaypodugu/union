@@ -1,9 +1,18 @@
 # Product Requirements Document (PRD)
 ## Multi-Tenant Organization, Membership, Community, and Issue Management Platform
 
-**Document status:** Approved — updated for Postal Union branding, 12 Affiliated Associations, Employee ID identity model, cascading hierarchy, role-gated chat matrix, and reactive layout design  
-**Version:** 1.3  
-**Date:** 20 October 2026
+**Document status:** Approved — updated for the BPEF single-organization release, verified-member contact directory, 16 bundled sculpted avatars with random defaults, profile-write hardening, and notification privacy.  
+**Version:** 1.4  
+**Date:** 24 October 2026
+
+> **Current release scope:** The shipped mobile client is the single BPEF workspace. The database schema remains tenant-aware for future multi-organization use, but this release does not expose organization creation or tenant switching; Platform Super Admin/API capabilities remain outside the mobile UI.
+
+### Revision History
+
+| Version | Date | Summary |
+|---|---|---|
+| 1.4 | 24 Oct 2026 | 16 bundled sculpted avatars; random defaults for members without uploaded photos; verified-member directory shares contact/postal details while notification preferences stay private; profile/category write hardening; BPEF single-organization release scope clarified. |
+| 1.3 | 20 Oct 2026 | Postal Union branding, 12 Affiliated Associations, Employee ID identity, cascading hierarchy, role-gated chat matrix, and reactive layout. |
 
 ---
 
@@ -191,16 +200,29 @@ A member profile contains:
 - Union Designation (e.g. `Founding President`, `President`, `Division Secretary`, `Circle Secretary`, `Treasurer`, `Vice President`, `Member`).
 - Affiliated Association and Category (e.g. `Supervisors`, `Postman & MTS`, `GDS`, `RMS & MMS`, `Civil Wing`, `Group ‘C’`, etc.).
 - Name, mobile number, and optional email address.
+- Profile photo: an uploaded image or one of 16 bundled sculpted BPEF avatars; the picker shows icons without visible preset names.
 - Date of Birth (ISO formatted `YYYY-MM-DD`).
 - Office Employed (e.g. `Sitaphalmandi SO`, `Secunderabad HPO`).
 - Division ($L_1$) and Circle ($L_2$).
 - Verification and membership status (`verified`, `pending`, `suspended`, `rejected`, `ended`).
 - Committee appointments and organizational roles (`member`, `org_admin`, `membership_admin`, `moderator`).
-- Privacy and notification preferences.
+- Directory contact visibility: verified members of the same organization can see phone, email, designation, affiliation/category, employee ID, DOB, office, division, circle, avatar, and status.
+- Notification preferences: private to the member and never included in the shared directory.
 
 **Governance & Immutability Rules:**
 1. **Self-Modification Restrictions:** Ordinary members cannot self-modify `employee_id`, `designation`, or `category`. These fields are strictly locked in member profiles to prevent unauthorized leadership rank elevation or identity spoofing. Only Organization Administrators can alter or verify these governance attributes.
 2. **Workplace Transfer Updates:** Members may update their `office_employed`, `division`, and `circle` (e.g. upon postal workplace transfer). Updating the workplace automatically synchronizes the member's active tier channels and recalculates geographic Row Level Security.
+3. **Server-Confirmed Profile Writes:** Profile and avatar changes are applied through server-authorized RPCs. The client must not show a successful update until the server confirms it; failed writes leave the previous profile state intact.
+
+#### 4.6.1 Member Directory and Avatar Policy
+
+- The organization directory is a verified-member benefit. Verified members of the same organization can view one another's name, member number, phone, email, designation, affiliation/category, employee ID, DOB, office, division, circle, avatar, and membership status.
+- Notification preferences are private and must never appear in directory payloads or search results.
+- Pending, rejected, suspended, or ended members cannot access the shared directory; authorized administrators retain full contact access for membership administration.
+- The avatar picker offers 16 bundled sculpted BPEF icons in a four-column grid. Preset names are used only as accessibility labels and are not displayed as text.
+- Members without an uploaded or selected photo receive a random bundled icon when the profile is created and when existing photo-less profiles are backfilled. Existing real uploaded photos are never overwritten by the backfill.
+- Avatar changes propagate to the feed, comments, chat, and directory. Members can crop/zoom uploaded or preset avatars; removing a photo reverts to initials until a new image is chosen.
+
 ### 4.7 Communities and Groups
 
 Groups provide communication spaces and are separate from committees.
@@ -243,7 +265,8 @@ A user can hold more than one role. Permissions should be calculated from assign
 
 ### 5.2 Regular Member
 - View and participate in permitted geographic and functional-group spaces.
-- View the permitted member directory and organizational chart.
+- View the verified-member directory and organizational chart, including peer phone, email, designation, affiliation, and postal details; notification preferences remain private.
+- Only verified members can access the shared directory; pending or suspended members cannot.
 - Post, comment, react, and chat where authorized.
 - Join eligible communities.
 - Raise complaints and track their own cases.
@@ -357,7 +380,7 @@ The interface should feel familiar to users of social/community applications whi
 3. **Issues** — raise an issue, track own cases, and view assigned cases if the user is an authorized handler.
 4. **Notifications** — push and in-app notifications for announcements, replies, mentions, assignments, deadlines, and escalations.
 5. **Organization** — interactive organizational chart, committees, leaders, and representatives.
-6. **Profile** — member information, geographic mapping, functional group memberships, privacy, and notification preferences.
+6. **Profile** — member information, avatar, geographic mapping, functional group memberships, notification privacy, and preferences.
 7. **Management** — shown only to users with relevant administrative or leadership permissions.
 
 ### 7.2 Geographic Groups
@@ -620,6 +643,7 @@ Events may include:
 ### 11.3 Preferences and Priority
 
 - Members can manage non-critical categories such as routine posts, comments, and group activity, including quiet hours where supported.
+- Notification preferences are private to the member and are never exposed in the shared organization directory.
 - Organizations can define which security, assignment, urgent, or case-workflow notifications are mandatory.
 - Do not send a push for every ordinary post by default. Leaders explicitly select **Notify audience** for announcements that warrant a push, subject to rate limits and policy.
 - Avoid duplicate notifications when a member belongs to multiple targeted groups; deduplicate by event and recipient.
@@ -660,6 +684,10 @@ A senior title alone should not provide unrestricted access to all data. The sys
 - Apply rate limits and protections against common web attacks.
 - Define data retention, export, correction, and deletion procedures.
 - Collect only the personal data required for the organization's purposes.
+- Treat the verified-member directory as an intentional organization-scoped disclosure: share contact and postal details with verified peers, but never notification preferences, private case data, or another organization's data.
+- Profile and avatar writes must go through server-authorized RPCs. Clients have no direct table write access and must update UI state only after server confirmation.
+- Avatar assets are bundled locally; do not depend on a third-party avatar CDN. Backfills may replace only empty or old preset avatars, never real uploaded photos.
+- Revoke anonymous RPC execution and internal-helper access; re-run the function privilege sweep at the end of every database migration.
 
 ### 12.4 Audit Logs
 
@@ -724,6 +752,7 @@ Initial targets to validate:
 - **Feedback surfaces:** `LoadingState` (branded pulse+shimmer), `FeedSkeleton`/`PostCardSkeleton`/`SkeletonBlock` shimmer skeletons — shared animation tokens (`Easing` with `useNativeDriver:true`, translateX shimmer, scale pulse).
 - **Motion:** all sheets/dialogs/tooltips/notifications use native animation tokens (`motion.slow 320ms`, `Easing.bezier(0.2,0.7,0.2,1)` in sheets, spring-free loops in loaders) and remain fluid during keyboard and navigation transitions; loaders are `useNativeDriver:true` and do not jank.
 - **Tokens (src/theme/tokens.ts — sRGB from oklch):** `palette` (`paper0/50/100/150/200/300`, `ink400–900`, `blue50–800 #1E40AF`, `red/amber/green/violet` triples), `colors` (`bgApp paper50, bgSunken paper100, surfaceCard paper0, surfaceHover paper100, textPrimary ink900 → textMuted ink500, accent blue600, borderSubtle paper200, etc`), `space / radius / control / shadow (card/raised/popover/sheet/focus) / motion (fast120/base200/slow320)` — single source of truth for every screen.
+- **Avatar picker:** 16 bundled sculpted BPEF portraits in a four-column grid; icons render locally without a CDN. Preset names are accessibility labels only — no visible "Sculpted 01…" text.
 
 ### 14.6 Accessibility and Usability
 - Responsive mobile interface on Android/iOS via Expo.
@@ -799,6 +828,7 @@ The mobile client integrates the national identity of India Post with the solida
 - **Union Saffron (`#EB6E02`):** Labor solidarity highlights, warning tones, and action pips.
 - **India Post Gold (`#FFC72C` / `#FFD54F`):** Golden wing highlights, wheat sheaf contours, and verified badges.
 - **App Launcher Assets:** Mapped and packaged across all Android standard and adaptive mipmap densities (`mdpi`, `hdpi`, `xhdpi`, `xxhdpi`, `xxxhdpi`) embedding the unified postal wing, gear, and wheat sheaf emblem.
+- **Sculpted avatars:** 16 bundled 3D-style portrait illustrations spanning genders, ages, and affiliations; assigned randomly to members without uploaded photos and used across profile, directory, feed, and chat.
 ---
 
 ## 16. MVP Scope and Delivery Phases
@@ -841,6 +871,8 @@ The mobile client integrates the national identity of India Post with the solida
 
 The MVP is acceptable when the following scenarios pass:
 
+> The current mobile release is the single BPEF organization. Criteria that describe multi-tenant platform behavior (notably 1–2) are verified at the schema/API level; the client does not expose tenant creation or switching.
+
 1. A platform operator can create two independent organizations.
 2. A member of organization A cannot access organization B's data through the UI, API, search, notifications, or file links.
 3. An approved member is mapped to the configured geographic groups based on their membership and location.
@@ -867,6 +899,10 @@ The MVP is acceptable when the following scenarios pass:
 24. Complaint escalations do not automatically appear in the social feed; only explicitly approved, sanitized updates may be published there.
 25. Notification retries do not create duplicate in-app notifications or duplicate escalation actions.
 26. Third-party reused code has a recorded source, commit/version, license, modification notes, and required notices.
+27. A verified member can open another verified member's directory profile and see phone, email, designation, affiliation, employee ID, DOB, office, division, circle, avatar, and status; notification preferences are not exposed. Pending or suspended members cannot open the shared directory, while administrators retain full contact access.
+28. A member without an uploaded or selected photo receives a random bundled sculpted avatar; real uploaded photos are preserved. The picker shows 16 icons with no visible preset names.
+29. A non-admin cannot change employee ID, designation, category, or groups. Profile and avatar saves update the UI only after server confirmation and leave the previous state unchanged on failure.
+30. Announcements published as separate actions within the same minute create separate notification events; retries do not duplicate them.
 
 ---
 
@@ -888,6 +924,11 @@ These decisions should be confirmed before implementation:
 12. **Feed ranking:** Chronological feed by default, or a configurable relevance-ranked feed? Recommendation: chronological/relevance-light with pinned official announcements protected from ranking suppression.
 13. **Push policy:** Which announcement categories may leaders mark as push-worthy, and what rate limits/quiet hours should apply?
 14. **Open-source adoption:** Which candidate repositories pass code-quality, maintenance, security, and license review before any code is copied?
+
+### Resolved in v1.4
+
+- **Directory contact visibility:** Verified members see peer contact and postal details; notification preferences remain private. This supersedes any earlier interpretation of the directory as contact-free.
+- **Avatar defaults:** 16 bundled sculpted icons; photo-less profiles receive a random icon; real uploaded photos are preserved.
 
 ---
 

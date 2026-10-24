@@ -10,16 +10,36 @@ import { Txt } from '../Txt';
 export function AudienceSummary({ segments, count, notify, onNotifyChange, canNotify = true, onRemove }: { segments: string[]; count: number; notify: boolean; onNotifyChange: (v: boolean) => void; canNotify?: boolean; onRemove?: (s: string) => void }) {
   return (
     <View style={{ borderRadius: radius.l, borderWidth: 1, borderColor: colors.borderDefault, backgroundColor: colors.surfaceCard, overflow: 'hidden' }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, paddingHorizontal: 14 }}>
-        <Icon name="users" size={18} color={palette.ink600} />
-        <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          {segments.length ? segments.map((s) => <Tag key={s} onRemove={onRemove ? () => onRemove(s) : undefined}>{s}</Tag>) : <Txt variant="bodyS" color={colors.textMuted}>No audience selected</Txt>}
+      {/* Header Row: Audience status + Member Count */}
+      <View style={{ padding: 14, gap: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Icon name="users" size={18} color={palette.ink600} />
+            <Txt variant="titleS" color={palette.ink900}>Selected Audience</Txt>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 5 }}>
+            <Txt style={{ fontFamily: fonts.display600, fontSize: 20, lineHeight: 22 }} color={colors.accent}>
+              {count.toLocaleString()}
+            </Txt>
+            <Txt variant="caption" color={colors.textMuted}>eligible</Txt>
+          </View>
         </View>
-        <View style={{ alignItems: 'flex-end' }}>
-          <Txt style={{ fontFamily: fonts.display600, fontSize: 22, lineHeight: 24 }}>{count.toLocaleString()}</Txt>
-          <Txt variant="caption" color={colors.textMuted}>eligible members</Txt>
+
+        {/* Selected Audience Chips with full-width breathing room */}
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, minHeight: 32 }}>
+          {segments.length ? (
+            segments.map((s) => (
+              <Tag key={s} onRemove={onRemove ? () => onRemove(s) : undefined}>
+                {s}
+              </Tag>
+            ))
+          ) : (
+            <Txt variant="bodyS" color={colors.textMuted}>No audience selected</Txt>
+          )}
         </View>
       </View>
+
+      {/* Bottom Row: Notify toggle */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, paddingHorizontal: 14, borderTopWidth: 1, borderTopColor: colors.borderSubtle }}>
         <Icon name="bell-ring" size={18} color={notify ? colors.accent : palette.ink600} />
         <View style={{ flex: 1, gap: 2 }}>

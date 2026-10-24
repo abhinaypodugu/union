@@ -68,57 +68,64 @@ export const UNION_DESIGNATIONS: UnionDesignation[] = [
   {
     title: 'Member',
     level: 0,
-    levelBadge: 'L0 · Base',
-    meaning: 'Baseline union membership with workplace representation and voting rights.',
+    levelBadge: 'L0 · Base Member',
+    meaning: 'Regular union member with voting rights and grievance support.',
     tone: 'neutral',
   },
   {
     title: 'Executive Committee Member',
     level: 1,
-    levelBadge: 'L1 · Branch',
-    meaning: 'Elected workplace delegate representing fellow staff in committee deliberations.',
+    levelBadge: 'L1 · Branch Representative',
+    meaning: 'Elected branch delegate representing staff in local committee meetings.',
     tone: 'officer',
   },
   {
     title: 'Assistant Secretary',
     level: 2,
-    levelBadge: 'L2 · Officer',
-    meaning: 'Assists in branch administration, records meeting minutes, and handles member correspondence.',
-    tone: 'officer',
-  },
-  {
-    title: 'Vice President',
-    level: 3,
-    levelBadge: 'L3 · Officer',
-    meaning: 'Supports the President and chairs executive meetings and delegations in their absence.',
+    levelBadge: 'L2 · Branch Officer',
+    meaning: 'Assists branch leadership, maintains meeting minutes and correspondence.',
     tone: 'officer',
   },
   {
     title: 'Treasurer',
+    level: 3,
+    levelBadge: 'L3 · Branch Finance',
+    meaning: 'Manages branch union funds, subscription collection, and accounts.',
+    tone: 'officer',
+  },
+  {
+    title: 'Vice President',
     level: 4,
-    levelBadge: 'L4 · Finance',
-    meaning: 'Custodian of union funds, collects subscriptions, and maintains financial audits.',
+    levelBadge: 'L4 · Branch Executive',
+    meaning: 'Supports the branch President and chairs delegations in their absence.',
     tone: 'officer',
   },
   {
     title: 'Division Secretary',
     level: 5,
-    levelBadge: 'L5 · Division Head',
-    meaning: 'Chief executive officer of the postal division; coordinates grievances and local stewards.',
+    levelBadge: 'L5 · Division Leader',
+    meaning: 'Executive head of the postal division; coordinates local grievances and staff.',
     tone: 'head',
   },
   {
     title: 'Circle Secretary',
     level: 6,
-    levelBadge: 'L6 · Circle Head',
-    meaning: 'State-level executive coordinating all divisions and CPMG administrative matters.',
+    levelBadge: 'L6 · Circle Leader',
+    meaning: 'State-level executive representing the circle before postal administration (CPMG).',
     tone: 'head',
   },
   {
     title: 'President',
     level: 7,
-    levelBadge: 'L7 · Supreme Head',
-    meaning: 'Highest constitutional head representing the entire union in all official matters.',
+    levelBadge: 'L7 · Federation President',
+    meaning: 'Constitutional head representing the entire national federation in all official matters.',
+    tone: 'head',
+  },
+  {
+    title: 'Founding President',
+    level: 7,
+    levelBadge: 'L7 · Founding Head',
+    meaning: 'Founding constitutional head and permanent executive trustee of the federation.',
     tone: 'head',
   },
 ];
@@ -160,6 +167,24 @@ export interface Tenant {
   states?: string[];
   levels?: HierarchyLevel[];
 }
+
+export const BPEF_TENANT: Tenant = {
+  id: 'bpef',
+  name: 'Bharatiya Postal Employees Federation',
+  short: 'BPEF',
+  code: 'BPEF',
+  description: 'Apex Federation of Postal Trade Unions in India Post',
+  terminology: DEFAULT_TERMINOLOGY,
+  settings: {
+    memberPosts: true,
+    reopenWindowDays: 30,
+    autoApproveMembers: false,
+  },
+  cadres: DEFAULT_POSTAL_CADRES,
+  cities: [],
+  states: [],
+  levels: DEFAULT_TERMINOLOGY.levels,
+};
 
 export type MembershipStatus = 'verified' | 'pending' | 'suspended' | 'rejected' | 'ended';
 
@@ -241,7 +266,7 @@ export interface Post {
   kind: 'member' | 'official' | 'committee';
   pinned: boolean;
   authorId: string | null;
-  author: { name: string; role?: string; official?: boolean };
+  author: { name: string; role?: string; official?: boolean; avatarUrl?: string };
   source: string;
   time: string;
   createdAt: string;

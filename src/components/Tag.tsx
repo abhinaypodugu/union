@@ -18,14 +18,15 @@ export function Tag({ children, icon, selected, disabled, onPress, onRemove }: T
   const fg = selected ? palette.paper0 : disabled ? colors.textMuted : palette.ink800;
   const body = (pressed: boolean) => (
     <View style={{
-      flexDirection: 'row', alignItems: 'center', gap: 6, height: 32, paddingHorizontal: 11, borderRadius: radius.s, borderWidth: 1,
+      flexDirection: 'row', alignItems: 'center', gap: 6, minHeight: 32, paddingVertical: 4, paddingHorizontal: 11, borderRadius: radius.s, borderWidth: 1,
       borderColor: selected ? palette.ink900 : colors.borderDefault,
       backgroundColor: selected ? (pressed ? palette.ink800 : palette.ink900) : pressed ? colors.surfaceHover : disabled ? colors.bgSunken : colors.surfaceCard,
+      maxWidth: '100%',
     }}>
       {icon ? <Icon name={icon} size={14} color={fg} /> : null}
-      <Txt style={{ fontFamily: fonts.sans500, fontSize: 13, lineHeight: 16 }} color={fg} numberOfLines={1}>{children}</Txt>
+      <Txt style={{ fontFamily: fonts.sans500, fontSize: 13, lineHeight: 16, flexShrink: 1 }} color={fg} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{children}</Txt>
       {onRemove ? (
-        <Pressable accessibilityLabel={'Remove ' + children} hitSlop={8} onPress={onRemove} style={{ marginRight: -4 }}>
+        <Pressable accessibilityLabel={'Remove ' + children} hitSlop={8} onPress={onRemove} style={{ marginLeft: 2, marginRight: -4, flexShrink: 0 }}>
           <Icon name="x" size={13} color={fg} strokeWidth={2.25} />
         </Pressable>
       ) : null}

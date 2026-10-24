@@ -4,7 +4,41 @@ export type AutofillLocation = {
   city: string;
   state: string;
   country: string;
+  district?: string;
+  subregion?: string;
+  street?: string;
+  name?: string;
+  postalCode?: string;
+  latitude?: number;
+  longitude?: number;
 };
+
+/** Disambiguates Secunderabad from Hyderabad across postal PIN codes, text matches, and coordinates. */
+export function isSecunderabadLocation(p: {
+  latitude?: number;
+  longitude?: number;
+  postalCode?: string;
+  subregion?: string;
+  district?: string;
+  street?: string;
+  name?: string;
+  city?: string;
+}): boolean {
+  const pCode = (p.postalCode || '').trim();
+  const sub = (p.subregion || '').toLowerCase();
+  const dist = (p.district || '').toLowerCase();
+  const st = (p.street || '').toLowerCase();
+  const nm = (p.name || '').toLowerCase();
+  const ct = (p.city || '').toLowerCase();
+
+  const isPin = /^(500003|500009|500010|500011|500014|500015|500017|500025|500026|500047|500056|500061|500078|500087|500094)/.test(pCode);
+  const isText = [sub, dist, st, nm, ct].some((t) => t.includes('secunderabad'));
+  const lat = p.latitude ?? 0;
+  const lon = p.longitude ?? 0;
+  const isGeo = lat >= 17.41 && lat <= 17.56 && lon >= 78.47 && lon <= 78.58;
+
+  return Boolean(isPin || isText || isGeo);
+}
 
 let locationModule: typeof LocationType | null = null;
 try {
@@ -24,11 +58,40 @@ export async function autofillFromDevice(): Promise<AutofillLocation | null> {
           latitude: pos.coords.latitude,
           longitude: pos.coords.longitude,
         });
-        if (place && (place.city || place.region)) {
+        if (place) {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          const pCode = (place.postalCode || '').trim();
+          const sub = (place.subregion || '').toLowerCase();
+          const dist = (place.district || '').toLowerCase();
+          const st = (place.street || '').toLowerCase();
+          const nm = (place.name || '').toLowerCase();
+          const ct = (place.city || '').toLowerCase();
+
+          const resolvedCity = isSecunderabadLocation({
+            latitude: lat,
+            longitude: lon,
+            postalCode: pCode,
+            subregion: place.subregion,
+            district: place.district,
+            street: place.street,
+            name: place.name,
+            city: place.city,
+          })
+            ? 'Secunderabad'
+            : (place.city || place.subregion || place.district || '');
+
           return {
-            city: place.city || place.subregion || place.district || '',
-            state: place.region || place.subregion || '',
+            city: resolvedCity,
+            state: place.region || place.subregion || 'Telangana',
             country: place.country || 'India',
+            district: place.district || '',
+            subregion: place.subregion || '',
+            street: place.street || '',
+            name: place.name || '',
+            postalCode: pCode,
+            latitude: lat,
+            longitude: lon,
           };
         }
       }

@@ -42,3 +42,10 @@ union_live.png
 screen_now.png
 harvey/
 supabase/.temp/
+
+# Local verification artifacts (screenshots, UI dumps, runtime scripts)
+.runtime/
+test-screenshots/
+/dump_admin.xml
+/ui-dump-*.xml
+/notif-*.txt

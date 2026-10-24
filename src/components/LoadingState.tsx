@@ -1,12 +1,12 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, View } from 'react-native';
+import { Animated, Easing, Image, View } from 'react-native';
 import { colors, palette, radius } from '../theme';
 import { Icon } from './Icon';
 import { Txt } from './Txt';
 
 // ── Full-screen branded loader (warm start / authReady wait — keeps org-setup flash away)
 export function LoadingState({
-  title = 'Union',
+  title = 'BPEF',
   subtitle = 'Checking your membership…',
 }: { title?: string; subtitle?: string }) {
   const pulse = useRef(new Animated.Value(0)).current;
@@ -41,7 +41,7 @@ export function LoadingState({
           transform: [{ scale }], opacity,
         }}
       >
-        <Icon name="shield-check" size={30} color={colors.accent} />
+        <Image source={require('../../assets/bpef-logo.png')} style={{ width: 48, height: 48 }} resizeMode="contain" />
       </Animated.View>
       <View style={{ alignItems: 'center', gap: 6 }}>
         <Txt variant="titleM">{title}</Txt>

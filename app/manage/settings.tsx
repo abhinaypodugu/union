@@ -9,7 +9,7 @@ import { useStore, RoutingRule, TerminologyConfig, HierarchyLevel, getHierarchyL
 type TermKey = 'orgLabel' | 'groupLabel' | 'caseLabel';
 const TERMS: Array<[TermKey, string]> = [
   ['orgLabel', 'Organization label'],
-  ['groupLabel', 'Trade / functional group label'],
+  ['groupLabel', 'Affiliated Association label'],
   ['caseLabel', 'Case / grievance label'],
 ];
 const TARGETS: Record<RoutingRule['targetKind'], string> = { group: "Member's functional-group committee", general: 'General (cross-functional) committee', committee: 'A specific committee' };
@@ -146,10 +146,10 @@ export default function Settings() {
         </Button>
       </Card>
 
-      <SectionLabel>{`${terms.groupLabel || 'Cadre'}s & Trade Sectors`}</SectionLabel>
+      <SectionLabel>{`${terms.groupLabel || 'Affiliated Association'}s`}</SectionLabel>
       <Card style={{ marginHorizontal: 12, gap: 12 }}>
         <Txt variant="bodyS" color={colors.textMuted}>
-          {`These ${terms.groupLabel?.toLowerCase() || 'cadre'}s appear as selectable dropdown options for members signing up with your invite code.`}
+          {`These ${terms.groupLabel?.toLowerCase() || 'affiliated association'}s appear as selectable options for members.`}
         </Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
           {cadresList.map((c) => (
@@ -158,7 +158,7 @@ export default function Settings() {
         </View>
         <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
           <View style={{ flex: 1 }}>
-            <Input value={newCadre} onChangeText={setNewCadre} placeholder={`Add ${terms.groupLabel?.toLowerCase() || 'cadre'} (e.g. Healthcare)…`} />
+            <Input value={newCadre} onChangeText={setNewCadre} placeholder={`Add ${terms.groupLabel?.toLowerCase() || 'affiliated association'}…`} />
           </View>
           <Button size="sm" icon="plus" disabled={!newCadre.trim()} onPress={addCadre}>Add</Button>
         </View>

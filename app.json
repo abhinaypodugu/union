@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "Union",
-    "slug": "union",
+    "name": "BPEF",
+    "slug": "bpef",
     "owner": "abhinaypodugu200s-team",
-    "scheme": "union",
+    "scheme": "bpef",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -21,11 +21,13 @@
       "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1E40AF"
+        "backgroundColor": "#FFFFFF"
       }
     },
     "splash": {
-      "backgroundColor": "#FAF8F5"
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
     },
     "plugins": [
       "expo-router",

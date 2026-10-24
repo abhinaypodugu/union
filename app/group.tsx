@@ -1,7 +1,8 @@
 import React from 'react';
-import { ActivityIndicator, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, TextInput, View } from 'react-native';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
-import { Avatar, IconButton, IconTile, LoadingState, Notice, PostCard, Screen, SegmentedControl, StackHeader, Txt } from '../src/components';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Avatar, IconButton, IconTile, LoadingState, Notice, PostCard, SegmentedControl, StackHeader, Txt } from '../src/components';
 import { colors, fonts, palette, radius } from '../src/theme';
 import { useStore, AudienceScope, ChatMessage } from '../src/store/AppStore';
 import { dbService } from '../src/services/db';
@@ -14,13 +15,15 @@ export default function GroupSpace() {
  const params = useLocalSearchParams<{ scope: string; value: string; name: string }>();
  const scope = (params.scope || 'org') as AudienceScope;
  const value = params.value ? String(params.value) : null;
- const { tenant, activeMember, posts, liked, toggleLike, toast, authReady, signedIn, isOrgAdmin, isPlatformSuperAdmin, canWriteInChannel } = useStore();
+ const { tenant, activeMember, allMembers, posts, liked, toggleLike, toast, authReady, signedIn, isOrgAdmin, isPlatformSuperAdmin, canWriteInChannel, refresh } = useStore();
  const [tab, setTab] = React.useState('Chat');
  const [messages, setMessages] = React.useState<ChatMessage[]>([]);
  const [loadingMessages, setLoadingMessages] = React.useState(true);
+ const [refreshing, setRefreshing] = React.useState(false);
  const [draft, setDraft] = React.useState('');
  const canWriteChat = canWriteInChannel(scope, value);
-
+ const insets = useSafeAreaInsets();
+ const scrollRef = React.useRef<ScrollView>(null);
  const load = React.useCallback(async () => {
   if (!tenant) return;
   try {
@@ -36,11 +39,35 @@ export default function GroupSpace() {
  React.useEffect(() => {
   void load();
   if (!tenant) return;
-  const ch = supabase.channel(`chat:${tenant.id}:${scope}:${value}:${Math.random().toString(36).slice(2)}`)
-   .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_messages', filter: `tenant_id=eq.${tenant.id}` }, () => void load())
+  const channelName = `chat:${tenant.id}:${scope}:${value || 'all'}`;
+  const ch = supabase.channel(channelName)
+   .on('postgres_changes', {
+    event: 'INSERT',
+    schema: 'public',
+    table: 'group_messages',
+    filter: `tenant_id=eq.${tenant.id}`,
+   }, (payload) => {
+    const newMsg = payload.new as any;
+    if (!newMsg) { void load(); return; }
+    const msgScope = newMsg.channel_scope;
+    const msgVal = (newMsg.channel_value || '').toLowerCase().trim();
+    const curVal = (value || '').toLowerCase().trim();
+    if (msgScope === scope && (scope === 'org' || msgVal === curVal)) {
+     void load();
+    }
+   })
    .subscribe();
-  return () => { supabase.removeChannel(ch); };
+  return () => { void supabase.removeChannel(ch); };
  }, [load, tenant, scope, value]);
+
+ const onPullRefresh = React.useCallback(async () => {
+  setRefreshing(true);
+  try {
+   await Promise.all([load(), refresh()]);
+  } finally {
+   setRefreshing(false);
+  }
+ }, [load, refresh]);
  if (!authReady) return <LoadingState subtitle="Loading group…" />;
  if (!signedIn || !activeMember) return <Redirect href="/" />;
  if (activeMember.status !== 'verified') return <Redirect href="/pending" />;
@@ -78,7 +105,7 @@ export default function GroupSpace() {
  };
 
  return (
-  <Screen>
+  <View style={{ flex: 1, backgroundColor: colors.bgApp, paddingTop: insets.top }}>
    <StackHeader onBack={() => router.back()} title={String(params.name || 'Group')} />
    <View style={{ paddingHorizontal: 16, paddingBottom: 10 }}>
     <SegmentedControl items={['Chat', 'Posts']} value={tab} onChange={setTab} />
@@ -89,62 +116,106 @@ export default function GroupSpace() {
     </View>
    ) : null}
 
-   {tab === 'Posts' ? (
-    <View style={{ gap: 12, paddingHorizontal: 12 }}>
-     {groupPosts.length === 0 ? (
-      <View style={{ alignItems: 'center', gap: 10, padding: 28, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surfaceCard }}>
-       <IconTile icon="inbox" tone="group" />
-       <Txt variant="titleM" align="center">No posts here yet</Txt>
-      </View>
-     ) : groupPosts.map((p) => (
-      <PostCard key={p.id} kind={p.kind} pinned={p.pinned} author={p.author} source={p.source} time={p.time} title={p.title} body={p.body}
-       audience={{ scope: p.audience.scope, label: p.audience.label }} liked={!!liked[p.id]} likes={p.likes} comments={p.comments}
-       onLike={() => toggleLike(p.id)} onComment={() => router.push(('/post?id=' + encodeURIComponent(p.id)) as never)}
-       bodyLines={5} onOpen={() => router.push(('/post?id=' + encodeURIComponent(p.id)) as never)} />
-     ))}
-    </View>
-   ) : (
-    <View style={{ paddingHorizontal: 12, gap: 12 }}>
-     {loadingMessages && messages.length === 0 ? (
-      <View style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 36, gap: 10 }}>
-       <ActivityIndicator size="small" color={colors.accent} />
-       <Txt variant="caption" color={colors.textMuted}>Loading messages…</Txt>
-      </View>
-     ) : messages.length === 0 ? (
-      <Txt variant="bodyS" color={colors.textMuted} align="center" style={{ padding: 16 }}>No messages yet. Say hello.</Txt>
-     ) : messages.map((m, i) => {
-      const own = m.authorId === activeMember.id;
-      const grouped = i > 0 && messages[i - 1].authorId === m.authorId;
-      return (
-       <View key={m.id} style={{ flexDirection: own ? 'row-reverse' : 'row', alignItems: 'flex-end', gap: 8, marginTop: grouped ? -6 : 0 }}>
-        {own ? null : <View style={{ width: 28 }}>{grouped ? null : <Avatar name={m.authorName} size={28} />}</View>}
-        <View style={{ maxWidth: '78%', gap: 3, alignItems: own ? 'flex-end' : 'flex-start' }}>
-         {!own && !grouped ? <Txt variant="caption" color={colors.textSecondary} style={{ paddingLeft: 4 }}>{m.authorName}</Txt> : null}
-         <View style={{ paddingVertical: 9, paddingHorizontal: 13, borderRadius: 18, borderBottomRightRadius: own ? 6 : 18, borderBottomLeftRadius: own ? 18 : 6, backgroundColor: own ? colors.accent : colors.surfaceCard, borderWidth: own ? 0 : 1, borderColor: colors.borderSubtle }}>
-          <Txt style={{ fontFamily: fonts.sans400, fontSize: 15, lineHeight: 21 }} color={own ? palette.paper0 : palette.ink800}>{m.body}</Txt>
+   <KeyboardAvoidingView
+    style={{ flex: 1 }}
+    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+   >
+    {tab === 'Posts' ? (
+     <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={{ gap: 12, padding: 12, paddingBottom: insets.bottom + 24 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={colors.accent} colors={[colors.accent]} />}
+     >
+      {groupPosts.length === 0 ? (
+       <View style={{ alignItems: 'center', gap: 10, padding: 28, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: colors.surfaceCard }}>
+        <IconTile icon="inbox" tone="group" />
+        <Txt variant="titleM" align="center">No posts here yet</Txt>
+       </View>
+      ) : groupPosts.map((p) => (
+       <PostCard key={p.id} kind={p.kind} pinned={p.pinned} author={p.author} source={p.source} time={p.time} title={p.title} body={p.body}
+        audience={{ scope: p.audience.scope, label: p.audience.label }} liked={!!liked[p.id]} likes={p.likes} comments={p.comments}
+        onLike={() => toggleLike(p.id)} onComment={() => router.push(('/post?id=' + encodeURIComponent(p.id)) as never)}
+        bodyLines={10} onOpen={() => router.push(('/post?id=' + encodeURIComponent(p.id)) as never)} />
+      ))}
+     </ScrollView>
+    ) : (
+     <View style={{ flex: 1 }}>
+      <ScrollView
+       ref={scrollRef}
+       style={{ flex: 1 }}
+       contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 12, gap: 12, flexGrow: 1 }}
+       onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}
+       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onPullRefresh} tintColor={colors.accent} colors={[colors.accent]} />}
+      >
+       {loadingMessages && messages.length === 0 ? (
+        <View style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 36, gap: 10 }}>
+         <ActivityIndicator size="small" color={colors.accent} />
+         <Txt variant="caption" color={colors.textMuted}>Loading messages…</Txt>
+        </View>
+       ) : messages.length === 0 ? (
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+         <Txt variant="bodyS" color={colors.textMuted} align="center">No messages yet. Say hello.</Txt>
+        </View>
+       ) : messages.map((m, i) => {
+        const own = m.authorId === activeMember.id;
+        const grouped = i > 0 && messages[i - 1].authorId === m.authorId;
+        return (
+         <View key={m.id} style={{ flexDirection: own ? 'row-reverse' : 'row', alignItems: 'flex-end', gap: 8, marginTop: grouped ? -6 : 0 }}>
+          {own ? null : <View style={{ width: 28 }}>{grouped ? null : <Avatar name={m.authorName} uri={allMembers.find((p) => p.id === m.authorId)?.avatarUrl} size={28} />}</View>}
+          <View style={{ maxWidth: '78%', gap: 3, alignItems: own ? 'flex-end' : 'flex-start' }}>
+           {!own && !grouped ? <Txt variant="caption" color={colors.textSecondary} style={{ paddingLeft: 4 }}>{m.authorName}</Txt> : null}
+           <View style={{ paddingVertical: 9, paddingHorizontal: 13, borderRadius: 18, borderBottomRightRadius: own ? 6 : 18, borderBottomLeftRadius: own ? 18 : 6, backgroundColor: own ? colors.accent : colors.surfaceCard, borderWidth: own ? 0 : 1, borderColor: colors.borderSubtle }}>
+            <Txt style={{ fontFamily: fonts.sans400, fontSize: 15, lineHeight: 21 }} color={own ? palette.paper0 : palette.ink800}>{m.body}</Txt>
+           </View>
+           <Txt variant="caption" color={colors.textMuted} style={{ paddingHorizontal: 4 }}>{m.time}</Txt>
+          </View>
          </View>
-         <Txt variant="caption" color={colors.textMuted} style={{ paddingHorizontal: 4 }}>{m.time}</Txt>
+        );
+       })}
+      </ScrollView>
+
+      {canWriteChat ? (
+       <View style={{
+        paddingHorizontal: 12,
+        paddingTop: 8,
+        paddingBottom: Math.max(insets.bottom, 12),
+        backgroundColor: colors.bgApp,
+        borderTopWidth: 1,
+        borderTopColor: colors.borderSubtle,
+       }}>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 6, paddingLeft: 14, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.borderDefault, backgroundColor: colors.surfaceCard }}>
+         <TextInput
+          value={draft}
+          onChangeText={setDraft}
+          placeholder="Write a message…"
+          placeholderTextColor={colors.textPlaceholder}
+          multiline
+          selectionColor={colors.accent}
+          style={{ flex: 1, minHeight: 36, maxHeight: 120, paddingTop: 8, paddingBottom: 8, fontFamily: fonts.sans400, fontSize: 15, color: colors.textPrimary }}
+         />
+         <IconButton icon="send" label="Send message" variant={draft.trim() ? 'primary' : 'ghost'} onPress={draft.trim() ? send : undefined} />
         </View>
        </View>
-      );
-     })}
-     {canWriteChat ? (
-      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 8, padding: 6, paddingLeft: 14, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.borderDefault, backgroundColor: colors.surfaceCard }}>
-       <TextInput value={draft} onChangeText={setDraft} placeholder="Write a message…" placeholderTextColor={colors.textPlaceholder} multiline selectionColor={colors.accent}
-        style={{ flex: 1, minHeight: 36, maxHeight: 120, paddingTop: 8, paddingBottom: 8, fontFamily: fonts.sans400, fontSize: 15, color: colors.textPrimary }} />
-       <IconButton icon="send" label="Send message" variant={draft.trim() ? 'primary' : 'ghost'} onPress={draft.trim() ? send : undefined} />
-      </View>
-     ) : (
-      <View style={{ padding: 14, alignItems: 'center', borderRadius: radius.l, backgroundColor: colors.bgSunken, borderWidth: 1, borderColor: colors.borderSubtle, marginTop: 8 }}>
-       <Txt variant="bodyS" color={colors.textSecondary} align="center">
-        {scope === 'org'
-         ? 'Official Union broadcast channel. Circle leaders and National executives post updates here.'
-         : 'Circle coordination channel. Division committee heads and Circle office bearers post updates here.'}
-       </Txt>
-      </View>
-     )}
-    </View>
-   )}
-  </Screen>
+      ) : (
+       <View style={{
+        paddingHorizontal: 16,
+        paddingTop: 10,
+        paddingBottom: Math.max(insets.bottom, 14),
+        alignItems: 'center',
+        backgroundColor: colors.bgSunken,
+        borderTopWidth: 1,
+        borderTopColor: colors.borderSubtle,
+       }}>
+        <Txt variant="bodyS" color={colors.textSecondary} align="center">
+         {scope === 'org'
+          ? 'Official Union broadcast channel. Circle leaders and National executives post updates here.'
+          : 'Circle coordination channel. Division committee heads and Circle office bearers post updates here.'}
+        </Txt>
+       </View>
+      )}
+     </View>
+    )}
+   </KeyboardAvoidingView>
+  </View>
  );
 }

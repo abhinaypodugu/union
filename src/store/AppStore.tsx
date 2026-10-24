@@ -5,18 +5,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Toast, ToastData } from '../components/Toast';
 import { dbService } from '../services/db';
 import { supabase } from '../services/supabase';
-import { registerForPush, unregisterPush } from '../services/push';
-import { errorMessage, median, relativeTime, normalizePhoneNumber } from '../lib/format';
+import { presentLocalNotification, registerForPush, unregisterPush } from '../services/push';
+import { computeSafePostalProfile, errorMessage, median, relativeTime, normalizePhoneNumber } from '../lib/format';
 import type {
   AppNotification, AudienceOption, AudienceScope, AuditEntry, Case, CommitteeInfo, CommitteeMember, FunctionalGroup, GeoUnit,
   GroupItem, GroupSection, Issue, IssueAction, NotificationPrefs, Persona, Post, RoutingRule, Tenant, TenantSettings,
   TerminologyConfig, HierarchyLevel,
 } from './types';
-import { getHierarchyLevels, DEFAULT_TERMINOLOGY } from './types';
+import { getHierarchyLevels, DEFAULT_TERMINOLOGY, BPEF_TENANT } from './types';
 export * from './types';
 
 
-const ACTIVE_TENANT_KEY = 'union.activeTenant';
 const MUTED_KEY = 'union.mutedSources';
 
 interface Store {
@@ -36,11 +35,6 @@ interface Store {
   tenant: Tenant | null;
   tenants: Tenant[];
   memberships: Persona[];
-  switchTenant: (id: string) => void;
-  lookupOrgByCode: (code: string) => Promise<Tenant | null>;
-  setupOrganization: (org: {
-    name: string; short: string; code: string; description: string; terminology?: Partial<TerminologyConfig>;
-  }, admin: { name: string; email: string; unit: string; region: string }) => Promise<Tenant | null>;
   registerMember: (d: {
     name: string;
     email: string;
@@ -115,8 +109,8 @@ interface Store {
   auditLogs: AuditEntry[];
   notifications: AppNotification[];
   unreadCount: number;
-  markRead: (id: string) => void;
-  markAllRead: () => void;
+  markRead: (id: string) => Promise<boolean>;
+  markAllRead: () => Promise<boolean>;
 
   refresh: () => Promise<void>;
   toast: (t: ToastData) => void;
@@ -140,8 +134,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const [userId, setUserId] = React.useState<string | null>(null);
   const [isPlatformSuperAdmin, setIsPlatformSuperAdmin] = React.useState(false);
   const [memberships, setMemberships] = React.useState<Persona[]>([]);
-  const [tenants, setTenants] = React.useState<Tenant[]>([]);
-  const [currentTenantId, setCurrentTenantId] = React.useState<string | null>(null);
+  const [tenants, setTenants] = React.useState<Tenant[]>([BPEF_TENANT]);
+  const [currentTenantId, setCurrentTenantId] = React.useState<string>('bpef');
 
   const [allMembers, setAllMembers] = React.useState<Persona[]>([]);
   const [adminMembers, setAdminMembers] = React.useState<Persona[]>([]);
@@ -154,6 +148,15 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const [issues, setIssues] = React.useState<Issue[]>([]);
   const [auditLogs, setAuditLogs] = React.useState<AuditEntry[]>([]);
   const [notifications, setNotifications] = React.useState<AppNotification[]>([]);
+  // IDs already surfaced, so a realtime reload only raises OS notifications
+  // for genuinely new events (never replays the whole inbox on load).
+  const seenNotifIds = React.useRef<Set<string>>(new Set());
+  const loadGeneration = React.useRef(0);
+  React.useEffect(() => {
+    // Notification history belongs to the signed-in person; never carry IDs
+    // across sessions or accounts.
+    seenNotifIds.current.clear();
+  }, [userId]);
   const [mutedSources, setMutedSources] = React.useState<string[]>([]);
   const [toastData, setToastData] = React.useState<(ToastData & { key: number }) | null>(null);
 
@@ -173,13 +176,34 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.getItem(MUTED_KEY).then((v) => v && setMutedSources(JSON.parse(v))).catch(() => undefined);
   }, []);
 
-  const tenant = tenants.find((t) => t.id === currentTenantId) || null;
+  const tenant = tenants.find((t) => t.id === currentTenantId) || BPEF_TENANT;
   const activeMember = memberships.find((m) => m.tenantId === currentTenantId) || null;
   const terminology = tenant?.terminology || DEFAULT_TERMINOLOGY;
   const levels = React.useMemo(() => getHierarchyLevels(terminology), [terminology]);
 
+  // Posts persist only the author's name/role, so resolve the avatar from the
+  // directory at read time. A Map keeps this O(posts + members) and the active
+  // member wins so an avatar update is visible immediately.
+  const membersById = React.useMemo(() => {
+    const map = new Map(allMembers.map((m) => [m.id, m] as const));
+    if (activeMember) map.set(activeMember.id, activeMember);
+    return map;
+  }, [allMembers, activeMember]);
+  const postsWithAuthorAvatars = React.useMemo(
+    () => posts.map((p) => ({
+      ...p,
+      author: {
+        ...p.author,
+        avatarUrl: p.authorId ? membersById.get(p.authorId)?.avatarUrl : undefined,
+      },
+    })),
+    [posts, membersById]
+  );
+
   // ------------------------------------------------------------------ identity
   const clearTenantData = () => {
+    loadGeneration.current += 1;
+    seenNotifIds.current.clear();
     setAllMembers([]); setAdminMembers([]); setGeoUnits([]); setFunctionalGroups([]); setCommittees([]);
     setRoutingRules([]); setPosts([]); setLiked({}); setIssues([]); setAuditLogs([]); setNotifications([]);
   };
@@ -201,7 +225,9 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
               officeEmployed: m.officeEmployed || cached.officeEmployed,
               division: m.division || cached.division || m.unit,
               circle: m.circle || cached.circle || m.region,
-              avatarUrl: m.avatarUrl || cached.avatarUrl,
+              // DB is authoritative: a removed photo must not be resurrected
+              // from a stale cache on the next cold start.
+              avatarUrl: m.avatarUrl,
             };
           }
         } catch {
@@ -213,9 +239,9 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     setMemberships(enrichedMs);
     setTenants(ts);
     setIsPlatformSuperAdmin(admin);
-    const saved = await AsyncStorage.getItem(ACTIVE_TENANT_KEY).catch(() => null);
-    const pick = enrichedMs.find((m) => m.tenantId === saved) || enrichedMs.find((m) => m.status === 'verified') || enrichedMs[0];
-    setCurrentTenantId(pick ? pick.tenantId : null);
+    // Single-tenant BPEF workspace: never infer the active tenant from another
+    // membership. Without a BPEF membership there is no activeMember.
+    setCurrentTenantId('bpef');
     return { memberships: enrichedMs, isPlatformAdmin: admin };
   }, []);
 
@@ -234,7 +260,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       const uid = session?.user.id || null;
       setUserId(uid);
       if (event === 'SIGNED_OUT') {
-        setMemberships([]); setTenants([]); setCurrentTenantId(null); setIsPlatformSuperAdmin(false); clearTenantData();
+        setMemberships([]); setTenants([]); setCurrentTenantId('bpef'); setIsPlatformSuperAdmin(false); clearTenantData();
       }
     });
     return () => { mounted = false; sub.subscription.unsubscribe(); };
@@ -244,7 +270,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const isOrgAdmin = Boolean(activeMember?.roles.includes('org_admin'));
   const [tenantLoading, setTenantLoading] = React.useState(false);
   const loadTenant = React.useCallback(async (tenantId: string, me: Persona | null, admin: boolean) => {
-    if (!me || me.status !== 'verified') { clearTenantData(); return; }
+    if (!me || me.status !== 'verified') { clearTenantData(); setTenantLoading(false); return; }
+    const generation = ++loadGeneration.current;
     setTenantLoading(true);
     try {
       const results = await Promise.allSettled([
@@ -259,6 +286,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         dbService.getNotifications(tenantId),
         admin ? dbService.getAuditLogs(tenantId) : Promise.resolve([] as AuditEntry[]),
       ]);
+      // A newer tenant/identity load wins; a slow response must never overwrite it.
+      if (generation !== loadGeneration.current) return;
       const v = <T,>(i: number, fallback: T): T => (results[i].status === 'fulfilled' ? (results[i] as PromiseFulfilledResult<T>).value : fallback);
       const rawMembers = v<Persona[]>(0, []);
       const enrichedMembers = me
@@ -275,10 +304,12 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       setPosts(v(5, []));
       setLiked(Object.fromEntries(v<string[]>(6, []).map((id) => [id, true])));
       setIssues(v(7, []));
-      setNotifications(v(8, []));
+      const loadedNotifs = v<AppNotification[]>(8, []);
+      loadedNotifs.forEach((n) => seenNotifIds.current.add(n.id));
+      setNotifications(loadedNotifs);
       setAuditLogs(v(9, []));
     } finally {
-      setTenantLoading(false);
+      if (generation === loadGeneration.current) setTenantLoading(false);
     }
   }, []);
   const meKey = activeMember ? `${activeMember.id}:${activeMember.status}:${activeMember.roles.join(',')}` : '';
@@ -291,13 +322,23 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     if (activeMember.status !== 'verified') return;
     const reloadIssues = () => dbService.getIssues(tid).then((r) => mounted && setIssues(r)).catch(() => undefined);
     const reloadPosts = () => dbService.getPosts(tid).then((r) => mounted && setPosts(r)).catch(() => undefined);
-    const reloadNotifs = () => dbService.getNotifications(tid).then((r) => mounted && setNotifications(r)).catch(() => undefined);
+    const reloadNotifs = () => dbService.getNotifications(tid).then((r) => {
+      if (!mounted) return;
+      const fresh = r.filter((n) => n.unread && !seenNotifIds.current.has(n.id));
+      r.forEach((n) => seenNotifIds.current.add(n.id));
+      setNotifications(r);
+      fresh.slice(0, 3).forEach((n) => void presentLocalNotification(n.title, n.context || n.title, n.goTarget));
+    }).catch(() => undefined);
     const unsubs = [
       dbService.subscribeToChanges('issues', tid, reloadIssues),
       dbService.subscribeToChanges('posts', tid, reloadPosts),
       dbService.subscribeToChanges('notifications', tid, reloadNotifs),
     ];
-    return () => { mounted = false; unsubs.forEach((u) => u()); };
+    return () => {
+      mounted = false;
+      loadGeneration.current += 1;
+      unsubs.forEach((u) => u());
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTenantId, meKey, isPlatformSuperAdmin]);
 
@@ -407,7 +448,6 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const logout = async () => {
     await unregisterPush().catch(() => undefined);
     await dbService.signOut();
-    await AsyncStorage.removeItem(ACTIVE_TENANT_KEY).catch(() => undefined);
     toast({ title: 'Signed out', description: 'You have been signed out.' });
   };
   const requestPhoneChangeOtp: Store['requestPhoneChangeOtp'] = async (phone) => {
@@ -421,6 +461,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       if (activeMember && currentTenantId) {
         const updatedMember: Persona = { ...activeMember, phone: normalized };
         setMemberships((prev) => prev.map((m) => (m.id === activeMember.id ? updatedMember : m)));
+        setAllMembers((prev) => prev.map((m) => (m.id === activeMember.id ? updatedMember : m)));
         await AsyncStorage.setItem(`postal_profile_${currentTenantId.toLowerCase()}`, JSON.stringify(updatedMember));
       }
       toast({ title: 'Mobile number updated', description: `Your verified phone is now +${normalized}` });
@@ -433,8 +474,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     if (res.ok && res.url) {
       const updated: Persona = { ...activeMember, avatarUrl: res.url };
       setMemberships((prev) => prev.map((m) => (m.id === activeMember.id ? updated : m)));
+      setAllMembers((prev) => prev.map((m) => (m.id === activeMember.id ? updated : m)));
       await AsyncStorage.setItem(`postal_profile_${currentTenantId.toLowerCase()}`, JSON.stringify(updated));
-      toast({ title: 'Profile photo updated' });
     } else if (res.error) {
       toast({ title: 'Failed to upload photo', description: res.error });
     }
@@ -443,44 +484,17 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
 
   const removeAvatar: Store['removeAvatar'] = async () => {
     if (!activeMember || !currentTenantId || !userId) return { ok: false, error: 'Not signed in' };
-    const res = await dbService.removeAvatar(currentTenantId, userId);
+    const res = await dbService.removeAvatar();
     if (res.ok) {
       const updated: Persona = { ...activeMember, avatarUrl: undefined };
       setMemberships((prev) => prev.map((m) => (m.id === activeMember.id ? updated : m)));
+      setAllMembers((prev) => prev.map((m) => (m.id === activeMember.id ? updated : m)));
       await AsyncStorage.setItem(`postal_profile_${currentTenantId.toLowerCase()}`, JSON.stringify(updated));
       toast({ title: 'Profile photo removed' });
     } else if (res.error) {
       toast({ title: 'Failed to remove photo', description: res.error });
     }
     return res;
-  };
-
-  const switchTenant = (id: string) => {
-    if (!memberships.some((m) => m.tenantId === id)) return; // only your own organizations
-    setCurrentTenantId(id);
-    void AsyncStorage.setItem(ACTIVE_TENANT_KEY, id).catch(() => undefined);
-  };
-
-  const lookupOrgByCode = async (code: string) => {
-    try { return await dbService.findTenantByCode(code); } catch (e) { fail('Lookup failed', e); return null; }
-  };
-
-  const setupOrganization: Store['setupOrganization'] = async (org, admin) => {
-    try {
-      const id = await dbService.createOrganization({
-        name: org.name, code: org.code, short: org.short, description: org.description, terminology: org.terminology,
-        adminName: admin.name, adminEmail: admin.email, hqCity: admin.unit, hqRegion: admin.region,
-      });
-      await loadIdentity();
-      setCurrentTenantId(id);
-      void AsyncStorage.setItem(ACTIVE_TENANT_KEY, id).catch(() => undefined);
-      const created = (await dbService.getMyTenants()).find((t) => t.id === id) || null;
-      toast({ title: 'Organization created', description: `${org.name} (${org.code.toUpperCase()}) is live.` });
-      return created;
-    } catch (e) {
-      fail('Could not create organization', e);
-      return null;
-    }
   };
 
   const registerMember: Store['registerMember'] = async (d) => {
@@ -494,9 +508,9 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         division: d.unit,
         circle: d.region,
       };
-      void AsyncStorage.setItem(`postal_profile_${d.orgCode.toLowerCase()}`, JSON.stringify(postalPayload)).catch(() => undefined);
+      void AsyncStorage.setItem(`postal_profile_bpef`, JSON.stringify(postalPayload)).catch(() => undefined);
       const profileId = await dbService.registerMember({
-        orgCode: d.orgCode,
+        orgCode: 'BPEF',
         name: d.name,
         email: d.email,
         city: d.unit,
@@ -511,8 +525,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       const { memberships: ms } = await loadIdentity();
       const mine = ms.find((m) => m.id === profileId) || null;
       if (mine) {
-        setCurrentTenantId(mine.tenantId);
-        void AsyncStorage.setItem(ACTIVE_TENANT_KEY, mine.tenantId).catch(() => undefined);
+        setCurrentTenantId('bpef');
       }
       toast({
         title: mine?.status === 'verified' ? 'Welcome!' : 'Application submitted',
@@ -552,50 +565,56 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const updatePostalProfile: Store['updatePostalProfile'] = async (data) => {
     if (!currentTenantId || !activeMember) return false;
     try {
-      const newUnit = data.division || data.unit || activeMember.unit;
-      const newRegion = data.circle || data.region || activeMember.region;
-
-      const safeData = isOrgAdmin || isPlatformSuperAdmin
-        ? {
-          employeeId: data.employeeId !== undefined ? data.employeeId : activeMember.employeeId,
-          designation: data.designation !== undefined ? data.designation : activeMember.designation,
-          category: data.category !== undefined ? data.category : activeMember.category,
-          dob: data.dob !== undefined ? data.dob : activeMember.dob,
-          officeEmployed: data.officeEmployed !== undefined ? data.officeEmployed : activeMember.officeEmployed,
-          division: data.division || activeMember.division || newUnit,
-          circle: data.circle || activeMember.circle || newRegion,
-          unit: newUnit,
-          region: newRegion,
-          avatarUrl: data.avatarUrl !== undefined ? data.avatarUrl : activeMember.avatarUrl,
-        }
-        : {
-          employeeId: activeMember.employeeId,
-          designation: activeMember.designation,
-          category: activeMember.category,
-          dob: data.dob !== undefined ? data.dob : activeMember.dob,
-          officeEmployed: data.officeEmployed !== undefined ? data.officeEmployed : activeMember.officeEmployed,
-          division: data.division || activeMember.division || newUnit,
-          circle: data.circle || activeMember.circle || newRegion,
-          unit: newUnit,
-          region: newRegion,
-          avatarUrl: data.avatarUrl !== undefined ? data.avatarUrl : activeMember.avatarUrl,
-        };
-      const merged: Persona = {
-        ...activeMember,
-        ...safeData,
-        unit: newUnit,
-        region: newRegion,
-        division: data.division || activeMember.division || newUnit,
-        circle: data.circle || activeMember.circle || newRegion,
-      };
-
-      setMemberships((prev) => prev.map((m) => (m.id === activeMember.id ? merged : m)));
-      await AsyncStorage.setItem(`postal_profile_${currentTenantId.toLowerCase()}`, JSON.stringify(merged));
-      await dbService.updatePostalProfile(currentTenantId, activeMember.id, safeData);
-      toast({
-        title: 'Workplace & channels updated',
-        description: `You are now active in ${newUnit} Division and ${newRegion} Circle channels.`,
+      const merged = computeSafePostalProfile(data, activeMember, isOrgAdmin || isPlatformSuperAdmin);
+      const ok = await dbService.updatePostalProfile(activeMember.id, {
+        employeeId: merged.employeeId,
+        designation: merged.designation,
+        category: merged.category,
+        dob: merged.dob,
+        officeEmployed: merged.officeEmployed,
+        division: merged.division,
+        circle: merged.circle,
+        avatarUrl: merged.avatarUrl,
       });
+      if (!ok) {
+        toast({
+          title: 'Could not save profile details',
+          description: 'The server did not confirm the change, so nothing was updated locally.',
+        });
+        return false;
+      }
+
+      // Persist first, then update the three local sources of truth.
+      setMemberships((prev) => prev.map((m) => (m.id === activeMember.id ? merged : m)));
+      setAllMembers((prev) => {
+        const idx = prev.findIndex((m) => m.id === activeMember.id);
+        if (idx >= 0) {
+          const updated = [...prev];
+          updated[idx] = merged;
+          return updated;
+        }
+        return [...prev, merged];
+      });
+      await AsyncStorage.setItem(`postal_profile_${currentTenantId.toLowerCase()}`, JSON.stringify(merged)).catch(() => undefined);
+      try {
+        const freshGeo = await dbService.getGeoUnits(currentTenantId);
+        if (freshGeo.length) setGeoUnits(freshGeo);
+        const freshMembers = await dbService.getMembers(currentTenantId);
+        if (freshMembers.length) {
+          const nextMembers = freshMembers.map((m) => (m.id === activeMember.id ? { ...m, ...merged } : m));
+          if (!nextMembers.some((m) => m.id === activeMember.id)) nextMembers.push(merged);
+          setAllMembers(nextMembers);
+        }
+      } catch {
+        // The confirmed local state above is already consistent with the DB write.
+      }
+
+      if (!Object.keys(data).every((k) => k === 'avatarUrl')) {
+        toast({
+          title: 'Workplace & channels updated',
+          description: `You are now active in ${merged.unit} Division and ${merged.region} Circle channels.`,
+        });
+      }
       return true;
     } catch (e) {
       fail('Could not update details', e);
@@ -709,13 +728,31 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     return ok;
   };
 
-  const markRead = (id: string) => {
+  const markRead = async (id: string) => {
+    const target = notifications.find((n) => n.id === id);
     setNotifications((ns) => ns.map((n) => (n.id === id ? { ...n, unread: false } : n)));
-    void dbService.markNotificationsRead([id]).catch(() => undefined);
+    try {
+      await dbService.markNotificationsRead([id]);
+      return true;
+    } catch (e) {
+      if (target?.unread) {
+        setNotifications((ns) => ns.map((n) => (n.id === id ? { ...n, unread: true } : n)));
+      }
+      fail('Could not mark notification read', e);
+      return false;
+    }
   };
-  const markAllRead = () => {
+  const markAllRead = async () => {
+    const unreadIds = new Set(notifications.filter((n) => n.unread).map((n) => n.id));
     setNotifications((ns) => ns.map((n) => ({ ...n, unread: false })));
-    void dbService.markNotificationsRead(null).catch((e) => fail('Could not mark read', e));
+    try {
+      await dbService.markNotificationsRead(null);
+      return true;
+    } catch (e) {
+      setNotifications((ns) => ns.map((n) => (unreadIds.has(n.id) ? { ...n, unread: true } : n)));
+      fail('Could not mark notifications read', e);
+      return false;
+    }
   };
 
   // ------------------------------------------------------------------ derived data
@@ -782,16 +819,18 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     if (!tenant || !activeMember) return [];
 
     const tierItems: GroupItem[] = [];
-    const memberCadre = activeMember.category || (activeMember.groups && activeMember.groups[0]) || '';
+    const memberAssoc = activeMember.category || (activeMember.groups && activeMember.groups[0]) || '';
 
-    // 1. Division Association Channel (Local Workplace - interactive for members)
+    // 1. Division Workplace Channel (Local Workplace - interactive for all associations in division)
     if (activeMember.unit) {
       const l1 = levels.find((l) => l.level === 1);
-      const displayName = memberCadre ? `${activeMember.unit} · ${memberCadre}` : activeMember.unit;
+      const divisionName = activeMember.unit.toLowerCase().includes('division')
+        ? activeMember.unit
+        : `${activeMember.unit} Division`;
       tierItems.push({
-        id: 'tier-1-cadre',
-        name: displayName,
-        kind: `${l1?.label || 'Division'} Association Channel`,
+        id: 'tier-1-division',
+        name: divisionName,
+        kind: `${l1?.label || 'Division'} Channel (All Associations)`,
         icon: 'briefcase',
         tone: 'group',
         scope: 'local',
@@ -849,9 +888,6 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     tenant,
     tenants,
     memberships,
-    switchTenant,
-    lookupOrgByCode,
-    setupOrganization,
     registerMember,
     terminology,
     levels,
@@ -884,7 +920,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     routingRules,
     saveRoutingRule,
     categories,
-    posts,
+    posts: postsWithAuthorAvatars,
     liked,
     toggleLike,
     addPost,

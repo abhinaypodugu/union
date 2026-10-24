@@ -42,6 +42,7 @@ export interface IssueCardProps {
   due?: string;
   dueState?: DueState;
   assignee?: string | null;
+  assigneeAvatarUrl?: string;
   nextAction?: string;
   confidential?: boolean;
   onPress?: () => void;
@@ -74,7 +75,7 @@ export function IssueCard(p: IssueCardProps) {
       </View>
       {p.nextAction || p.due || p.assignee ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.borderSubtle }}>
-          {p.assignee ? <Avatar name={p.assignee} size={22} /> : null}
+          {p.assignee ? <Avatar name={p.assignee} uri={p.assigneeAvatarUrl} size={22} /> : null}
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             {p.nextAction ? <><Icon name="corner-down-right" size={14} color={palette.ink500} /><Txt variant="bodyS" color={colors.textSecondary} numberOfLines={1} style={{ flex: 1 }}>{'Next: '}<Txt variant="bodySStrong">{p.nextAction}</Txt></Txt></> : null}
           </View>

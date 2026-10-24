@@ -10,7 +10,7 @@ const DONE = ['closed', 'rejected'];
 export default function Issues() {
   // `issues` contains only the signed-in member's own cases (filtered by complainant;
   // RLS additionally guarantees nobody else's can be returned).
-  const { issues, terminology, isHandler, cases, refresh } = useStore();
+  const { issues, terminology, isHandler, cases, refresh, allMembers } = useStore();
   const [tab, setTab] = React.useState('open');
   const [refreshing, setRefreshing] = React.useState(false);
   const open = issues.filter((i) => !DONE.includes(i.status));
@@ -65,6 +65,7 @@ export default function Issues() {
               dueState={i.dueState}
               nextAction={i.nextAction}
               confidential={i.confidential}
+              assigneeAvatarUrl={i.assigneeId ? allMembers.find((m) => m.id === i.assigneeId)?.avatarUrl : undefined}
               onPress={() => router.push('/issue?id=' + encodeURIComponent(i.id))}
             />
           ))

@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { View, ScrollView, KeyboardAvoidingView, Platform, Pressable, Share } from 'react-native';
+import { View, ScrollView, KeyboardAvoidingView, Platform, Pressable, Share, Image } from 'react-native';
 import { Redirect, router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -29,17 +29,7 @@ import { POSTAL_CIRCLES, getDivisionsForCircle, getOfficesForDivision } from '..
 const DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0'));
 const MONTHS = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
 const YEARS = Array.from({ length: 55 }, (_, i) => String(2005 - i));
-type OnboardingStep =
- | 'phone'
- | 'otp'
- | 'admin_q1'
- | 'admin_q2'
- | 'admin_q3'
- | 'admin_q4'
- | 'admin_share'
- | 'member_q1'
- | 'member_q2'
- | 'member_q3';
+type OnboardingStep = 'phone' | 'otp' | 'member_step1' | 'member_step2';
 
 function ProgressBar({ value, total }: { value: number; total: number }) {
  const pct = Math.round((value / total) * 100);
@@ -64,20 +54,10 @@ function BackHeader({ onBack, title, subtitle }: { onBack: () => void; title?: s
  );
 }
 
-const ADMIN_TOTAL = 4;
-const MEMBER_TOTAL = 3;
-function adminProgress(step: OnboardingStep) {
- if (step === 'admin_q1') return 1;
- if (step === 'admin_q2') return 2;
- if (step === 'admin_q3') return 3;
- if (step === 'admin_q4') return 4;
- if (step === 'admin_share') return 4;
- return 0;
-}
+const TOTAL_MEMBER_STEPS = 2;
 function memberProgress(step: OnboardingStep) {
- if (step === 'member_q1') return 1;
- if (step === 'member_q2') return 2;
- if (step === 'member_q3') return 3;
+ if (step === 'member_step1') return 1;
+ if (step === 'member_step2') return 2;
  return 0;
 }
 
@@ -90,8 +70,6 @@ export default function Index() {
   isPlatformSuperAdmin,
   requestOtp,
   verifyOtp,
-  lookupOrgByCode,
-  setupOrganization,
   registerMember,
   isLiveDatabase,
   toast,
@@ -114,54 +92,11 @@ export default function Index() {
  const leftWizard = useRef(false);
  const isPending = pendingPhone !== null;
 
- // Admin Wizard State
- const [orgName, setOrgName] = useState('');
- const [orgCode, setOrgCode] = useState('');
- const [orgDesc, setOrgDesc] = useState('');
- const [caseLabel, setCaseLabel] = useState('Grievance');
- const [groupLabel, setGroupLabel] = useState('Affiliated Association');
- const [adminCadres, setAdminCadres] = useState<string[]>(DEFAULT_POSTAL_CADRES);
- const [newCadreInput, setNewCadreInput] = useState('');
- const [adminLevels, setAdminLevels] = useState<HierarchyLevel[]>([
-  { level: 1, label: 'Division' },
-  { level: 2, label: 'Circle' },
-  { level: 3, label: 'All India' },
- ]);
-
- const updateAdminLevelLabel = (lvlNum: number, newLabel: string) => {
-  setAdminLevels(adminLevels.map((lvl) => (lvl.level === lvlNum ? { ...lvl, label: newLabel } : lvl)));
- };
-
- const addAdminLevel = () => {
-  const nextNum = adminLevels.length + 1;
-  setAdminLevels([...adminLevels, { level: nextNum, label: `Level ${nextNum}` }]);
- };
-
- const removeAdminLevel = (lvlNum: number) => {
-  if (adminLevels.length <= 2) return;
-  const filtered = adminLevels.filter((lvl) => lvl.level !== lvlNum);
-  setAdminLevels(filtered.map((lvl, idx) => ({ level: idx + 1, label: lvl.label })));
- };
-
- const [adminName, setAdminName] = useState('');
- const [adminEmail, setAdminEmail] = useState('');
- const [adminEmpId, setAdminEmpId] = useState('');
- const [adminCategory, setAdminCategory] = useState('Supervisors');
- const [adminUnit, setAdminUnit] = useState('');
- const [adminRegion, setAdminRegion] = useState('');
- const [createdTenant, setCreatedTenant] = useState<Tenant | null>(null);
-
- // Member Wizard State
- const [joinOrgCode, setJoinOrgCode] = useState('');
- const [matchedOrg, setMatchedOrg] = useState<Tenant | null>(null);
- const [orgList, setOrgList] = useState<Tenant[]>([]);
- const [orgSearch, setOrgSearch] = useState('');
- const [orgSheet, setOrgSheet] = useState(false);
+ // Member Wizard State (BPEF)
  const [memberName, setMemberName] = useState('');
  const [memberEmail, setMemberEmail] = useState('');
  const [memberUnit, setMemberUnit] = useState('Secunderabad');
  const [memberRegion, setMemberRegion] = useState('Telangana');
- const [memberGroup, setMemberGroup] = useState('Supervisors');
  const [memberCategory, setMemberCategory] = useState('Supervisors');
  const [memberEmpId, setMemberEmpId] = useState('');
  const [memberDesignation, setMemberDesignation] = useState('Member');
@@ -169,7 +104,6 @@ export default function Index() {
  const [memberOffice, setMemberOffice] = useState('Sitaphalmandi SO');
  const [customUnit, setCustomUnit] = useState(false);
  const [customRegion, setCustomRegion] = useState(false);
- const [customGroup, setCustomGroup] = useState(false);
  const [assocSheet, setAssocSheet] = useState(false);
  const [assocSearch, setAssocSearch] = useState('');
  const [dobSheet, setDobSheet] = useState(false);
@@ -210,44 +144,21 @@ export default function Index() {
   setMemberOffice(offs[0] || '');
  };
 
- const loadOrganizations = async (query = '') => {
-  try {
-   const list = await dbService.listPublicOrgs(query);
-   setOrgList(list);
-   if (list.length > 0 && !matchedOrg) {
-    setMatchedOrg(list[0]);
-    setJoinOrgCode(list[0].code);
-   }
-  } catch {
-   const def = await lookupOrgByCode('TU');
-   if (def) setOrgList([def]);
-  }
- };
-
- React.useEffect(() => {
-  if (step === 'member_q1') {
-   void loadOrganizations('');
-  }
- }, [step]);
- // This early return is placed AFTER all useState declarations and the effect below
- // (violating that order triggers "Rendered fewer hooks" on native).
-
  // A restored session with no membership yet continues onboarding where it left off
- // — but only after authReady, never while pendingPhone resolves.
  React.useEffect(() => {
   if (leftWizard.current) return;
   if (authReady && signedIn && memberships.length === 0 && (step === 'phone' || step === 'otp')) {
-   setStep(isPlatformSuperAdmin ? 'admin_q1' : 'member_q1');
+   setStep('member_step1');
   }
- }, [authReady, signedIn, memberships.length, isPlatformSuperAdmin, step]);
+ }, [authReady, signedIn, memberships.length, step]);
 
  // Render gate — must be the last thing before handlers so all hooks have run.
  if (isPending || !authReady) {
-  return <LoadingState title="Union" subtitle="Signing you in…" />;
+  return <LoadingState title="BPEF" subtitle="Signing you in…" />;
  }
 
  // Signed in with a membership: the main layout decides (pending / verified).
- if (signedIn && activeMember && step !== 'admin_share') {
+ if (signedIn && activeMember) {
   return <Redirect href="/main" />;
  }
  const handleSendOtp = async () => {
@@ -269,7 +180,6 @@ export default function Index() {
  const handleVerifyOtp = async () => {
   if (!otpInput.trim() || busy) return;
   const phone = normalizedPhone || phoneInput.trim();
-  // Hold a loader gate so neither member_q1 nor admin_q1 flashes before the answer arrives.
   setPendingPhone(phone);
   setBusy(true);
   try {
@@ -279,77 +189,15 @@ export default function Index() {
     router.replace('/main');
     return;
    }
-   setStep(res.isPlatformAdmin ? 'admin_q1' : 'member_q1');
+   setStep('member_step1');
   } finally {
    setPendingPhone(null);
    setBusy(false);
   }
  };
 
- const handleVerifyOrgCode = async () => {
-  if (!joinOrgCode.trim() || busy) return;
-  setBusy(true);
-  try {
-   const found = await lookupOrgByCode(joinOrgCode.trim());
-   if (!found) {
-    toast({
-     title: 'Organization code not found',
-     description: `No active organization matches code "${joinOrgCode.trim().toUpperCase()}". Ask your admin for the code.`,
-    });
-    return;
-   }
-   setMatchedOrg(found);
-   setStep('member_q2');
-  } finally {
-   setBusy(false);
-  }
- };
-
- const handleCompleteAdminSetup = async () => {
-  if (!orgName.trim() || !orgCode.trim() || !adminName.trim() || !adminUnit.trim() || busy) return;
-  setBusy(true);
-  try {
-   const cleanCode = orgCode.trim().toUpperCase();
-   const created = await setupOrganization(
-    {
-     name: orgName.trim(),
-     code: cleanCode,
-     short: cleanCode.slice(0, 4),
-     description: orgDesc.trim() || `Official platform for ${orgName.trim()}`,
-     terminology: {
-      orgLabel: 'Organization',
-      caseLabel: caseLabel.trim() || 'Grievance',
-      groupLabel: groupLabel.trim() || 'Affiliated Association',
-      cadres: adminCadres.length > 0 ? adminCadres : DEFAULT_POSTAL_CADRES,
-      states: adminRegion.trim() ? [adminRegion.trim()] : [],
-      levels: adminLevels,
-     },
-    },
-    {
-     name: adminName.trim(),
-     email: adminEmail.trim(),
-     unit: adminUnit.trim(),
-     region: adminRegion.trim() || 'Central',
-    }
-   );
-   if (!created) return;
-   setCreatedTenant(created);
-   // Persist admin postal profile
-   void AsyncStorage.setItem(`postal_profile_${created.id}`, JSON.stringify({
-    employeeId: adminEmpId.trim() || undefined,
-    designation: 'Founding President',
-    category: adminCategory,
-    division: adminUnit.trim(),
-    circle: adminRegion.trim() || 'Central',
-   })).catch(() => undefined);
-   setStep('admin_share');
-  } finally {
-   setBusy(false);
-  }
- };
-
  const handleCompleteMemberSetup = async () => {
-  if (!matchedOrg || !memberName.trim() || !memberUnit.trim() || !memberGroup.trim() || busy) {
+  if (!memberName.trim() || !memberUnit.trim() || !memberCategory.trim() || busy) {
    return;
   }
   setBusy(true);
@@ -359,11 +207,11 @@ export default function Index() {
     email: memberEmail.trim(),
     unit: memberUnit.trim(),
     region: memberRegion.trim() || 'Telangana',
-    group: memberCategory.trim() || memberGroup.trim(),
-    orgCode: matchedOrg.code,
+    group: memberCategory.trim(),
+    orgCode: 'BPEF',
     employeeId: memberEmpId.trim(),
     designation: memberDesignation.trim() || 'Member',
-    category: memberCategory.trim() || memberGroup.trim(),
+    category: memberCategory.trim(),
     dob: memberDob.trim(),
     officeEmployed: memberOffice.trim(),
    });
@@ -384,32 +232,6 @@ export default function Index() {
    setBusy(false);
   }
  };
-
- const handleShareOrgCode = async () => {
-  const codeToShare = createdTenant?.code || orgCode.trim().toUpperCase();
-  const nameToShare = createdTenant?.name || orgName.trim();
-  await Share.share({
-   message: `Join ${nameToShare} on Union.\n\nUse Organization Code: ${codeToShare}\n\nSign in with your mobile number and enter this code to complete your member setup.`,
-  });
- };
-
- const useMyLocationForAdmin = async () => {
-  setLocBusy(true);
-  try {
-   const loc = await autofillFromDevice();
-   if (!loc) {
-    toast({ title: 'Location unavailable', description: 'Please enter city and state manually, or allow location access.' });
-    return;
-   }
-   if (loc.city) setAdminUnit(loc.city);
-   if (loc.state) setAdminRegion(loc.state);
-  } catch {
-   toast({ title: 'Location unavailable', description: 'Please enter city and state manually, or allow location access.' });
-  } finally {
-   setLocBusy(false);
-  }
- };
-
  const useMyLocationForMember = async () => {
   setLocBusy(true);
   try {
@@ -457,14 +279,8 @@ export default function Index() {
  };
  const backFor = (): (() => void) | null => {
   if (step === 'otp') return () => setStep('phone');
-  if (step === 'admin_q1') return () => { void backToPhone(); };
-  if (step === 'admin_q2') return () => setStep('admin_q1');
-  if (step === 'admin_q3') return () => setStep('admin_q2');
-  if (step === 'admin_q4') return () => setStep('admin_q3');
-  if (step === 'admin_share') return null;
-  if (step === 'member_q1') return () => { void backToPhone(); };
-  if (step === 'member_q2') return () => setStep('member_q1');
-  if (step === 'member_q3') return () => setStep('member_q2');
+  if (step === 'member_step1') return () => { void backToPhone(); };
+  if (step === 'member_step2') return () => setStep('member_step1');
   return null;
  };
  const backFn = backFor();
@@ -487,60 +303,30 @@ export default function Index() {
      {backFn ? (
       <BackHeader
        onBack={backFn}
-       title={
-        step === 'otp' ? 'Verify your number'
-         : step.startsWith('admin_') ? 'Organization Setup'
-          : 'Member Setup'
-       }
+       title={step === 'otp' ? 'Verify your number' : 'Member Setup'}
        subtitle={step === 'otp' ? normalizedPhone : undefined}
       />
      ) : null}
 
      {/* Brand Header — phone never overflows: mono text truncates + numberOfLines=1 */}
      <View style={{ alignItems: 'center', gap: 8, marginBottom: 2 }}>
-      <View
-       style={{
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        backgroundColor: colors.bgSunken,
-        borderRadius: 20,
-       }}
-      >
-       <Icon name="shield-check" size={16} color={colors.accent} />
-       <Txt variant="mono" style={{ fontSize: 11, fontWeight: '700' }} color={colors.textSecondary}>
-        UNION
-       </Txt>
-      </View>
+      <Image source={require('../assets/bpef-logo.png')} style={{ width: 80, height: 80, borderRadius: 16 }} resizeMode="contain" />
 
       <Txt variant="displayL" align="center" numberOfLines={1} adjustsFontSizeToFit>
-       {step === 'phone' || step === 'otp'
-        ? 'Welcome to Union'
-        : step.startsWith('admin_')
-         ? 'Organization Setup'
-         : 'Member Setup'}
+       {step === 'phone' || step === 'otp' ? 'Welcome to BPEF' : 'Member Setup'}
       </Txt>
       <Txt variant="body" color={colors.textSecondary} align="center" numberOfLines={2}>
        {step === 'phone'
         ? 'Verify your mobile number to sign in or set up your membership.'
         : step === 'otp'
          ? `Enter the 6-digit code sent to ${normalizedPhone}`
-         : step === 'admin_share'
-          ? 'Share this code with members so they can join your organization.'
-          : step.startsWith('admin_')
-           ? 'A few quick details to launch your organization.'
-           : 'A few quick details to join your organization.'}
+         : 'A few quick details to set up your BPEF membership.'}
       </Txt>
      </View>
 
-     {/* Progress bar — replaces Step X of 3 badge */}
-     {step.startsWith('admin_') ? (
-      <ProgressBar value={adminProgress(step)} total={ADMIN_TOTAL} />
-     ) : null}
+     {/* Progress bar */}
      {step.startsWith('member_') ? (
-      <ProgressBar value={memberProgress(step)} total={MEMBER_TOTAL} />
+      <ProgressBar value={memberProgress(step)} total={TOTAL_MEMBER_STEPS} />
      ) : null}
 
      {/* STEP: MOBILE NUMBER ENTRY */}
@@ -589,300 +375,31 @@ export default function Index() {
       </Card>
      )}
 
-     {/* ADMIN Q1 — 1 to 2 questions: Name, Code & optional description */}
-     {step === 'admin_q1' && (
+     {/* STEP 1: Tell us about yourself */}
+     {step === 'member_step1' && (
       <Card style={{ padding: 20, gap: 16 }}>
-       <Txt variant="titleM">Organization details</Txt>
-       <Txt variant="bodyS" color={colors.textSecondary}>
-        Establish your organization boundary on the platform.
-       </Txt>
-
-       <Field label="Organization name" required infoText="Official name shown across the app and member invites.">
-        <Input
-         value={orgName}
-         onChangeText={(val) => {
-          setOrgName(val);
-          if (!orgCode && val.trim().length >= 3) {
-           const initials = val.trim().split(/\s+/).map((w) => w[0]).join('').toUpperCase().slice(0, 6);
-           if (initials.length >= 2) setOrgCode(initials);
-          }
-         }}
-         placeholder="e.g. National Healthcare Workers Union"
-         autoFocus
-        />
-       </Field>
-
-       <Field label="Organization Code" required infoText="Short unique code members enter after OTP to join (e.g. NHWU).">
-        <Input value={orgCode} onChangeText={(t) => setOrgCode(t.toUpperCase())} placeholder="NHWU" autoCapitalize="characters" />
-       </Field>
-
-       <Field label="Brief description" infoText="Shown to members browsing the organization directory (optional).">
-        <Input value={orgDesc} onChangeText={setOrgDesc} placeholder="e.g. Independent union for healthcare workers" />
-       </Field>
-
-       <Button size="lg" block icon="chevron-right" disabled={!orgName.trim() || !orgCode.trim()} onPress={() => setStep('admin_q2')}>
-        Continue
-       </Button>
-      </Card>
-     )}
-
-     {/* ADMIN Q2 — Focused solely on Levels & Administrative Tiers */}
-     {step === 'admin_q2' && (
-      <Card style={{ padding: 20, gap: 16 }}>
-       <Txt variant="titleM">Administrative levels & tiers</Txt>
-       <Txt variant="bodyS" color={colors.textMuted}>
-        Configure tiers for your union (e.g. Branch → Region → National). Cases escalate through these tiers automatically.
-       </Txt>
-
-       <View style={{ gap: 10 }}>
-        {adminLevels.map((lvl) => (
-         <View key={lvl.level} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: palette.blue50, borderWidth: 1.5, borderColor: colors.accent, alignItems: 'center', justifyContent: 'center' }}>
-           <Txt style={{ fontFamily: fonts.sans700, fontSize: 13, color: colors.accent }}>{`L${lvl.level}`}</Txt>
-          </View>
-          <View style={{ flex: 1 }}>
-           <Input
-            value={lvl.label}
-            onChangeText={(t) => updateAdminLevelLabel(lvl.level, t)}
-            placeholder={`Level ${lvl.level} label`}
-           />
-          </View>
-          {adminLevels.length > 2 ? (
-           <IconButton
-            icon="trash-2"
-            label={`Remove Level ${lvl.level}`}
-            size="sm"
-            onPress={() => removeAdminLevel(lvl.level)}
-            color={palette.redSolid}
-           />
-          ) : null}
-         </View>
-        ))}
-       </View>
-
-       <Button size="sm" variant="secondary" icon="plus" onPress={addAdminLevel}>
-        Add Level
-       </Button>
-
-       <Button size="lg" block icon="chevron-right" onPress={() => setStep('admin_q3')}>
-        Continue
-       </Button>
-      </Card>
-     )}
-
-     {/* ADMIN Q3 — Focused solely on Cadres & Trade Sectors */}
-     {step === 'admin_q3' && (
-      <Card style={{ padding: 20, gap: 16 }}>
-       <Txt variant="titleM">Cadres & trade sectors</Txt>
-       <Txt variant="bodyS" color={colors.textSecondary}>
-        What trade sectors do your workers belong to? These will appear as selectable dropdown options for members.
-       </Txt>
-
-       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-        {adminCadres.map((c) => (
-         <Tag
-          key={c}
-          icon="briefcase"
-          onRemove={() => setAdminCadres(adminCadres.filter((x) => x !== c))}
-         >
-          {c}
-         </Tag>
-        ))}
-       </View>
-
-       <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
-        <View style={{ flex: 1 }}>
-         <Input
-          value={newCadreInput}
-          onChangeText={setNewCadreInput}
-          placeholder="Add trade sector (e.g. Healthcare)…"
-         />
-        </View>
-        <Button
-         size="sm"
-         icon="plus"
-         disabled={!newCadreInput.trim()}
-         onPress={() => {
-          if (newCadreInput.trim() && !adminCadres.includes(newCadreInput.trim())) {
-           setAdminCadres([...adminCadres, newCadreInput.trim()]);
-           setNewCadreInput('');
-          }
-         }}
-        >
-         Add
-        </Button>
-       </View>
-
-       <Button size="lg" block icon="chevron-right" disabled={adminCadres.length === 0} onPress={() => setStep('admin_q4')}>
-        Continue
-       </Button>
-      </Card>
-     )}
-
-     {/* ADMIN Q4 — Founding administrator profile + primary workplace */}
-     {step === 'admin_q4' && (
-      <Card style={{ padding: 22, gap: 16 }}>
-       <Txt variant="titleM">Administrator Profile & Location</Txt>
-       <Txt variant="bodyS" color={colors.textSecondary}>
-        Your executive administrative profile and primary organization location.
-       </Txt>
-
-       <Field label="Full Name" required>
-        <Input value={adminName} onChangeText={setAdminName} placeholder="e.g. P Laxminarayana" autoFocus />
-       </Field>
-       <Field label="Work Email" infoText="Used for formal union notices (optional).">
-        <Input value={adminEmail} onChangeText={setAdminEmail} keyboardType="email-address" autoCapitalize="none" placeholder="e.g. admin@union.org" />
-       </Field>
-
-       <Field label="Employee ID" infoText="Staff number issued by India Post (optional)">
-        <Input value={adminEmpId} onChangeText={setAdminEmpId} placeholder="e.g. 100001" keyboardType="number-pad" />
-       </Field>
-
-       <Field label="Primary Affiliated Association" required infoText="Your personal trade association membership">
-        <Select
-         value={adminCategory}
-         onChange={setAdminCategory}
-         options={DEFAULT_POSTAL_CADRES}
-        />
-       </Field>
-       <Button variant="ghost" size="sm" icon="map-pin" disabled={locBusy} onPress={useMyLocationForAdmin} block>
-        {locBusy ? 'Locating…' : 'Use location to detect Division & Circle'}
-       </Button>
-
-       <Field label={`Primary ${adminLevels[0]?.label || 'Division'} (L1)`} required infoText="Your founding division, workplace, or headquarters">
-        <Input value={adminUnit} onChangeText={setAdminUnit} placeholder={`e.g. Secunderabad or Headquarters`} />
-       </Field>
-
-       {adminLevels.length >= 2 ? (
-        <Field label={`${adminLevels[1]?.label || 'Circle'} (L2)`} infoText="State, circle, or regional jurisdiction">
-         <Input value={adminRegion} onChangeText={setAdminRegion} placeholder={`e.g. Telangana Circle`} />
-        </Field>
-       ) : null}
-
-       <Button size="lg" block icon="check" disabled={!adminName.trim() || !adminUnit.trim() || busy} onPress={handleCompleteAdminSetup}>
-        {busy ? 'Creating Organization…' : 'Create Organization'}
-       </Button>
-      </Card>
-     )}
-
-     {/* ADMIN SHARE — invite code */}
-     {step === 'admin_share' && (
-      <Card style={{ padding: 22, gap: 16, alignItems: 'center' }}>
-       <IconTile icon="badge-check" tone="committee" />
-       <Txt variant="displayM" align="center">{createdTenant?.name || orgName} is Live</Txt>
-       <Txt variant="bodyS" color={colors.textSecondary} align="center">
-        Share this Organization Code with your members. They enter it after verifying their mobile number.
-       </Txt>
-       <View style={{ width: '100%', paddingVertical: 18, paddingHorizontal: 16, borderRadius: 12, backgroundColor: colors.bgSunken, borderWidth: 1, borderColor: palette.paper300, alignItems: 'center', gap: 6 }}>
-        <Txt variant="overline" color={colors.textMuted}>ORGANIZATION INVITE CODE</Txt>
-        <Txt variant="displayL" style={{ letterSpacing: 3 }} color={colors.accent}>{createdTenant?.code || orgCode.toUpperCase()}</Txt>
-       </View>
-       <Button size="lg" variant="secondary" block icon="share-2" onPress={handleShareOrgCode}>Share organization code</Button>
-       <Button size="lg" block icon="chevron-right" onPress={() => router.replace('/main')}>Continue to Union Dashboard</Button>
-      </Card>
-     )}
-
-     {/* MEMBER Q1 — Searchable Dropdown Organization Selector */}
-     {step === 'member_q1' && (
-      <Card style={{ padding: 20, gap: 16 }}>
-       <Txt variant="titleM">Select Your Organization</Txt>
-       <Txt variant="bodyS" color={colors.textSecondary}>Choose your union or search by organization code to join.</Txt>
-
-       {/* Searchable Selectable Organization Card */}
-       <Field label="Organization" required infoText="Select your organization from the directory or search by code">
-        <Pressable
-         onPress={() => {
-          setOrgSheet(true);
-          void loadOrganizations('');
-         }}
-         style={({ pressed }) => ({
-          padding: 14,
-          borderRadius: radius.l,
-          borderWidth: 1,
-          borderColor: colors.borderDefault,
-          backgroundColor: pressed ? colors.surfaceHover : colors.surfaceCard,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 10,
-         })}
-        >
-         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
-          <IconTile icon="building-2" tone="geo" size={32} />
-          <View style={{ flex: 1 }}>
-           {matchedOrg ? (
-            <>
-             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Txt variant="titleS" numberOfLines={1} style={{ flexShrink: 1 }}>{matchedOrg.name}</Txt>
-              <Badge size="sm" tone="info">{matchedOrg.code}</Badge>
-             </View>
-             <Txt variant="caption" color={colors.textMuted} numberOfLines={1}>
-              {matchedOrg.description || 'Verified organization on Union'}
-             </Txt>
-            </>
-           ) : (
-            <Txt variant="body" color={colors.textPlaceholder}>
-             Select or search organization…
-            </Txt>
-           )}
-          </View>
-         </View>
-         <Icon name="chevron-down" size={20} color={colors.textMuted} />
-        </Pressable>
-       </Field>
-
-       {/* Selected Confirmation Notice */}
-       {matchedOrg ? (
-        <View style={{ padding: 12, borderRadius: radius.m, backgroundColor: colors.bgSunken, gap: 4 }}>
-         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <Icon name="check-circle" size={16} color={colors.accent} />
-          <Txt variant="bodySStrong" color={colors.textPrimary}>{`Selected: ${matchedOrg.name}`}</Txt>
-         </View>
-         <Txt variant="caption" color={colors.textSecondary}>{`Code: ${matchedOrg.code} · Applications will be routed to this union.`}</Txt>
-        </View>
-       ) : null}
-
-       <Button
-        size="lg"
-        block
-        icon="chevron-right"
-        disabled={!matchedOrg || busy}
-        onPress={() => setStep('member_q2')}
-       >
-        Continue
-       </Button>
-
-       {isPlatformSuperAdmin && (
-        <Pressable onPress={() => setStep('admin_q1')} style={{ alignItems: 'center', paddingTop: 4 }}>
-         <Txt variant="bodyS" color={colors.accent}>Create a new organization instead (Admin)</Txt>
-        </Pressable>
-       )}
-      </Card>
-     )}
-
-     {/* MEMBER Q2 — name + email */}
-     {step === 'member_q2' && matchedOrg && (
-      <Card style={{ padding: 20, gap: 16 }}>
-       <Notice tone="info" title={`Joining ${matchedOrg.name}`}>{matchedOrg.description || 'Verified organization on Union'}</Notice>
+       <Notice tone="info" title="Joining BPEF">
+        Official Federation Platform of Bharatiya Postal Employees Federation
+       </Notice>
        <Txt variant="titleM">Tell us about yourself</Txt>
 
        <Field label="Full name" required>
-        <Input value={memberName} onChangeText={setMemberName} />
+        <Input value={memberName} onChangeText={setMemberName} placeholder="Your official full name" />
        </Field>
 
        <Field label="Email address" infoText="For formal notices. Optional.">
-        <Input value={memberEmail} onChangeText={setMemberEmail} keyboardType="email-address" autoCapitalize="none" />
+        <Input value={memberEmail} onChangeText={setMemberEmail} keyboardType="email-address" autoCapitalize="none" placeholder="name@domain.com" />
        </Field>
 
-       <Button block icon="chevron-right" disabled={!memberName.trim()} onPress={() => setStep('member_q3')}>Continue</Button>
+       <Button block icon="chevron-right" disabled={!memberName.trim()} onPress={() => setStep('member_step2')}>Continue</Button>
       </Card>
      )}
 
-     {/* MEMBER Q3 — selectable city, state & cadre dropdowns */}
-     {step === 'member_q3' && matchedOrg && (
+     {/* STEP 2: Postal Identity & Workplace */}
+     {step === 'member_step2' && (
       <Card style={{ padding: 20, gap: 16 }}>
        <Txt variant="titleM">Postal Identity & Workplace</Txt>
-       <Txt variant="bodyS" color={colors.textSecondary}>Enter your employee details for union verification and channel routing.</Txt>
+       <Txt variant="bodyS" color={colors.textSecondary}>Enter your employee details for federation verification and channel routing.</Txt>
 
        <Field label="Employee ID" required infoText="Your Department of Posts Employee ID / Staff Number">
         <Input value={memberEmpId} onChangeText={setMemberEmpId} placeholder="e.g. 10125634" keyboardType="number-pad" />
@@ -917,11 +434,11 @@ export default function Index() {
         </Pressable>
        </Field>
 
-       {/* Affiliated Association / Category Selector (Rich Design System Card + Sheet) */}
+       {/* Affiliated Association Selector */}
        <Field
-        label={matchedOrg.terminology.groupLabel || 'Affiliated Association'}
+        label="Affiliated Association"
         required
-        infoText="Select your trade association. Grievances route to this committee."
+        infoText="Select your affiliated association. Grievances route to this committee."
        >
         <Pressable
          onPress={() => setAssocSheet(true)}
@@ -962,15 +479,34 @@ export default function Index() {
         </View>
        </Field>
 
-       {/* Location Auto-Detect Helper */}
-       <Button variant="ghost" size="sm" icon="map-pin" disabled={locBusy} onPress={useMyLocationForMember} block>
-        {locBusy ? 'Locating…' : 'Use location to auto-detect Circle & Division'}
-       </Button>
+       {/* Fetch Location button: prominent colored button */}
+       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Fetch Location"
+        disabled={locBusy}
+        onPress={useMyLocationForMember}
+        style={({ pressed }) => ({
+         flexDirection: 'row',
+         alignItems: 'center',
+         justifyContent: 'center',
+         gap: 8,
+         minHeight: 46,
+         paddingHorizontal: 16,
+         borderRadius: radius.m,
+         backgroundColor: pressed ? palette.blue700 : colors.accent,
+         opacity: locBusy ? 0.7 : 1,
+        })}
+       >
+        <Icon name="map-pin" size={16} color="#FFFFFF" />
+        <Txt style={{ color: '#FFFFFF', fontFamily: fonts.sans600, fontSize: 14 }}>
+         {locBusy ? 'Fetching Location…' : 'Fetch Location'}
+        </Txt>
+       </Pressable>
 
-       {/* Circle / State (Level 2) — Selectable */}
+       {/* Circle (Level 2) — Selectable */}
        <View style={{ gap: 6 }}>
         {!customRegion ? (
-         <Field label={matchedOrg.terminology.level2Label || 'Circle'} required infoText="Your postal state or regional circle">
+         <Field label="Circle (L2)" required infoText="Your postal state or regional circle">
           <Select
            value={memberRegion}
            onChange={handleSelectCircle}
@@ -981,7 +517,7 @@ export default function Index() {
         ) : (
          <View style={{ gap: 4 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-           <Txt variant="bodySStrong">{`${matchedOrg.terminology.level2Label || 'Circle'} *`}</Txt>
+           <Txt variant="bodySStrong">Circle (L2) *</Txt>
            <Pressable onPress={() => { setCustomRegion(false); setMemberRegion('Telangana'); }}>
             <Txt variant="bodyS" color={colors.accent}>Select from list</Txt>
            </Pressable>
@@ -991,10 +527,10 @@ export default function Index() {
         )}
        </View>
 
-       {/* Division / City (Level 1) — Selectable & Filtered by Circle */}
+       {/* Division (Level 1) — Selectable & Filtered by Circle */}
        <View style={{ gap: 6 }}>
         {!customUnit ? (
-         <Field label={matchedOrg.terminology.level1Label || 'Division'} required infoText={`Operational division in ${memberRegion} Circle`}>
+         <Field label="Division (L1)" required infoText={`Operational division in ${memberRegion} Circle`}>
           <Select
            value={memberUnit}
            onChange={handleSelectDivision}
@@ -1005,7 +541,7 @@ export default function Index() {
         ) : (
          <View style={{ gap: 4 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-           <Txt variant="bodySStrong">{`${matchedOrg.terminology.level1Label || 'Division'} *`}</Txt>
+           <Txt variant="bodySStrong">Division (L1) *</Txt>
            <Pressable onPress={() => { setCustomUnit(false); setMemberUnit(availableDivisions[0] || 'Secunderabad'); }}>
             <Txt variant="bodyS" color={colors.accent}>Select from list</Txt>
            </Pressable>
@@ -1042,7 +578,7 @@ export default function Index() {
          <Icon name="search" size={18} color={colors.textMuted} />
         </Pressable>
        </Field>
-       <Button block icon="check" disabled={!memberUnit.trim() || !memberGroup.trim() || !memberEmpId.trim() || busy} onPress={handleCompleteMemberSetup}>
+       <Button block icon="check" disabled={!memberUnit.trim() || !memberCategory.trim() || !memberEmpId.trim() || busy} onPress={handleCompleteMemberSetup}>
         {busy ? 'Submitting…' : 'Complete Setup & Apply'}
        </Button>
       </Card>
@@ -1072,7 +608,6 @@ export default function Index() {
           key={a.name}
           onPress={() => {
            setMemberCategory(a.category);
-           setMemberGroup(a.category);
            setAssocSheet(false);
           }}
           style={({ pressed }) => ({
@@ -1190,96 +725,6 @@ export default function Index() {
            </Txt>
           </View>
           {isSelected ? <Icon name="check" size={18} color={colors.accent} /> : null}
-         </Pressable>
-        );
-       })}
-      </View>
-     </ScrollView>
-    </View>
-   </Sheet>
-   {/* Searchable Organization Selector Sheet */}
-   <Sheet visible={orgSheet} onClose={() => setOrgSheet(false)} title="Select Organization">
-    <View style={{ paddingHorizontal: 16, gap: 12, paddingBottom: 24, flexShrink: 1 }}>
-     <Input
-      value={orgSearch}
-      onChangeText={(t) => {
-       setOrgSearch(t);
-       void loadOrganizations(t);
-      }}
-      placeholder="Search organization by name or code (e.g. TU)…"
-      autoFocus
-     />
-     {orgSearch.trim() && !orgList.some((o) => o.code.toUpperCase() === orgSearch.trim().toUpperCase()) ? (
-      <Pressable
-       onPress={async () => {
-        setBusy(true);
-        try {
-         const found = await lookupOrgByCode(orgSearch.trim());
-         if (found) {
-          setMatchedOrg(found);
-          setJoinOrgCode(found.code);
-          setOrgSheet(false);
-         } else {
-          toast({ title: 'Code not found', description: `No organization matches code "${orgSearch.trim().toUpperCase()}".` });
-         }
-        } finally {
-         setBusy(false);
-        }
-       }}
-       style={({ pressed }) => ({
-        padding: 12,
-        borderRadius: radius.m,
-        backgroundColor: pressed ? colors.surfaceHover : colors.surfaceSelected,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-       })}
-      >
-       <Icon name="search" size={16} color={colors.accent} />
-       <Txt variant="bodyS" color={colors.accent}>
-        {`Search code: "${orgSearch.trim().toUpperCase()}"`}
-       </Txt>
-      </Pressable>
-     ) : null}
-
-     <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false}>
-      <View style={{ gap: 8 }}>
-       {orgList.filter((o) =>
-        !orgSearch.trim() ||
-        o.name.toLowerCase().includes(orgSearch.toLowerCase()) ||
-        o.code.toLowerCase().includes(orgSearch.toLowerCase())
-       ).map((o) => {
-        const isSelected = matchedOrg?.id === o.id;
-        return (
-         <Pressable
-          key={o.id}
-          onPress={() => {
-           setMatchedOrg(o);
-           setJoinOrgCode(o.code);
-           setOrgSheet(false);
-          }}
-          style={({ pressed }) => ({
-           padding: 14,
-           borderRadius: radius.m,
-           borderWidth: 1,
-           borderColor: isSelected ? colors.accent : colors.borderSubtle,
-           backgroundColor: isSelected ? colors.accentSoft : pressed ? colors.surfaceHover : colors.surfaceCard,
-           flexDirection: 'row',
-           alignItems: 'center',
-           justifyContent: 'space-between',
-           gap: 10,
-          })}
-         >
-          <View style={{ flex: 1, gap: 4 }}>
-           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <Txt variant="titleS" style={{ flexShrink: 1 }}>{o.name}</Txt>
-            <Badge size="sm" tone={isSelected ? 'info' : 'neutral'}>{o.code}</Badge>
-           </View>
-           <Txt variant="caption" color={colors.textSecondary} numberOfLines={2}>
-            {o.description || 'Verified organization on Union'}
-           </Txt>
-          </View>
-          {isSelected ? <Icon name="check" size={20} color={colors.accent} strokeWidth={2.5} /> : null}
          </Pressable>
         );
        })}

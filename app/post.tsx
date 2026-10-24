@@ -11,7 +11,7 @@ import { errorMessage } from '../src/lib/format';
  *  re-fetched through RLS, so a forwarded or stale link never reveals content (AC #23). */
 export default function PostDetail() {
  const { id } = useLocalSearchParams<{ id: string }>();
- const { liked, toggleLike, activeMember, authReady, signedIn, toast } = useStore();
+ const { liked, toggleLike, activeMember, allMembers, authReady, signedIn, toast } = useStore();
  const [post, setPost] = React.useState<Post | null | undefined>(undefined);
  const [comments, setComments] = React.useState<Comment[]>([]);
  const [text, setText] = React.useState('');
@@ -62,7 +62,8 @@ export default function PostDetail() {
    <StackHeader onBack={() => router.back()} title="Post" />
    <View style={{ paddingHorizontal: 12, paddingTop: 8 }}>
     <PostCard
-     kind={post.kind} pinned={post.pinned} author={post.author} source={post.source} time={post.time}
+     kind={post.kind} pinned={post.pinned} source={post.source} time={post.time}
+     author={{ ...post.author, avatarUrl: post.authorId ? allMembers.find((m) => m.id === post.authorId)?.avatarUrl : undefined }}
      title={post.title} body={post.body} audience={{ scope: post.audience.scope, label: post.audience.label }}
      liked={!!liked[post.id]} likes={post.likes} comments={comments.length}
      onLike={() => { toggleLike(post.id); setTimeout(load, 400); }}
@@ -72,7 +73,7 @@ export default function PostDetail() {
    <View style={{ paddingHorizontal: 16, gap: 18 }}>
     {comments.length === 0 ? <Txt variant="bodyS" color={colors.textMuted}>No comments yet. Start the conversation.</Txt> : comments.map((c) => (
      <View key={c.id} style={{ flexDirection: 'row', gap: 10 }}>
-      <Avatar name={c.authorName} size={32} />
+      <Avatar name={c.authorName} uri={allMembers.find((m) => m.id === c.authorId)?.avatarUrl} size={32} />
       <View style={{ flex: 1, gap: 4 }}>
        <View style={{ alignSelf: 'flex-start', maxWidth: '100%', paddingVertical: 9, paddingHorizontal: 12, borderRadius: radius.l, borderTopLeftRadius: 4, backgroundColor: colors.surfaceCard, borderWidth: 1, borderColor: colors.borderSubtle, gap: 2 }}>
         <Txt variant="bodySStrong">{c.authorName}</Txt>
@@ -84,7 +85,7 @@ export default function PostDetail() {
     ))}
    </View>
    <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 20, marginHorizontal: 12, padding: 6, paddingLeft: 8, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.borderDefault, backgroundColor: colors.surfaceCard }}>
-    <Avatar name={activeMember?.name || 'You'} size={30} />
+    <Avatar name={activeMember?.name || 'You'} uri={activeMember?.avatarUrl} size={30} />
     <TextInput value={text} onChangeText={setText} placeholder="Add a comment…" placeholderTextColor={colors.textPlaceholder} multiline selectionColor={colors.accent}
      style={{ flex: 1, minHeight: 36, maxHeight: 120, paddingTop: 8, paddingBottom: 8, fontFamily: fonts.sans400, fontSize: 15, color: colors.textPrimary }} />
     <IconButton icon="send" label={busy ? 'Sending' : 'Post comment'} variant={text.trim() ? 'primary' : 'ghost'} onPress={busy || !text.trim() ? undefined : send} />

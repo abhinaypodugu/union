@@ -105,6 +105,8 @@ export const supabase: SupabaseClient = isSupabaseConfigured
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+
+
 // Refresh tokens only while the app is in the foreground (Supabase RN guidance).
 if (Platform.OS !== 'web') {
   AppState.addEventListener('change', (state) => {

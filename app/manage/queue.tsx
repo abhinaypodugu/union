@@ -10,7 +10,7 @@ const OPEN = (s: string) => !['resolved', 'closed', 'rejected'].includes(s);
 
 export default function Queue() {
   // Hooks first, then the role check (the previous version called useState after an early return).
-  const { cases, isHandler, terminology, refresh } = useStore();
+  const { cases, isHandler, terminology, refresh, allMembers } = useStore();
   const [tab, setTab] = React.useState('all');
   const [q, setQ] = React.useState('');
   const [priority, setPriority] = React.useState<string | null>(null);
@@ -53,6 +53,7 @@ export default function Queue() {
           <IssueCard key={c.id} id={c.id} title={c.title} status={c.status} level={c.level} priority={c.priority} category={c.category}
             location={c.location} group={c.group} committee={c.committee} assignee={c.assignee}
             nextAction={c.assignee || !OPEN(c.status) ? c.next : 'Assign handler'} due={c.due} dueState={c.dueState}
+            assigneeAvatarUrl={c.assigneeId ? allMembers.find((m) => m.id === c.assigneeId)?.avatarUrl : undefined}
             confidential={c.confidential} onPress={() => router.push('/manage/case?id=' + encodeURIComponent(c.id))} />
         ))}
         {!list.length ? (

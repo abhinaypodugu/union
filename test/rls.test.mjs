@@ -82,10 +82,14 @@ describe('Tenant isolation (§4.1, §12.2 — AC #1, #2)', () => {
   await assert.rejects(rpc(u.memberB, `SELECT create_issue('orga', 't', 'd', 'Wages')`), /verified members/);
  });
 
- it('members can view peer directory with phone and email', async () => {
+ it('verified members can view the peer directory with phone and email', async () => {
   const people = await rpc(u.memberA, 'SELECT phone, email FROM profiles');
   assert.ok(people.length >= 1);
-  const mine = await rpc(u.memberA, 'SELECT phone FROM get_my_memberships()');
+  const directory = await rpc(u.memberA, `SELECT * FROM get_all_members('orga')`);
+  assert.ok(directory.length >= 1);
+  assert.ok('email' in directory[0] && 'phone' in directory[0]);
+  await assert.rejects(rpc(u.memberA, 'SELECT notification_prefs FROM profiles'), /permission denied/);
+  const mine = await rpc(u.memberA, 'SELECT phone, email FROM get_my_memberships()');
   assert.equal(mine[0].phone, '919000000011');
  });
 

@@ -75,7 +75,7 @@ const TEXT_ACTIONS: Record<string, TextAction> = {
 
 export default function CaseDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { isHandler, committees, levels, issueAction, escalateCase, tenant, toast, cases, activeMember } = useStore();
+  const { isHandler, committees, levels, issueAction, escalateCase, tenant, toast, cases, activeMember, allMembers } = useStore();
   const maxLevel = Math.max(...(levels?.map((l) => l.level) || []), ...(committees?.map((cm) => cm.level) || []), 2);
   const [c, setC] = React.useState<Issue | null | undefined>(undefined);
   const [notes, setNotes] = React.useState<InternalNote[]>([]);
@@ -384,7 +384,7 @@ export default function CaseDetail() {
             v={
               c.assignee ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Avatar name={c.assignee} size={22} />
+                  <Avatar name={c.assignee} uri={allMembers.find((m) => m.id === c.assigneeId)?.avatarUrl} size={22} />
                   <Txt variant="bodyStrong">{c.assignee}</Txt>
                 </View>
               ) : (
@@ -519,7 +519,7 @@ export default function CaseDetail() {
                   backgroundColor: pressed ? colors.surfaceHover : 'transparent',
                 })}
               >
-                <Avatar name={h.name} size={32} />
+                <Avatar name={h.name} uri={allMembers.find((m) => m.id === h.profileId)?.avatarUrl} size={32} />
                 <View style={{ flex: 1 }}>
                   <Txt variant="titleS">{h.name}</Txt>
                   <Txt variant="bodyS" color={colors.textMuted}>{h.role}</Txt>

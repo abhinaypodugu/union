@@ -174,7 +174,7 @@ All `auth.users.phone_confirmed_at = NOW()` in the seed so `is_platform_admin()`
 
 ## 5. RLS contract (must stay green)
 
-- `profiles.column privileges` hide `phone/email/notification_prefs` from non-admin directory queries. Verified by `the shared directory never exposes phone, email or preferences`.
+- `profiles.column privileges` share `phone/email` and postal details with verified members (the organization directory); `notification_prefs` stays private. Verified by `verified members can see contact details but not notification preferences`.
 - `tenants` policy: only own tenants (+ platform admin).
 - `issues`/`internal_notes`/`member_replies`/`issue_attachments`: `is_my_issue OR can_handle_issue`.
 - `posts`/`comments`/`post_likes`/`post_reports`: `can_view_post` / `in_audience`.
@@ -187,4 +187,4 @@ Run `npm test` before shipping; `supabase/schema.sql` + `supabase/seed-ten-level
 
 ---
 
-*Generated for union PRD v1.2. See `supabase/seed-ten-levels.sql` (service-role seed) and `test/ten-levels.test.mjs` (PGlite proof).*
+*Generated for union PRD v1.4. See `supabase/seed-ten-levels.sql` (service-role seed) and `test/ten-levels.test.mjs` (PGlite proof).*

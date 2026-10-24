@@ -70,14 +70,14 @@ export default function Members() {
 
  const updateMemberDesignation = async (memberId: string, designation: string) => {
   if (!tenant) return;
-  await dbService.updatePostalProfile(tenant.id, memberId, { designation });
+  await dbService.updatePostalProfile(memberId, { designation });
   await loadAdminMembers();
   setSelectedMember((prev) => (prev && prev.id === memberId ? { ...prev, designation } : prev));
  };
 
  const updateMemberEmpId = async (memberId: string, employeeId: string) => {
   if (!tenant) return;
-  await dbService.updatePostalProfile(tenant.id, memberId, { employeeId });
+  await dbService.updatePostalProfile(memberId, { employeeId });
   await loadAdminMembers();
   setSelectedMember((prev) => (prev && prev.id === memberId ? { ...prev, employeeId } : prev));
  };
@@ -145,7 +145,7 @@ export default function Members() {
        <Card key={m.id} style={{ padding: 16, gap: 12, borderRadius: radius.xl }}>
         {/* Header: Avatar, Name + Verified Tick, Member ID, Action Menu */}
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-         <Avatar name={m.name} size={42} />
+         <Avatar name={m.name} uri={m.avatarUrl} size={42} />
          <View style={{ flex: 1, minWidth: 0, justifyContent: 'center', gap: 3 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
            <Txt style={{ fontFamily: fonts.sans600, fontSize: 15, lineHeight: 20 }} color={colors.textPrimary}>
@@ -289,7 +289,7 @@ export default function Members() {
     {currentMember ? (
      <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 28, gap: 16 }} showsVerticalScrollIndicator={false}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle }}>
-       <Avatar name={currentMember.name} size={48} />
+       <Avatar name={currentMember.name} uri={currentMember.avatarUrl} size={48} />
        <View style={{ flex: 1, gap: 2 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
          <Txt variant="titleM">{currentMember.name}</Txt>

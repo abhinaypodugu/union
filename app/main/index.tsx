@@ -2,7 +2,7 @@ import React from 'react';
 import { FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { Avatar, Button, Card, Dialog, FeedSkeleton, Field, Icon, IconButton, IconTile, PostCard, ScreenHeader, SegmentedControl, Select, Sheet, TextArea, Txt } from '../../src/components';
+import { Avatar, Button, Card, Dialog, FeedSkeleton, Field, Icon, IconButton, IconTile, PostCard, ScreenHeader, SegmentedControl, Select, Sheet, SuccessOverlay, TextArea, Txt } from '../../src/components';
 import { colors, fonts, palette, radius } from '../../src/theme';
 import { useStore, Post, AudienceOption } from '../../src/store/AppStore';
 
@@ -22,12 +22,7 @@ export default function Home() {
   const [actionSheet, setActionSheet] = React.useState<Post | null>(null);
   const [reasonFor, setReasonFor] = React.useState<{ post: Post; kind: 'report' | 'remove' } | null>(null);
   const [reasonText, setReasonText] = React.useState('');
-
-  const mine = (p: Post) =>
-    (p.audience.scope === 'group' && (activeMember?.groups || []).some((g) => g.toLowerCase() === (p.audience.value || '').toLowerCase())) ||
-    (p.audience.scope === 'local' && (p.audience.value || '').toLowerCase() === (activeMember?.unit || '').toLowerCase()) ||
-    (p.audience.scope === 'region' && (p.audience.value || '').toLowerCase() === (activeMember?.region || '').toLowerCase()) ||
-    p.audience.scope === 'committee';
+  const [success, setSuccess] = React.useState(false);
 
   // Chronological, pinned official notices first; muting never hides pinned announcements (PRD §8.1).
   const posts = storePosts
@@ -55,7 +50,11 @@ export default function Home() {
   const publishDraft = async () => {
     if (!draft.trim() || !target) return;
     const ok = await addPost({ kind: 'member', body: draft.trim(), pinned: false, audiences: [target], notify: false });
-    if (ok) { setDraft(''); setComposeOpen(false); }
+    if (!ok) return;
+    setDraft('');
+    setComposeOpen(false);
+    setSuccess(true);
+    setTimeout(() => setSuccess(false), 1400);
   };
 
   return (
@@ -150,7 +149,7 @@ export default function Home() {
             comments={p.comments}
             onLike={() => toggleLike(p.id)}
             onComment={() => router.push(('/post?id=' + encodeURIComponent(p.id)) as never)}
-            bodyLines={5}
+            bodyLines={10}
             onOpen={() => router.push(('/post?id=' + encodeURIComponent(p.id)) as never)}
             onMore={() => setActionSheet(p)}
           />
@@ -193,6 +192,7 @@ export default function Home() {
           <Button size="lg" block icon="send" disabled={!draft.trim() || !target} onPress={publishDraft}>Publish</Button>
         </View>
       </Sheet>
+      <SuccessOverlay visible={success} title="Posted" description={target ? `Shared with ${target.label}` : undefined} />
     </View>
   );
 }

@@ -42,11 +42,22 @@ export function Screen({ children, header, stickyHeaderIndices, refreshing, onRe
 export function ScreenHeader({ title, overline, right }: { title: string; overline?: string; right?: React.ReactNode }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10, backgroundColor: colors.bgApp }}>
-      <View style={{ flex: 1 }}>
-        {overline ? <Txt variant="overline" color={colors.textMuted} style={{ marginBottom: 6 }} numberOfLines={1}>{overline}</Txt> : null}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        {overline ? (
+          <Txt
+            variant="overline"
+            color={colors.textMuted}
+            style={{ marginBottom: 4 }}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+          >
+            {overline}
+          </Txt>
+        ) : null}
         <Txt variant="displayM" numberOfLines={1}>{title}</Txt>
       </View>
-      {right ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>{right}</View> : null}
+      {right ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, flexShrink: 0 }}>{right}</View> : null}
     </View>
   );
 }
@@ -76,8 +87,8 @@ export function ListRow({ title, subtitle, left, right, chevron = true, onPress 
   return (
     <Pressable disabled={!onPress} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 60, paddingVertical: 10, paddingHorizontal: 14, backgroundColor: pressed ? colors.surfaceHover : 'transparent' })}>
       {left}
-      <View style={{ flex: 1, gap: 3 }}>
-        <Txt variant="titleS" numberOfLines={1}>{title}</Txt>
+      <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
+        <Txt variant="titleS" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>{title}</Txt>
         {subtitle ? <Txt variant="bodyS" color={colors.textMuted} numberOfLines={2}>{subtitle}</Txt> : null}
       </View>
       {right}

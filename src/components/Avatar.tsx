@@ -3,6 +3,7 @@ import { Image, View, ViewStyle } from 'react-native';
 import { colors, fonts, nameHue, oklchToHex, palette } from '../theme';
 import { Icon } from './Icon';
 import { Txt } from './Txt';
+import { parseCropParams } from '../lib/format';
 import { CuteAvatar } from './CuteAvatar';
 
 const initials = (name: string) => {
@@ -26,19 +27,7 @@ export function Avatar({ name, uri, size = 40, official, ring, style }: AvatarPr
   const seal = Math.max(14, Math.round(size * 0.38));
 
   // Parse any crop framing parameters (#crop=scale,dx,dy)
-  const [actualUri, cropParams] = (uri || '').split('#crop=');
-  let scale = 1;
-  let translateX = 0;
-  let translateY = 0;
-  if (cropParams) {
-    const parts = cropParams.split(',');
-    if (parts.length >= 3) {
-      scale = parseFloat(parts[0]) || 1;
-      const ratio = size / 240;
-      translateX = (parseFloat(parts[1]) || 0) * ratio;
-      translateY = (parseFloat(parts[2]) || 0) * ratio;
-    }
-  }
+  const { actualUri, scale, translateX, translateY } = parseCropParams(uri, size);
 
   const isDefaultIcon = actualUri && actualUri.startsWith('default:');
   const defaultIconId = isDefaultIcon ? actualUri.replace('default:', '') : null;
