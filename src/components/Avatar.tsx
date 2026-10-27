@@ -1,6 +1,7 @@
 import React from 'react';
 import { Image, View, ViewStyle } from 'react-native';
 import { colors, fonts, nameHue, oklchToHex, palette } from '../theme';
+import { AppPressable } from './AppPressable';
 import { Icon } from './Icon';
 import { Txt } from './Txt';
 import { parseCropParams } from '../lib/format';
@@ -19,22 +20,30 @@ export interface AvatarProps {
   official?: boolean;
   /** Accent ring — e.g. unread group story ring */
   ring?: boolean;
+  onPress?: () => void;
+  onLongPress?: () => void;
+  accessibilityHint?: string;
   style?: ViewStyle;
 }
 
-export function Avatar({ name, uri, size = 40, official, ring, style }: AvatarProps) {
+export function Avatar({ name, uri, size = 40, official, ring, onPress, onLongPress, accessibilityHint, style }: AvatarProps) {
   const h = nameHue(name);
   const seal = Math.max(14, Math.round(size * 0.38));
+  const [failed, setFailed] = React.useState(false);
 
   // Parse any crop framing parameters (#crop=scale,dx,dy)
   const { actualUri, scale, translateX, translateY } = parseCropParams(uri, size);
 
+  React.useEffect(() => { setFailed(false); }, [actualUri]);
+
   const isDefaultIcon = actualUri && actualUri.startsWith('default:');
   const defaultIconId = isDefaultIcon ? actualUri.replace('default:', '') : null;
+  const pressable = Boolean(onPress || onLongPress);
 
-  return (
+  const avatar = (
     <View
-      accessibilityLabel={name}
+      accessible={!pressable}
+      accessibilityLabel={!pressable ? name : undefined}
       style={[
         { width: size, height: size, position: 'relative' },
         ring && { padding: 2.5, borderRadius: size, borderWidth: 2, borderColor: colors.accent },
@@ -56,9 +65,10 @@ export function Avatar({ name, uri, size = 40, official, ring, style }: AvatarPr
           <View style={{ transform: [{ scale }, { translateX }, { translateY }] }}>
             <CuteAvatar id={defaultIconId} size={size} />
           </View>
-        ) : actualUri ? (
+        ) : actualUri && !failed ? (
           <Image
             source={{ uri: actualUri }}
+            onError={() => setFailed(true)}
             style={{
               width: size,
               height: size,
@@ -100,13 +110,28 @@ export function Avatar({ name, uri, size = 40, official, ring, style }: AvatarPr
       ) : null}
     </View>
   );
+
+  if (!pressable) return avatar;
+  return (
+    <AppPressable
+      haptic="selection"
+      accessibilityRole="button"
+      accessibilityLabel={name}
+      accessibilityHint={accessibilityHint ?? 'Opens profile'}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      style={{ borderRadius: size / 2 }}
+    >
+      {avatar}
+    </AppPressable>
+  );
 }
 
 export function AvatarStack({ names, size = 28, max = 4 }: { names: string[]; size?: number; max?: number }) {
   const shown = names.slice(0, max);
   const extra = names.length - shown.length;
   return (
-    <View style={{ flexDirection: 'row' }}>
+    <View accessible accessibilityLabel={`${names.length} ${names.length === 1 ? 'person' : 'people'}`} style={{ flexDirection: 'row' }}>
       {shown.map((n, i) => (
         <View key={n} style={{ marginLeft: i ? -8 : 0, borderRadius: size, borderWidth: 2, borderColor: colors.surfaceCard }}><Avatar name={n} size={size} /></View>
       ))}

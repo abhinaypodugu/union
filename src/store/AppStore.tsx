@@ -164,13 +164,13 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
 
   const toast = React.useCallback((t: ToastData) => setToastData({ ...t, key: Date.now() }), []);
   const fail = React.useCallback((title: string, err: unknown) => {
-    toast({ title, description: errorMessage(err) });
+    toast({ title, description: errorMessage(err), tone: 'danger' });
     return false as const;
   }, [toast]);
 
   React.useEffect(() => {
     if (!toastData) return;
-    const t = setTimeout(() => setToastData(null), 4500);
+    const t = setTimeout(() => setToastData(null), toastData.action ? 7000 : 4200);
     return () => clearTimeout(t);
   }, [toastData]);
 
@@ -713,10 +713,16 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   const toggleMute = (source: string) => {
+    const wasMuted = mutedSources.includes(source);
     setMutedSources((prev) => {
       const next = prev.includes(source) ? prev.filter((s) => s !== source) : [...prev, source];
       void AsyncStorage.setItem(MUTED_KEY, JSON.stringify(next)).catch(() => undefined);
       return next;
+    });
+    toast({
+      title: wasMuted ? 'Source unmuted' : 'Source muted',
+      description: source,
+      tone: 'info',
     });
   };
 
@@ -976,6 +982,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
             key={toastData.key}
             title={toastData.title}
             description={toastData.description}
+            tone={toastData.tone}
             action={toastData.action}
             onAction={toastData.onAction}
             onClose={() => setToastData(null)}

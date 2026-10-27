@@ -2,6 +2,7 @@ import React from 'react';
 import { Animated, Image, Platform, Pressable, View } from 'react-native';
 import { colors, fonts, palette, radius } from '../../theme';
 import { compactCount } from '../../lib/format';
+import { fireHaptic } from '../../lib/haptics';
 import { Avatar } from '../Avatar';
 import { Icon } from '../Icon';
 import { IconButton } from '../IconButton';
@@ -28,6 +29,8 @@ export interface PostCardProps {
  onShare?: () => void;
  onMore?: () => void;
  onOpen?: () => void;
+ onLongPress?: () => void;
+ onAuthorPress?: () => void;
  bodyLines?: number;
 }
 
@@ -77,6 +80,7 @@ export function PostCard(p: PostCardProps) {
  const likeScale = React.useRef(new Animated.Value(1)).current;
 
  const handleLike = () => {
+  fireHaptic('light');
   Animated.sequence([
    Animated.timing(likeScale, {
     toValue: 1.2,
@@ -94,14 +98,22 @@ export function PostCard(p: PostCardProps) {
  };
 
  return (
-  <View style={{
-   borderRadius: radius.l,
-   overflow: 'hidden',
-   borderWidth: 1,
-   borderStyle: committee ? (Platform.OS === 'android' ? 'solid' : 'dashed') : 'solid',
-   borderColor: official ? colors.officialBorder : committee ? (Platform.OS === 'android' ? colors.borderSubtle : colors.privateBorder) : colors.borderSubtle,
-   backgroundColor: committee ? colors.surfacePrivate : colors.surfaceCard,
-  }}>
+  <Pressable
+   disabled={!p.onLongPress}
+   onLongPress={p.onLongPress}
+   delayLongPress={350}
+   accessibilityRole={p.onLongPress ? 'button' : undefined}
+   accessibilityLabel={p.onLongPress ? `${author.name}${title ? `, ${title}` : ''}` : undefined}
+   accessibilityHint={p.onLongPress ? 'Long press for post actions' : undefined}
+   style={{
+    borderRadius: radius.l,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderStyle: committee ? (Platform.OS === 'android' ? 'solid' : 'dashed') : 'solid',
+    borderColor: official ? colors.officialBorder : committee ? (Platform.OS === 'android' ? colors.borderSubtle : colors.privateBorder) : colors.borderSubtle,
+    backgroundColor: committee ? colors.surfacePrivate : colors.surfaceCard,
+   }}
+  >
    {/* 1. Top Flag Banner matching Image #1 */}
    {official ? (
     <View style={{
@@ -199,15 +211,17 @@ export function PostCard(p: PostCardProps) {
      </View>
     </View>
 
-    {/* Options button: always anchored to top-right beside author name on all screen sizes */}
-    <IconButton
-     icon="ellipsis"
-     label="Post options"
-     size="sm"
-     onPress={p.onMore}
-     color={palette.ink500}
-     style={{ alignSelf: 'flex-start', marginTop: -2 }}
-    />
+    {/* Options button: only rendered when the host wires an action sheet. */}
+    {p.onMore ? (
+     <IconButton
+      icon="ellipsis"
+      label="Post options"
+      size="sm"
+      onPress={p.onMore}
+      color={palette.ink500}
+      style={{ alignSelf: 'flex-start', marginTop: -2 }}
+     />
+    ) : null}
    </View>
 
    {/* 3. Title (Editorial Serif Font) */}
@@ -242,7 +256,8 @@ export function PostCard(p: PostCardProps) {
     {/* Like */}
     <Pressable
      accessibilityRole="button"
-     accessibilityLabel="Like"
+     accessibilityLabel={liked ? `Liked, ${likes} likes` : 'Like'}
+     accessibilityState={{ selected: liked }}
      hitSlop={6}
      onPress={handleLike}
      style={({ pressed }) => ({
@@ -295,7 +310,7 @@ export function PostCard(p: PostCardProps) {
       accessibilityRole="button"
       accessibilityLabel="Share"
       hitSlop={6}
-      onPress={p.onShare}
+      onPress={() => { fireHaptic('selection'); p.onShare?.(); }}
       style={({ pressed }) => ({
        minHeight: 44,
        minWidth: 44,
@@ -309,7 +324,7 @@ export function PostCard(p: PostCardProps) {
      </Pressable>
     ) : null}
    </View>
-  </View>
+  </Pressable>
  );
 }
 

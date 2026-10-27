@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, palette } from '../theme';
 import { Icon } from './Icon';
 import { IconButton } from './IconButton';
+import { AppPressable } from './AppPressable';
 import { Txt } from './Txt';
 
 /** Scrollable screen on paper-50 with safe-area top padding. */
@@ -83,18 +84,45 @@ export function SectionLabel({ children, right }: { children: string; right?: Re
   );
 }
 
-/** Tappable list row for ListCard. */
-export function ListRow({ title, subtitle, left, right, chevron = true, onPress }: { title: string; subtitle?: string; left?: React.ReactNode; right?: React.ReactNode; chevron?: boolean; onPress?: () => void }) {
+/** Tappable list row for ListCard. The label is one combined screen-reader target. */
+export function ListRow({
+  title,
+  subtitle,
+  left,
+  right,
+  chevron = true,
+  onPress,
+  onLongPress,
+  accessibilityHint,
+}: {
+  title: string;
+  subtitle?: string;
+  left?: React.ReactNode;
+  right?: React.ReactNode;
+  chevron?: boolean;
+  onPress?: () => void;
+  onLongPress?: () => void;
+  accessibilityHint?: string;
+}) {
   return (
-    <Pressable disabled={!onPress} onPress={onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 60, paddingVertical: 10, paddingHorizontal: 14, backgroundColor: pressed ? colors.surfaceHover : 'transparent' })}>
+    <AppPressable
+      haptic="selection"
+      disabled={!onPress && !onLongPress}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={subtitle ? `${title}. ${subtitle}` : title}
+      accessibilityHint={accessibilityHint ?? (onPress ? 'Opens details' : undefined)}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 60, paddingVertical: 10, paddingHorizontal: 14, backgroundColor: pressed ? colors.surfaceHover : 'transparent' })}
+    >
       {left}
       <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-        <Txt variant="titleS" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>{title}</Txt>
+        <Txt variant="titleS" numberOfLines={2}>{title}</Txt>
         {subtitle ? <Txt variant="bodyS" color={colors.textMuted} numberOfLines={2}>{subtitle}</Txt> : null}
       </View>
       {right}
       {chevron && onPress ? <Icon name="chevron-right" size={18} color={palette.ink400} /> : null}
-    </Pressable>
+    </AppPressable>
   );
 }
 

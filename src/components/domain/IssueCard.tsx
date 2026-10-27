@@ -46,6 +46,7 @@ export interface IssueCardProps {
   nextAction?: string;
   confidential?: boolean;
   onPress?: () => void;
+  onLongPress?: () => void;
 }
 
 /** Structured case card — never a feed post. ID + status → facts → next action + deadline. */
@@ -85,9 +86,17 @@ export function IssueCard(p: IssueCardProps) {
     </>
   );
   const base = { gap: 10, padding: 14, paddingHorizontal: 16, borderRadius: radius.l, borderWidth: 1, backgroundColor: colors.surfaceCard, borderColor: overdue ? palette.redBorder : colors.borderSubtle };
-  if (!p.onPress) return <View style={base}>{content}</View>;
+  if (!p.onPress && !p.onLongPress) return <View style={base}>{content}</View>;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={p.id + ', ' + p.title} onPress={p.onPress} style={({ pressed }) => [base, pressed && { borderColor: colors.borderDefault, boxShadow: shadow.raised, backgroundColor: palette.paper50 }]}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${p.id}, ${p.title}${p.statusLabel ? `, ${p.statusLabel}` : ''}${p.due ? `, due ${p.due}` : ''}`}
+      accessibilityHint={p.onLongPress ? 'Long press for case actions' : 'Opens case details'}
+      onPress={p.onPress}
+      onLongPress={p.onLongPress}
+      delayLongPress={350}
+      style={({ pressed }) => [base, pressed && { borderColor: colors.borderDefault, boxShadow: shadow.raised, backgroundColor: palette.paper50 }]}
+    >
       {content}
     </Pressable>
   );

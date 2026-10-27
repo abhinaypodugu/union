@@ -1,5 +1,7 @@
 import React from 'react';
 import { Animated, Pressable, ScrollView, View } from 'react-native';
+import { fireHaptic } from '../lib/haptics';
+import { useReducedMotion } from '../lib/useReducedMotion';
 import { colors, fonts, palette, radius } from '../theme';
 import { Txt } from './Txt';
 
@@ -13,7 +15,15 @@ export function Tabs({ items, value, onChange }: { items: TabItem[]; value: stri
         {items.map((it) => {
           const on = it.value === value;
           return (
-            <Pressable key={it.value} accessibilityRole="tab" accessibilityState={{ selected: on }} onPress={() => onChange(it.value)} style={{ height: 44, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Pressable
+              key={it.value}
+              accessibilityRole="tab"
+              accessibilityLabel={it.count != null ? `${it.label}, ${it.count}` : it.label}
+              accessibilityState={{ selected: on }}
+              onPress={() => { fireHaptic('selection'); onChange(it.value); }}
+              hitSlop={4}
+              style={{ height: 44, flexDirection: 'row', alignItems: 'center', gap: 6 }}
+            >
               <Txt style={{ fontFamily: fonts.sans600, fontSize: 14 }} color={on ? colors.textPrimary : colors.textSecondary}>{it.label}</Txt>
               {it.count != null ? (
                 <View style={{ paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, backgroundColor: on ? palette.paper200 : palette.paper150 }}>
@@ -36,10 +46,11 @@ export function SegmentedControl({ items, value, onChange }: { items: string[]; 
   const activeLayout = layouts[activeIndex];
   const animX = React.useRef(new Animated.Value(0)).current;
   const isInitialized = React.useRef(false);
+  const reduceMotion = useReducedMotion();
 
   React.useEffect(() => {
     if (activeLayout) {
-      if (!isInitialized.current) {
+      if (!isInitialized.current || reduceMotion) {
         animX.setValue(activeLayout.x);
         isInitialized.current = true;
       } else {
@@ -51,7 +62,7 @@ export function SegmentedControl({ items, value, onChange }: { items: string[]; 
         }).start();
       }
     }
-  }, [activeIndex, activeLayout?.x]);
+  }, [activeIndex, activeLayout?.x, reduceMotion]);
 
   return (
     <View style={{ flexDirection: 'row', padding: 3, borderRadius: radius.m, backgroundColor: palette.paper150, position: 'relative' }}>
@@ -77,15 +88,17 @@ export function SegmentedControl({ items, value, onChange }: { items: string[]; 
           <Pressable
             key={it}
             accessibilityRole="tab"
+            accessibilityLabel={it}
             accessibilityState={{ selected: on }}
-            onPress={() => onChange(it)}
+            onPress={() => { fireHaptic('selection'); onChange(it); }}
+            hitSlop={4}
             onLayout={(e) => {
               const { x, width } = e.nativeEvent.layout;
               setLayouts((prev) => ({ ...prev, [idx]: { x, width } }));
             }}
             style={{
               flex: 1,
-              height: 34,
+              height: 40,
               borderRadius: 6,
               alignItems: 'center',
               justifyContent: 'center',

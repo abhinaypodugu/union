@@ -1,8 +1,8 @@
 import React from 'react';
-import { View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import {
-  Avatar, Badge, Button, Card, Checkbox, CommitteeBadge, Dialog, Field, IconButton, Input, ListCard, ListRow, Notice, Radio,
+  Avatar, Badge, Button, Card, Checkbox, CommitteeBadge, ConfirmDialog, Dialog, EmptyState, Field, IconButton, Input, ListCard, ListRow, Notice, Radio,
   Screen, SectionLabel, Select, Sheet, StackHeader, Tag, TextArea, Txt, IconTile, VerifiedCheck,
 } from '../../src/components';
 import { colors, fonts } from '../../src/theme';
@@ -15,7 +15,29 @@ const STATUS: Record<AppointmentStatus, ['success' | 'warning' | 'neutral' | 'da
 const GENERAL = 'General (cross-functional)';
 const NONE = 'Organization-wide';
 
+const ROLE_HELP: Record<string, string> = {
+  Member: 'Attends committee meetings and sees committee-scoped updates. Cannot act on cases.',
+  'Issue handler': 'Can be assigned cases, reply to members, add internal notes and resolve or escalate within this committee.',
+  Secretary: 'Keeps minutes and correspondence, and can handle cases when assigned.',
+  Chair: 'Leads the committee, can route and assign cases, and is the escalation contact. Confidential cases are visible to Chairs and Issue handlers only.',
+};
+
+const STATUS_IMPACT: Record<'suspend' | 'reinstate' | 'revoke' | 'replace' | 'expire', string> = {
+  suspend: 'Committee access and case handling pause immediately. The appointment stays in history and can be reinstated later.',
+  reinstate: 'Committee access and case-handling permissions are restored from today. The original appointment history is kept.',
+  revoke: 'The appointment ends permanently. The member loses committee access, and the change is recorded in the audit trail.',
+  replace: 'The seat is marked as replaced. Access ends today and the appointment stays in history for audit.',
+  expire: 'The term ends now instead of the scheduled end date. Access ends and history is kept.',
+};
+
 const blankForm = { id: '', name: '', scope: '', level: 1 as number, group: GENERAL, geo: NONE, escalatesTo: 'Next level (automatic)', method: 'Appointment', term: '', responseHours: '48', resolutionHours: '336' };
+type FormState = typeof blankForm;
+const formSignature = (form: FormState, cadres: string[]) => JSON.stringify({ ...form, cadres: [...cadres].sort() });
+
+const goBack = () => {
+  if (router.canGoBack()) router.back();
+  else router.replace('/manage' as never);
+};
 
 export default function Committee() {
   const params = useLocalSearchParams<{ id?: string }>();
@@ -39,6 +61,13 @@ export default function Committee() {
   const [reasonText, setReasonText] = React.useState('');
   const [manageFor, setManageFor] = React.useState<CommitteeMember | null>(null);
   const [selectedCadres, setSelectedCadres] = React.useState<string[]>([]);
+  const [listQ, setListQ] = React.useState('');
+  const [listLevel, setListLevel] = React.useState<number | null>(null);
+  const [formBaseline, setFormBaseline] = React.useState('');
+  const [discardOpen, setDiscardOpen] = React.useState(false);
+  const [saveWarnOpen, setSaveWarnOpen] = React.useState(false);
+  const [reinstateFor, setReinstateFor] = React.useState<CommitteeMember | null>(null);
+  const [statusBusy, setStatusBusy] = React.useState(false);
 
   const allCadres = Array.from(new Set([
     ...functionalGroups.map((f) => f.name),
@@ -49,19 +78,29 @@ export default function Committee() {
   const C = committees.find((c) => c.id === selectedId) || null;
   const iChair = C ? myAppointments.some((a) => a.committeeId === C.id && a.role === 'Chair') : false;
   const geoName = (id: string | null) => geoUnits.find((g) => g.id === id)?.name;
+  const formDirty = formOpen && formSignature(form, selectedCadres) !== formBaseline;
 
   const openForm = (c?: CommitteeInfo) => {
-    if (c?.functionalGroup) {
-      setSelectedCadres(c.functionalGroup.split(',').map((s) => s.trim()).filter(Boolean));
-    } else {
-      setSelectedCadres([]);
-    }
-    setForm(c ? {
+    const cadres = c?.functionalGroup
+      ? c.functionalGroup.split(',').map((s) => s.trim()).filter(Boolean)
+      : [];
+    const nextForm: FormState = c ? {
       id: c.id, name: c.name, scope: c.scope, level: c.level, group: c.functionalGroup || GENERAL, geo: geoName(c.geoUnitId) || NONE,
       escalatesTo: committees.find((x) => x.id === c.escalatesToId)?.name || 'Next level (automatic)', method: c.method, term: c.term,
       responseHours: String(c.responseHours), resolutionHours: String(c.resolutionHours),
-    } : blankForm);
+    } : { ...blankForm };
+    setSelectedCadres(cadres);
+    setForm(nextForm);
+    setFormBaseline(formSignature(nextForm, cadres));
+    setDiscardOpen(false);
+    setSaveWarnOpen(false);
     setFormOpen(true);
+  };
+
+  const closeForm = () => {
+    if (busy) return;
+    if (formDirty) setDiscardOpen(true);
+    else setFormOpen(false);
   };
 
   const submitForm = async () => {
@@ -81,7 +120,18 @@ export default function Committee() {
       resolutionHours: Number(form.resolutionHours) || 336,
     });
     setBusy(false);
-    if (id) { setFormOpen(false); setSelectedId(id); }
+    if (id) {
+      setSaveWarnOpen(false);
+      setFormBaseline('');
+      setFormOpen(false);
+      setSelectedId(id);
+    }
+  };
+
+  const requestSubmitForm = () => {
+    if (!form.name.trim()) return;
+    if (form.id) setSaveWarnOpen(true);
+    else void submitForm();
   };
 
   const submitAppoint = async () => {
@@ -97,22 +147,63 @@ export default function Committee() {
     if (ok) { setAddOpen(false); setPick(null); setOverride(false); setOverrideReason(''); setTermEnd(''); setSearch(''); }
   };
 
-  const confirmStatus = () => {
+  const confirmStatus = async () => {
     if (!reasonFor || !reasonText.trim()) return;
-    void setAppointmentStatus(reasonFor.m.id, reasonFor.action, reasonText.trim());
-    setReasonFor(null); setReasonText(''); setManageFor(null);
+    setStatusBusy(true);
+    const ok = await setAppointmentStatus(reasonFor.m.id, reasonFor.action, reasonText.trim());
+    setStatusBusy(false);
+    if (ok) { setReasonFor(null); setReasonText(''); setManageFor(null); }
   };
+
+  const reinstate = async () => {
+    if (!reinstateFor) return;
+    setStatusBusy(true);
+    const ok = await setAppointmentStatus(reinstateFor.id, 'reinstate');
+    setStatusBusy(false);
+    if (ok) setReinstateFor(null);
+  };
+
+  const listNeedle = listQ.trim().toLowerCase();
+  const listFiltered = committees.filter((c) => {
+    if (listLevel && c.level !== listLevel) return false;
+    if (!listNeedle) return true;
+    return `${c.name} ${c.functionalGroup || ''} ${geoName(c.geoUnitId) || ''} ${c.scope}`.toLowerCase().includes(listNeedle);
+  });
 
   // ------------------------------------------------------------ list view
   if (!C) {
     return (
       <Screen>
-        <StackHeader onBack={() => router.back()} title="Committees" right={canAdmin ? <IconButton icon="plus" label="New committee" size="lg" onPress={() => openForm()} /> : undefined} />
+        <StackHeader onBack={goBack} title="Committees" right={canAdmin ? <IconButton icon="plus" label="New committee" size="lg" onPress={() => openForm()} /> : undefined} />
+        <View style={{ paddingHorizontal: 16, paddingTop: 4, gap: 10 }}>
+          <Input icon="search" size="sm" value={listQ} onChangeText={setListQ} placeholder="Search committees, associations or geography" clearable />
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+            <Tag selected={!listLevel} onPress={() => setListLevel(null)}>{`All levels ${committees.length}`}</Tag>
+            {levels.map((lvl) => (
+              <Tag key={lvl.level} selected={listLevel === lvl.level} onPress={() => setListLevel(listLevel === lvl.level ? null : lvl.level)}>
+                {`L${lvl.level} · ${lvl.label} ${committees.filter((c) => c.level === lvl.level).length}`}
+              </Tag>
+            ))}
+          </View>
+          {committees.length ? (
+            <Txt variant="caption" color={colors.textMuted}>{`Showing ${listFiltered.length} of ${committees.length} committees`}</Txt>
+          ) : null}
+        </View>
         {committees.length === 0 ? (
           <View style={{ padding: 16 }}><Notice tone="info" title="No committees yet">{`Create committees for each ${terminology.groupLabel.toLowerCase()} and level.`}</Notice></View>
+        ) : listFiltered.length === 0 ? (
+          <View style={{ padding: 16 }}>
+            <EmptyState
+              icon="search"
+              title="No matching committees"
+              description="Try a different search or level filter."
+              actionLabel="Clear filters"
+              onAction={() => { setListQ(''); setListLevel(null); }}
+            />
+          </View>
         ) : (
           [...levels].reverse().map((lvl) => {
-            const list = committees.filter((c) => c.level === lvl.level);
+            const list = listFiltered.filter((c) => c.level === lvl.level);
             if (!list.length) return null;
             return (
               <View key={lvl.level}>
@@ -135,10 +226,12 @@ export default function Committee() {
   // ------------------------------------------------------------ detail view
   const memberIds = new Set(C.members.map((m) => m.id));
   const history = auditLogs.filter((a) => a.entityId === C.id || memberIds.has(a.entityId));
-  const candidates = allMembers
-    .filter((p) => p.status === 'verified' && !C.members.some((m) => m.profileId === p.id && ['active', 'pending', 'suspended'].includes(m.status)))
+  const candidatePool = allMembers
+    .filter((p) => p.status === 'verified' && !C.members.some((m) => m.profileId === p.id && ['active', 'pending', 'suspended'].includes(m.status)));
+  const candidates = candidatePool
     .filter((p) => !search.trim() || `${p.name} ${p.memberId} ${p.unit}`.toLowerCase().includes(search.trim().toLowerCase()))
-    .slice(0, 30);
+    .slice(0, 50);
+  const pickedCandidate = pick ? allMembers.find((p) => p.id === pick) || null : null;
   const escalatesTo = committees.find((x) => x.id === C.escalatesToId);
   const manageActions = (m: CommitteeMember): Array<[string, 'suspend' | 'reinstate' | 'revoke' | 'replace' | 'expire']> => {
     if (m.status === 'active') return [['Suspend', 'suspend'], ['Mark replaced', 'replace'], ['End term (expire)', 'expire'], ['Revoke', 'revoke']];
@@ -149,7 +242,7 @@ export default function Committee() {
 
   return (
     <Screen>
-      <StackHeader onBack={() => (params.id ? router.back() : setSelectedId(null))} title="Committee"
+      <StackHeader onBack={() => (params.id ? goBack() : setSelectedId(null))} title="Committee"
         right={canAdmin ? <IconButton icon="settings" label="Edit committee" size="lg" onPress={() => openForm(C)} /> : undefined} />
       <View style={{ paddingHorizontal: 16, paddingTop: 4, gap: 8 }}>
         <Txt variant="displayM">{C.name}</Txt>
@@ -214,30 +307,81 @@ export default function Committee() {
 
       <Sheet visible={!!manageFor} onClose={() => setManageFor(null)} title={manageFor ? `Manage · ${manageFor.name}` : 'Manage'}>
         <View style={{ gap: 8, paddingHorizontal: 16, paddingBottom: 16 }}>
-          {manageFor ? manageActions(manageFor).map(([label, action]) => (
-            <Button key={action} variant="secondary" block onPress={() => {
-              if (['reinstate'].includes(action)) { void setAppointmentStatus(manageFor.id, action); setManageFor(null); }
-              else { setReasonText(manageFor.statusReason || ''); setReasonFor({ m: manageFor, action }); }
-            }}>{label}</Button>
-          )) : null}
+          {manageFor ? manageActions(manageFor).map(([label, action]) => {
+            const dangerous = action === 'revoke';
+            return (
+              <Button key={action} variant={dangerous ? 'danger' : 'secondary'} block icon={dangerous ? 'ban' : undefined} onPress={() => {
+                const m = manageFor;
+                if (!m) return;
+                setManageFor(null);
+                if (action === 'reinstate') {
+                  setReinstateFor(m);
+                } else {
+                  setReasonText(m.statusReason || '');
+                  setReasonFor({ m, action });
+                }
+              }}>{label}</Button>
+            );
+          }) : null}
           <Button variant="ghost" block onPress={() => setManageFor(null)}>Cancel</Button>
         </View>
       </Sheet>
 
-      <Dialog visible={!!reasonFor} onClose={() => setReasonFor(null)} title={reasonFor ? `${reasonFor.action[0].toUpperCase()}${reasonFor.action.slice(1)} — reason required` : ''} description={reasonFor ? `Provide a reason for ${reasonFor.action} ${reasonFor.m.name}.` : undefined}
-        actions={<><Button variant="secondary" onPress={() => setReasonFor(null)}>Cancel</Button><Button disabled={!reasonText.trim()} onPress={confirmStatus}>Confirm</Button></>}>
+      <ConfirmDialog
+        visible={!!reinstateFor}
+        onClose={() => { if (!statusBusy) setReinstateFor(null); }}
+        onConfirm={() => void reinstate()}
+        title={reinstateFor ? `Reinstate ${reinstateFor.name}?` : 'Reinstate appointment?'}
+        description={STATUS_IMPACT.reinstate}
+        confirmLabel="Reinstate"
+        loading={statusBusy}
+      >
+        {reinstateFor ? (
+          <Notice tone="info" title={`${reinstateFor.role} · ${C.name}`}>
+            The appointment history is kept and the change is recorded in the audit trail.
+          </Notice>
+        ) : null}
+      </ConfirmDialog>
+
+      <Dialog visible={!!reasonFor} onClose={() => { if (!statusBusy) setReasonFor(null); }} title={reasonFor ? `${reasonFor.action[0].toUpperCase()}${reasonFor.action.slice(1)} — reason required` : ''} description={reasonFor ? `${STATUS_IMPACT[reasonFor.action]}\n\nProvide a reason for ${reasonFor.action} ${reasonFor.m.name}. It is recorded in the audit trail and shown with the appointment history.` : undefined}
+        actions={<><Button variant="secondary" disabled={statusBusy} onPress={() => setReasonFor(null)}>Cancel</Button><Button variant={reasonFor?.action === 'revoke' ? 'danger' : 'primary'} loading={statusBusy} disabled={!reasonText.trim() || statusBusy} onPress={confirmStatus}>{reasonFor?.action === 'revoke' ? 'Revoke' : 'Confirm'}</Button></>}>
         <Field label="Reason" required><TextArea value={reasonText} onChangeText={setReasonText} placeholder="Enter reason…" autoFocus /></Field>
+        {reasonFor ? (
+          <View style={{ paddingTop: 10 }}>
+            <Notice tone={reasonFor.action === 'revoke' ? 'danger' : 'warning'} title="Impact">
+              {reasonFor.action === 'revoke'
+                ? 'The member loses committee access immediately. Open cases assigned to them stay in the queue and should be reassigned.'
+                : STATUS_IMPACT[reasonFor.action]}
+            </Notice>
+          </View>
+        ) : null}
       </Dialog>
 
       <Sheet visible={addOpen} onClose={() => setAddOpen(false)} title="Add committee member">
-        <View style={{ gap: 14, paddingHorizontal: 16, paddingBottom: 8 }}>
+        <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 14, paddingHorizontal: 16, paddingBottom: 16 }} keyboardShouldPersistTaps="handled">
           <Field label="Member" required hint="Verified members of this organization">
-            <Input icon="search" size="sm" value={search} onChangeText={setSearch} placeholder="Search by name, member ID or city" />
+            <Input icon="search" size="sm" value={search} onChangeText={setSearch} placeholder="Search by name, member ID or city" clearable />
           </Field>
+          <Txt variant="caption" color={colors.textMuted}>{`${candidatePool.length} verified candidates · showing ${candidates.length}`}</Txt>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-            {candidates.map((p) => <Tag key={p.id} selected={pick === p.id} onPress={() => setPick(p.id)}>{`${p.name} · ${p.unit}`}</Tag>)}
+            {candidates.length === 0 ? (
+              <Txt variant="bodyS" color={colors.textMuted}>{search.trim() ? `No candidates match “${search.trim()}”.` : 'No eligible verified members available.'}</Txt>
+            ) : candidates.map((p) => <Tag key={p.id} selected={pick === p.id} onPress={() => setPick(p.id)}>{`${p.name} · ${p.unit}`}</Tag>)}
           </View>
-          <Field label="Position"><Select label="Position" value={position} onChange={setPosition} options={['Member', 'Issue handler', 'Secretary', 'Chair']} /></Field>
+          {pickedCandidate ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.borderDefault, backgroundColor: colors.surfaceCard }}>
+              <Avatar name={pickedCandidate.name} uri={pickedCandidate.avatarUrl} size={36} />
+              <View style={{ flex: 1, gap: 2 }}>
+                <Txt variant="titleS">{pickedCandidate.name}</Txt>
+                <Txt variant="bodyS" color={colors.textMuted}>{`${pickedCandidate.memberId} · ${pickedCandidate.unit}${pickedCandidate.designation ? ' · ' + pickedCandidate.designation : ''}`}</Txt>
+                <Txt variant="caption" color={colors.accent}>{`Will join as ${position} · ${method === 'appoint' ? 'Appointment' : 'Nomination & approval'}`}</Txt>
+              </View>
+            </View>
+          ) : null}
+          <Field label="Position">
+            <Select label="Position" value={position} onChange={setPosition} options={['Member', 'Issue handler', 'Secretary', 'Chair']} />
+            <Txt variant="caption" color={colors.textMuted} style={{ marginTop: 4 }}>{ROLE_HELP[position]}</Txt>
+          </Field>
           <View style={{ gap: 10 }}>
             <Txt variant="label">Formation method</Txt>
             {canAdmin ? <Radio checked={method === 'appoint'} onChange={() => setMethod('appoint')} label="Appointment" description="Organization admins hold appointment authority." /> : null}
@@ -260,10 +404,10 @@ export default function Committee() {
             </>
           )}
           <Button size="lg" block variant={override ? 'danger' : 'primary'} icon={override ? 'shield' : 'user-plus'}
-            disabled={!pick || busy || (override && !overrideReason.trim())} onPress={submitAppoint}>
+            disabled={!pick || busy || (override && !overrideReason.trim())} loading={busy} onPress={submitAppoint}>
             {override ? 'Assign as platform admin' : method === 'appoint' ? 'Appoint member' : 'Send nomination'}
           </Button>
-        </View>
+        </ScrollView>
       </Sheet>
       {renderForm()}
     </Screen>
@@ -271,63 +415,100 @@ export default function Committee() {
 
   function renderForm() {
     return (
-      <Sheet visible={formOpen} onClose={() => setFormOpen(false)} title={form.id ? 'Edit committee' : 'New committee'}>
-        <View style={{ gap: 12, paddingHorizontal: 16, paddingBottom: 16 }}>
-          <Field label="Name" required><Input value={form.name} onChangeText={(t) => setForm({ ...form, name: t })} placeholder="e.g. Hyderabad IT Workers Committee" /></Field>
-          <Field label="Level">
-            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-              {levels.map((lvl) => (
-                <Tag
-                  key={lvl.level}
-                  selected={form.level === lvl.level}
-                  onPress={() => setForm({ ...form, level: lvl.level })}
-                >
-                  {`L${lvl.level} · ${lvl.label}`}
-                </Tag>
-              ))}
-            </View>
-          </Field>
-          <Field
-            label={`${terminology.groupLabel}s covered`}
-            infoText="Choose 'All Associations' for a general committee, or tap multiple to establish a joint committee."
-          >
-            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-              <Tag
-                selected={selectedCadres.length === 0}
-                onPress={() => setSelectedCadres([])}
-              >
-                All Associations (General)
-              </Tag>
-              {allCadres.map((cName) => {
-                const on = selectedCadres.includes(cName);
-                return (
+      <>
+        <Sheet visible={formOpen} onClose={closeForm} dismissible={!busy} title={form.id ? 'Edit committee' : 'New committee'}>
+          <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ gap: 12, paddingHorizontal: 16, paddingBottom: 16 }} keyboardShouldPersistTaps="handled">
+            {form.id ? (
+              <Notice tone="warning" title="Changes affect routing and access">
+                Level, geography and association changes redirect new cases and can change who is allowed to handle them. Existing cases stay where they are, and every change is recorded in the audit trail.
+              </Notice>
+            ) : null}
+            <Field label="Name" required><Input value={form.name} onChangeText={(t) => setForm({ ...form, name: t })} placeholder="e.g. Hyderabad IT Workers Committee" /></Field>
+            <Field label="Level">
+              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                {levels.map((lvl) => (
                   <Tag
-                    key={cName}
-                    selected={on}
-                    onPress={() => {
-                      if (on) setSelectedCadres(selectedCadres.filter((x) => x !== cName));
-                      else setSelectedCadres([...selectedCadres, cName]);
-                    }}
+                    key={lvl.level}
+                    selected={form.level === lvl.level}
+                    onPress={() => setForm({ ...form, level: lvl.level })}
                   >
-                    {cName}
+                    {`L${lvl.level} · ${lvl.label}`}
                   </Tag>
-                );
-              })}
+                ))}
+              </View>
+            </Field>
+            <Field
+              label={`${terminology.groupLabel}s covered`}
+              infoText="Choose 'All Associations' for a general committee, or tap multiple to establish a joint committee."
+            >
+              <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                <Tag
+                  selected={selectedCadres.length === 0}
+                  onPress={() => setSelectedCadres([])}
+                >
+                  All Associations (General)
+                </Tag>
+                {allCadres.map((cName) => {
+                  const on = selectedCadres.includes(cName);
+                  return (
+                    <Tag
+                      key={cName}
+                      selected={on}
+                      onPress={() => {
+                        if (on) setSelectedCadres(selectedCadres.filter((x) => x !== cName));
+                        else setSelectedCadres([...selectedCadres, cName]);
+                      }}
+                    >
+                      {cName}
+                    </Tag>
+                  );
+                })}
+              </View>
+            </Field>
+            <Field label="Geographic unit"><Select value={form.geo} onChange={(v) => setForm({ ...form, geo: v })} options={[NONE, ...geoUnits.filter((g) => g.type !== 'country').map((g) => g.name)]} /></Field>
+            <Field label="Escalates to"><Select value={form.escalatesTo} onChange={(v) => setForm({ ...form, escalatesTo: v })} options={['Next level (automatic)', ...committees.filter((c) => c.id !== form.id && c.level > form.level).map((c) => c.name)]} /></Field>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}><Field label="Respond within (hours)"><Input value={form.responseHours} onChangeText={(t) => setForm({ ...form, responseHours: t.replace(/\D/g, '') })} keyboardType="number-pad" /></Field></View>
+              <View style={{ flex: 1 }}><Field label="Resolve within (hours)"><Input value={form.resolutionHours} onChangeText={(t) => setForm({ ...form, resolutionHours: t.replace(/\D/g, '') })} keyboardType="number-pad" /></Field></View>
             </View>
-          </Field>
-          <Field label="Geographic unit"><Select value={form.geo} onChange={(v) => setForm({ ...form, geo: v })} options={[NONE, ...geoUnits.filter((g) => g.type !== 'country').map((g) => g.name)]} /></Field>
-          <Field label="Escalates to"><Select value={form.escalatesTo} onChange={(v) => setForm({ ...form, escalatesTo: v })} options={['Next level (automatic)', ...committees.filter((c) => c.id !== form.id && c.level > form.level).map((c) => c.name)]} /></Field>
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <View style={{ flex: 1 }}><Field label="Respond within (hours)"><Input value={form.responseHours} onChangeText={(t) => setForm({ ...form, responseHours: t.replace(/\D/g, '') })} keyboardType="number-pad" /></Field></View>
-            <View style={{ flex: 1 }}><Field label="Resolve within (hours)"><Input value={form.resolutionHours} onChangeText={(t) => setForm({ ...form, resolutionHours: t.replace(/\D/g, '') })} keyboardType="number-pad" /></Field></View>
-          </View>
-          <View style={{ flexDirection: 'row', gap: 10 }}>
-            <View style={{ flex: 1 }}><Field label="Formation method"><Select value={form.method} onChange={(v) => setForm({ ...form, method: v })} options={['Appointment', 'Nomination & approval', 'Election', 'Eligibility-based selection']} /></Field></View>
-            <View style={{ flex: 1 }}><Field label="Term"><Input value={form.term} onChangeText={(t) => setForm({ ...form, term: t })} placeholder="2026 – 2028" /></Field></View>
-          </View>
-          <Button block icon="check" disabled={!form.name.trim() || busy} onPress={submitForm}>{busy ? 'Saving…' : 'Save committee'}</Button>
-        </View>
-      </Sheet>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}><Field label="Formation method"><Select value={form.method} onChange={(v) => setForm({ ...form, method: v })} options={['Appointment', 'Nomination & approval', 'Election', 'Eligibility-based selection']} /></Field></View>
+              <View style={{ flex: 1 }}><Field label="Term"><Input value={form.term} onChangeText={(t) => setForm({ ...form, term: t })} placeholder="2026 – 2028" /></Field></View>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10, paddingTop: 2 }}>
+              <Button variant="secondary" style={{ flex: 1 }} disabled={busy} onPress={closeForm}>Cancel</Button>
+              <Button style={{ flex: 1 }} icon="check" disabled={!form.name.trim() || busy} loading={busy} onPress={requestSubmitForm}>
+                {form.id ? 'Save changes' : 'Create committee'}
+              </Button>
+            </View>
+            {formDirty ? <Txt variant="caption" color={colors.textMuted}>Unsaved changes — closing asks before discarding them.</Txt> : null}
+          </ScrollView>
+        </Sheet>
+
+        <ConfirmDialog
+          visible={discardOpen}
+          onClose={() => setDiscardOpen(false)}
+          onConfirm={() => { setDiscardOpen(false); setFormOpen(false); setFormBaseline(''); }}
+          title="Discard unsaved changes?"
+          description="The committee name, level, associations, geography and deadlines you changed will not be saved."
+          confirmLabel="Discard changes"
+          tone="danger"
+        />
+
+        <ConfirmDialog
+          visible={saveWarnOpen}
+          onClose={() => { if (!busy) setSaveWarnOpen(false); }}
+          onConfirm={() => void submitForm()}
+          title="Save changes to this committee?"
+          description="Level, geography or association changes affect how new cases are routed and who can handle them. Existing cases keep their current committee and are not moved."
+          confirmLabel="Save changes"
+          loading={busy}
+        >
+          <Notice tone="warning" title="Recorded in the audit trail">
+            Committee edits do not rewrite case history, but they change future routing. Double-check the level and geographic scope before saving.
+          </Notice>
+        </ConfirmDialog>
+      </>
     );
   }
 }

@@ -5,9 +5,11 @@ import { TourTarget } from '@wrack/react-native-tour-guide';
 import { Icon } from '../../src/components';
 import { colors, fonts, palette } from '../../src/theme';
 import { useStore } from '../../src/store/AppStore';
+import { fireHaptic } from '../../src/lib/haptics';
 
 const tab = (title: string, icon: string, tourId: string) => ({
   title,
+  tabBarAccessibilityLabel: title,
   tabBarIcon: ({ color, focused }: { color: ColorValue; focused: boolean }) => (
     <TourTarget id={tourId} style={{ borderRadius: 12 }}>
       <Icon name={icon} size={24} color={color as string} strokeWidth={focused ? 2.1 : 1.6} />
@@ -21,8 +23,10 @@ export default function TabsLayout() {
   if (!authReady) return null;
   if (!signedIn || !activeMember) return <Redirect href="/" />;
   if (activeMember.status !== 'verified') return <Redirect href="/pending" />;
+  const alertsLabel = unreadCount ? `Alerts, ${unreadCount} unread` : 'Alerts';
   return (
     <Tabs
+      screenListeners={{ tabPress: () => fireHaptic('selection') }}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: palette.ink900,
@@ -35,7 +39,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="index" options={tab('Home', 'house', 'tab-home')} />
       <Tabs.Screen name="groups" options={tab('Groups', 'users-round', 'tab-groups')} />
       <Tabs.Screen name="issues" options={tab(terminology.caseLabel.toLowerCase().endsWith('s') ? terminology.caseLabel : terminology.caseLabel + 's', 'circle-alert', 'tab-issues')} />
-      <Tabs.Screen name="alerts" options={{ ...tab('Alerts', 'bell', 'tab-alerts'), tabBarBadge: unreadCount || undefined }} />
+      <Tabs.Screen name="alerts" options={{ ...tab('Alerts', 'bell', 'tab-alerts'), tabBarBadge: unreadCount > 99 ? '99+' : unreadCount || undefined, tabBarAccessibilityLabel: alertsLabel }} />
       <Tabs.Screen name="org" options={tab(terminology.orgLabel, 'network', 'tab-org')} />
     </Tabs>
   );

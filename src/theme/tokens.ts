@@ -10,6 +10,7 @@ export const palette = {
   paper300: "#d6d3cd",
   ink400: "#9b9891",
   ink500: "#78746d",
+  ink550: "#6f6b64",
   ink600: "#5e5a53",
   ink700: "#433f39",
   ink800: "#2c2822",
@@ -63,8 +64,8 @@ export const colors = {
   textPrimary: palette.ink900,
   textBody: palette.ink800,
   textSecondary: palette.ink600,
-  textMuted: palette.ink500,
-  textPlaceholder: palette.ink400,
+  textMuted: palette.ink600,
+  textPlaceholder: palette.ink550,
   textInverse: palette.paper0,
   textAccent: palette.blue600,
 
@@ -105,7 +106,7 @@ export const tones: Record<Tone, { fg: string; bg: string; border: string; solid
 
 export const space = { 0.5: 2, 1: 4, 1.5: 6, 2: 8, 3: 12, 4: 16, 5: 20, 6: 24, 8: 32, 10: 40, 12: 48, 16: 64 } as const;
 export const radius = { xs: 3, s: 6, m: 8, l: 12, xl: 16, xxl: 24, pill: 999 } as const;
-export const control = { sm: 32, md: 40, lg: 48, tap: 44 } as const;
+export const control = { sm: 36, md: 44, lg: 48, tap: 44 } as const;
 
 /** boxShadow strings (React Native New Architecture, iOS + Android) */
 export const shadow = {

@@ -1,29 +1,50 @@
 import React from 'react';
-import { Animated, Easing, Modal, View } from 'react-native';
+import { Animated, Easing, Modal, Pressable, View } from 'react-native';
+import { haptics } from '../lib/haptics';
+import { useReducedMotion } from '../lib/useReducedMotion';
 import { colors, palette, radius, shadow } from '../theme';
 import { Icon } from './Icon';
 import { Txt } from './Txt';
 
-/** Centered confirmation shown after a publish succeeds (design-system feedback surface). */
-export function SuccessOverlay({ visible, title, description }: { visible: boolean; title: string; description?: string }) {
+/** Centered success confirmation. Tap/back to dismiss when onClose is provided. */
+export function SuccessOverlay({
+  visible,
+  title,
+  description,
+  onClose,
+}: {
+  visible: boolean;
+  title: string;
+  description?: string;
+  onClose?: () => void;
+}) {
   const scale = React.useRef(new Animated.Value(0.6)).current;
   const opacity = React.useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReducedMotion();
 
   React.useEffect(() => {
     if (!visible) return;
-    scale.setValue(0.6);
-    opacity.setValue(0);
+    haptics.success();
+    scale.setValue(reduceMotion ? 1 : 0.6);
+    opacity.setValue(reduceMotion ? 1 : 0);
+    if (reduceMotion) return;
     Animated.parallel([
       Animated.spring(scale, { toValue: 1, friction: 6, tension: 90, useNativeDriver: true }),
       Animated.timing(opacity, { toValue: 1, duration: 180, easing: Easing.out(Easing.quad), useNativeDriver: true }),
     ]).start();
-  }, [visible, scale, opacity]);
+  }, [visible, scale, opacity, reduceMotion]);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => { }}>
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.scrim, padding: 24 }}>
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose ?? (() => undefined)}>
+      <Pressable
+        accessibilityLabel="Dismiss"
+        onPress={onClose}
+        disabled={!onClose}
+        style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.scrim, padding: 24 }}
+      >
         <Animated.View
           accessibilityRole="alert"
+          accessibilityViewIsModal
           accessibilityLiveRegion="polite"
           style={{
             opacity,
@@ -45,8 +66,9 @@ export function SuccessOverlay({ visible, title, description }: { visible: boole
           </View>
           <Txt variant="displayS" align="center">{title}</Txt>
           {description ? <Txt variant="body" color={colors.textSecondary} align="center">{description}</Txt> : null}
+          {onClose ? <Txt variant="caption" color={colors.textMuted} align="center">Tap anywhere to dismiss</Txt> : null}
         </Animated.View>
-      </View>
+      </Pressable>
     </Modal>
   );
 }

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, Image, View } from 'react-native';
+import { useReducedMotion } from '../lib/useReducedMotion';
 import { colors, palette, radius } from '../theme';
 import { Icon } from './Icon';
 import { Txt } from './Txt';
@@ -11,8 +12,14 @@ export function LoadingState({
 }: { title?: string; subtitle?: string }) {
   const pulse = useRef(new Animated.Value(0)).current;
   const shimmer = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
+    if (reduceMotion) {
+      pulse.setValue(0);
+      shimmer.setValue(0);
+      return;
+    }
     const pulseAnim = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
@@ -25,13 +32,17 @@ export function LoadingState({
     pulseAnim.start();
     shimmerAnim.start();
     return () => { pulseAnim.stop(); shimmerAnim.stop(); };
-  }, [pulse, shimmer]);
+  }, [pulse, shimmer, reduceMotion]);
 
   const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
   const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.95, 1] });
 
   return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 18, backgroundColor: colors.bgApp }}>
+    <View
+      accessibilityRole="progressbar"
+      accessibilityLabel={subtitle ? `${title}. ${subtitle}` : title}
+      style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 18, backgroundColor: colors.bgApp }}
+    >
       <Animated.View
         style={{
           width: 72, height: 72, borderRadius: 18,
@@ -62,12 +73,14 @@ export function LoadingState({
 // ── Lightweight skeleton shimmer: animated block used inside page skeletons & cards
 function SkeletonBlock({ width, height, radius: r, style }: { width?: number | string; height: number; radius?: number; style?: object }) {
   const shimmer = useRef(new Animated.Value(0)).current;
+  const reduceMotion = useReducedMotion();
   useEffect(() => {
+    if (reduceMotion) return;
     const a = Animated.loop(Animated.timing(shimmer, { toValue: 1, duration: 1100, easing: Easing.linear, useNativeDriver: true }));
     a.start(); return () => a.stop();
-  }, [shimmer]);
+  }, [shimmer, reduceMotion]);
   return (
-    <View style={[{ width: width as any, height, borderRadius: r ?? 8, backgroundColor: palette.paper100, overflow: 'hidden' }, style]}>
+    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[{ width: width as any, height, borderRadius: r ?? 8, backgroundColor: palette.paper100, overflow: 'hidden' }, style]}>
       <Animated.View style={{ width: '44%', height: '100%', backgroundColor: palette.paper200, transform: [{ translateX: shimmer.interpolate({ inputRange: [0, 1], outputRange: [-80, 260] }) }] }} />
     </View>
   );

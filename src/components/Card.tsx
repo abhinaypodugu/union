@@ -1,27 +1,39 @@
 import React from 'react';
-import { Pressable, StyleProp, View, ViewStyle } from 'react-native';
+import { StyleProp, View, ViewStyle } from 'react-native';
 import { colors, radius, shadow } from '../theme';
+import { AppPressable } from './AppPressable';
 
 export interface CardProps {
   children?: React.ReactNode;
   variant?: 'default' | 'raised' | 'sunken';
   padding?: number;
   onPress?: () => void;
+  onLongPress?: () => void;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
   style?: StyleProp<ViewStyle>;
 }
 
 /** Paper surface: hairline border, 12 radius, near-flat shadow. No colored side borders. */
-export function Card({ children, variant = 'default', padding = 16, onPress, style }: CardProps) {
+export function Card({ children, variant = 'default', padding = 16, onPress, onLongPress, accessibilityLabel, accessibilityHint, style }: CardProps) {
   const base: ViewStyle = {
     backgroundColor: variant === 'sunken' ? colors.bgSunken : colors.surfaceCard,
     borderRadius: radius.l, borderWidth: 1, borderColor: colors.borderSubtle, padding,
     boxShadow: variant === 'raised' ? shadow.raised : variant === 'sunken' ? undefined : shadow.card,
   };
-  if (!onPress) return <View style={[base, style]}>{children}</View>;
+  if (!onPress && !onLongPress) return <View style={[base, style]}>{children}</View>;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [base, pressed && { backgroundColor: colors.surfaceHover, borderColor: colors.borderDefault }, style]}>
+    <AppPressable
+      haptic={onLongPress ? 'medium' : 'selection'}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      style={({ pressed }) => [base, pressed && { backgroundColor: colors.surfaceHover, borderColor: colors.borderDefault }, style]}
+    >
       {children}
-    </Pressable>
+    </AppPressable>
   );
 }
 

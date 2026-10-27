@@ -1,6 +1,7 @@
 import React from 'react';
-import { Pressable, StyleProp, StyleSheet, ViewStyle } from 'react-native';
+import { ActivityIndicator, StyleProp, StyleSheet, ViewStyle } from 'react-native';
 import { colors, control, fonts, palette, radius } from '../theme';
+import { AppPressable } from './AppPressable';
 import { Icon } from './Icon';
 import { Txt } from './Txt';
 
@@ -22,42 +23,59 @@ export interface ButtonProps {
   iconRight?: string;
   block?: boolean;
   disabled?: boolean;
+  loading?: boolean;
   onPress?: () => void;
+  accessibilityHint?: string;
   style?: StyleProp<ViewStyle>;
 }
 
 /** Sentence-case verb labels. One primary per region; lg (48) for mobile primary CTAs. */
-export function Button({ children, variant = 'primary', size = 'md', icon, iconRight, block, disabled, onPress, style }: ButtonProps) {
+export function Button({
+  children,
+  variant = 'primary',
+  size = 'md',
+  icon,
+  iconRight,
+  block,
+  disabled,
+  loading,
+  onPress,
+  accessibilityHint,
+  style,
+}: ButtonProps) {
   const v = V[variant];
   const h = control[size];
   const fs = size === 'sm' ? 13 : size === 'lg' ? 16 : 15;
   const is = size === 'sm' ? 16 : size === 'lg' ? 20 : 18;
+  const isDisabled = disabled || loading;
   return (
-    <Pressable
+    <AppPressable
+      haptic={variant === 'danger' ? 'warning' : 'light'}
       accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      accessibilityHint={accessibilityHint}
+      disabled={isDisabled}
       onPress={onPress}
+      hitSlop={size === 'sm' ? 6 : 2}
       style={({ pressed }) => [
         s.base,
         {
-          height: h,
+          minHeight: h,
           paddingHorizontal: size === 'sm' ? 12 : size === 'lg' ? 20 : 16,
           gap: size === 'sm' ? 6 : 8,
           borderRadius: size === 'sm' ? radius.s : radius.m,
           backgroundColor: pressed ? v.bgPressed : v.bg,
           borderColor: v.border,
-          opacity: disabled ? 0.45 : 1,
-          transform: [{ scale: pressed ? 0.98 : 1 }],
+          opacity: isDisabled ? 0.5 : 1,
         },
         block && s.block,
         style,
       ]}
     >
-      {icon ? <Icon name={icon} size={is} color={v.fg} strokeWidth={2} /> : null}
-      <Txt style={{ fontFamily: fonts.sans600, fontSize: fs, lineHeight: fs + 4 }} color={v.fg} numberOfLines={1}>{children}</Txt>
-      {iconRight ? <Icon name={iconRight} size={is} color={v.fg} strokeWidth={2} /> : null}
-    </Pressable>
+      {loading ? <ActivityIndicator size="small" color={v.fg} /> : icon ? <Icon name={icon} size={is} color={v.fg} strokeWidth={2} /> : null}
+      <Txt style={{ fontFamily: fonts.sans600, fontSize: fs, lineHeight: fs + 4 }} color={v.fg} numberOfLines={2}>{children}</Txt>
+      {!loading && iconRight ? <Icon name={iconRight} size={is} color={v.fg} strokeWidth={2} /> : null}
+    </AppPressable>
   );
 }
 

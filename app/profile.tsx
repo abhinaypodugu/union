@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Pressable, Share, ScrollView, Modal, Image, PanResponder } from 'react-native';
 import { Redirect, router } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { TourTarget } from '@wrack/react-native-tour-guide';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 let ImagePicker: any = null;
@@ -10,18 +11,19 @@ try {
   ImagePicker = null;
 }
 import {
-  Avatar, Badge, Button, Card, Icon, IconButton, IconTile, KeyValue, ListCard, ListRow, LoadingState, Notice, Screen, SectionLabel, Select, StackHeader,
-  Switch, Tag, Txt, Sheet, Field, Input, VerifiedCheck, CuteAvatar, CUTE_AVATARS,
+  ActionSheet, AppPressable, Avatar, Badge, Button, Card, ConfirmDialog, CopyableText, Icon, IconButton, IconTile, KeyValue, ListCard, ListRow,
+  LoadingState, Notice, Screen, SectionLabel, Select, StackHeader, Switch, Tag, Txt, Sheet, Field, Input, VerifiedCheck, CuteAvatar, CUTE_AVATARS,
 } from '../src/components';
 import { colors, fonts, palette, radius } from '../src/theme';
-import { useStore, NotificationPrefs, Tenant, DEFAULT_POSTAL_CADRES, UNION_DESIGNATIONS, AFFILIATED_ASSOCIATIONS } from '../src/store/AppStore';
+import { useStore, NotificationPrefs, UNION_DESIGNATIONS, AFFILIATED_ASSOCIATIONS } from '../src/store/AppStore';
 import { useAppTour } from '../src/tour/AppTourProvider';
 import { registerSetupAction } from '../src/tour/actions';
 import { profileScrollRef } from '../src/tour/scrollRegistry';
 import { SetupCoach } from '../src/tour/SetupCoach';
 import { POSTAL_CIRCLES, getDivisionsForCircle, getOfficesForDivision } from '../src/lib/postalData';
 import { AVATAR_EDITOR_SIZE } from '../src/lib/format';
-const PREFS: Array<[keyof NotificationPrefs, string, boolean]> = [
+type PrefKey = Exclude<keyof NotificationPrefs, 'quietHours'>;
+const PREFS: Array<[PrefKey, string, boolean]> = [
   ['announcements', 'Official announcements', false],
   ['replies', 'Replies & mentions', false],
   ['groupActivity', 'Group activity', false],
@@ -30,9 +32,41 @@ const PREFS: Array<[keyof NotificationPrefs, string, boolean]> = [
 const calcDistance = (x1: number, y1: number, x2: number, y2: number) => {
   return Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
 };
-const DAYS = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0'));
 const MONTHS = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
-const YEARS = Array.from({ length: 55 }, (_, i) => String(2005 - i));
+const CURRENT_YEAR = new Date().getFullYear();
+const YEARS = Array.from({ length: 83 }, (_, i) => String(CURRENT_YEAR - 18 - i));
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const daysInMonth = (month: string, year: string) => (!month ? 31 : new Date(Number(year) || 2000, Number(month), 0).getDate());
+function formatDobInput(raw: string) {
+  const digits = raw.replace(/[^0-9]/g, '').slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4)}`;
+}
+function parseDob(raw: string) {
+  const value = (raw || '').trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/.exec(value);
+  const dmy = /^(\d{2})[-/](\d{2})[-/](\d{4})$/.exec(value);
+  if (!iso && !dmy) return null;
+  const year = Number(iso ? iso[1] : dmy![3]);
+  const month = Number(iso ? iso[2] : dmy![2]);
+  const day = Number(iso ? iso[3] : dmy![1]);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+  if (year < 1900 || date.getTime() > Date.now()) return null;
+  return { day, month, year };
+}
+function formatDobDisplay(raw?: string) {
+  const parsed = raw ? parseDob(raw) : null;
+  return parsed ? `${pad2(parsed.day)}-${pad2(parsed.month)}-${parsed.year}` : (raw || '');
+}
+const tenDigitPhone = (raw: string) => {
+  let digits = (raw || '').replace(/[^0-9]/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) digits = digits.slice(2);
+  if (digits.length === 11 && digits.startsWith('0')) digits = digits.slice(1);
+  return digits;
+};
 
 export default function Profile() {
   const {
@@ -50,6 +84,7 @@ export default function Profile() {
   const [cropX, setCropX] = React.useState(0);
   const [cropY, setCropY] = React.useState(0);
   const [uploadingPhoto, setUploadingPhoto] = React.useState(false);
+  const [avatarActionsOpen, setAvatarActionsOpen] = React.useState(false);
 
   const cropScaleRef = React.useRef(cropScale);
   const cropXRef = React.useRef(cropX);
@@ -137,15 +172,22 @@ export default function Profile() {
   }, []);
   const [busy, setBusy] = React.useState(false);
   const [postalSheet, setPostalSheet] = React.useState(false);
+  const [postalSnapshot, setPostalSnapshot] = React.useState('');
+  const [discardPostalOpen, setDiscardPostalOpen] = React.useState(false);
   const [dobSheet, setDobSheet] = React.useState(false);
-  const [dobDay, setDobDay] = React.useState('06');
-  const [dobMonth, setDobMonth] = React.useState('04');
-  const [dobYear, setDobYear] = React.useState('1972');
+  const [dobDay, setDobDay] = React.useState('');
+  const [dobMonth, setDobMonth] = React.useState('');
+  const [dobYear, setDobYear] = React.useState('');
   const [phoneSheet, setPhoneSheet] = React.useState(false);
   const [newPhone, setNewPhone] = React.useState('');
   const [phoneOtp, setPhoneOtp] = React.useState('');
   const [otpSent, setOtpSent] = React.useState(false);
   const [phoneBusy, setPhoneBusy] = React.useState(false);
+  const [phoneError, setPhoneError] = React.useState<string | null>(null);
+  const [phoneOtpError, setPhoneOtpError] = React.useState<string | null>(null);
+  const [phoneResendIn, setPhoneResendIn] = React.useState(0);
+  const [discardPhoneOpen, setDiscardPhoneOpen] = React.useState(false);
+  const phoneVerifyRef = React.useRef(false);
   const [editEmpId, setEditEmpId] = React.useState('');
   const [editDesig, setEditDesig] = React.useState('');
   const [editCategory, setEditCategory] = React.useState('');
@@ -155,11 +197,31 @@ export default function Profile() {
   const [editDivision, setEditDivision] = React.useState('');
   const [editCircle, setEditCircle] = React.useState('');
   const [desigSheet, setDesigSheet] = React.useState(false);
+  const [desigSearch, setDesigSearch] = React.useState('');
   const [assocSheet, setAssocSheet] = React.useState(false);
   const [assocSearch, setAssocSearch] = React.useState('');
+  const [signOutOpen, setSignOutOpen] = React.useState(false);
+  const [signOutBusy, setSignOutBusy] = React.useState(false);
+  const [prefDraft, setPrefDraft] = React.useState<NotificationPrefs>({});
+  const [prefSaving, setPrefSaving] = React.useState<Record<string, boolean>>({});
+  const [quietSheet, setQuietSheet] = React.useState(false);
+  const [quietStart, setQuietStart] = React.useState('22:00');
+  const [quietEnd, setQuietEnd] = React.useState('07:00');
+  const [quietError, setQuietError] = React.useState<string | null>(null);
   const selectedDesig = React.useMemo(() => UNION_DESIGNATIONS.find((d) => d.title === editDesig), [editDesig]);
   const editDivisions = React.useMemo(() => getDivisionsForCircle(editCircle), [editCircle]);
   const editOffices = React.useMemo(() => getOfficesForDivision(editCircle, editDivision), [editCircle, editDivision]);
+  const dobDays = React.useMemo(
+    () => Array.from({ length: daysInMonth(dobMonth, dobYear) }, (_, i) => pad2(i + 1)),
+    [dobMonth, dobYear],
+  );
+
+  // Reset the resend countdown once per second while it is running.
+  React.useEffect(() => {
+    if (phoneResendIn <= 0) return;
+    const timer = setTimeout(() => setPhoneResendIn((s) => Math.max(0, s - 1)), 1000);
+    return () => clearTimeout(timer);
+  }, [phoneResendIn]);
 
   const handleEditCircle = (circle: string) => {
     setEditCircle(circle);
@@ -179,21 +241,30 @@ export default function Profile() {
   const openPostalEditRef = React.useRef<() => void>(() => undefined);
 
   const openPostalEdit = () => {
-    setEditEmpId(activeMember.employeeId || '');
-    setEditDesig(activeMember.designation || (isOrgAdmin ? 'Founding President' : 'Member'));
-    setEditCategory(activeMember.category || (activeMember.groups && activeMember.groups[0]) || 'Supervisors');
-    const curDob = activeMember.dob || '06-04-1972';
+    const employeeId = activeMember.employeeId || '';
+    const designation = activeMember.designation || (isOrgAdmin ? 'Founding President' : 'Member');
+    const category = activeMember.category || (activeMember.groups && activeMember.groups[0]) || 'Supervisors';
+    const curDob = formatDobDisplay(activeMember.dob);
+    const office = activeMember.officeEmployed || '';
+    const division = activeMember.division || activeMember.unit;
+    const circle = activeMember.circle || activeMember.region;
+    setEditEmpId(employeeId);
+    setEditDesig(designation);
+    setEditCategory(category);
+    setPostalSnapshot(JSON.stringify({
+      editEmpId: employeeId, editDesig: designation, editCategory: category, editDob: curDob,
+      editOffice: office, editDivision: division, editCircle: circle,
+    }));
     setEditDob(curDob);
-    const parts = curDob.split('-');
-    if (parts.length === 3) {
-      setDobDay(parts[0].padStart(2, '0'));
-      setDobMonth(parts[1].padStart(2, '0'));
-      setDobYear(parts[2]);
-    }
-    setEditOffice(activeMember.officeEmployed || 'Sitaphalmandi SO');
-    setEditDivision(activeMember.division || activeMember.unit);
-    setEditCircle(activeMember.circle || activeMember.region);
+    const parsed = parseDob(curDob);
+    setDobDay(parsed ? pad2(parsed.day) : '');
+    setDobMonth(parsed ? pad2(parsed.month) : '');
+    setDobYear(parsed ? String(parsed.year) : '');
+    setEditOffice(office);
+    setEditDivision(division);
+    setEditCircle(circle);
     setEditOfficeSearch('');
+    setDiscardPostalOpen(false);
     setPostalSheet(true);
   };
   openPostalEditRef.current = openPostalEdit;
@@ -234,6 +305,11 @@ export default function Profile() {
   }, [setupStepId, activeMember?.id]);
 
   const savePostalEdit = async () => {
+    if (busy) return;
+    if (editDob.trim() && !parseDob(editDob)) {
+      toast({ title: 'Check the date of birth', description: 'Enter a real date in DD-MM-YYYY format.', tone: 'danger' });
+      return;
+    }
     setBusy(true);
     const ok = await updatePostalProfile({
       employeeId: (isOrgAdmin || isPlatformSuperAdmin) ? editEmpId.trim() || undefined : undefined,
@@ -252,36 +328,58 @@ export default function Profile() {
       completeSetupStep('details');
     }
   };
+
+  const resetPhoneChange = () => {
+    setNewPhone('');
+    setPhoneOtp('');
+    setOtpSent(false);
+    setPhoneError(null);
+    setPhoneOtpError(null);
+    setPhoneResendIn(0);
+  };
+
   const handleRequestPhoneOtp = async () => {
-    if (!newPhone.trim() || phoneBusy) return;
+    if (phoneBusy) return;
+    if (tenDigitPhone(newPhone).length !== 10) {
+      setPhoneError('Enter a 10-digit mobile number.');
+      return;
+    }
+    setPhoneError(null);
     setPhoneBusy(true);
     try {
       const res = await requestPhoneChangeOtp(newPhone);
       if (res.ok) {
         setOtpSent(true);
-        toast({ title: 'Verification code sent', description: `SMS sent to ${res.phone}` });
+        setPhoneOtp('');
+        setPhoneOtpError(null);
+        setPhoneResendIn(30);
+        toast({ title: otpSent ? 'Verification code resent' : 'Verification code sent', description: `SMS sent to ${res.phone}.`, tone: 'info' });
       } else {
-        toast({ title: 'Failed to send OTP', description: res.error || 'Please enter a valid mobile number.' });
+        toast({ title: 'Failed to send OTP', description: res.error || 'Please enter a valid mobile number.', tone: 'danger' });
       }
     } finally {
       setPhoneBusy(false);
     }
   };
 
-  const handleVerifyPhoneChange = async () => {
-    if (phoneOtp.trim().length < 6 || phoneBusy) return;
+  const handleVerifyPhoneChange = async (codeArg?: string) => {
+    const code = (codeArg ?? phoneOtp).replace(/\D/g, '').slice(0, 6);
+    if (code.length < 6 || phoneBusy || phoneVerifyRef.current) return;
+    phoneVerifyRef.current = true;
+    setPhoneOtpError(null);
     setPhoneBusy(true);
     try {
-      const res = await verifyPhoneChangeOtp(newPhone, phoneOtp);
+      const res = await verifyPhoneChangeOtp(newPhone, code);
       if (res.ok) {
+        resetPhoneChange();
         setPhoneSheet(false);
-        setOtpSent(false);
-        setNewPhone('');
-        setPhoneOtp('');
       } else {
-        toast({ title: 'Verification failed', description: res.error || 'Invalid or expired code.' });
+        setPhoneOtpError('That code is incorrect or expired. Try the latest SMS.');
+        setPhoneOtp('');
+        toast({ title: 'Verification failed', description: res.error || 'Invalid or expired code.', tone: 'danger' });
       }
     } finally {
+      phoneVerifyRef.current = false;
       setPhoneBusy(false);
     }
   };
@@ -392,13 +490,152 @@ export default function Profile() {
   if (!signedIn || !activeMember || !tenant) return <Redirect href="/" />;
   if (activeMember.status !== 'verified') return <Redirect href="/pending" />;
   const prefs = activeMember.prefs || {};
-  const quiet = Boolean(prefs.quietHours);
+  const effectivePrefs = { ...prefs, ...prefDraft };
+  const quietCfg = effectivePrefs.quietHours;
+  const quiet = Boolean(quietCfg);
   const pendingCount = adminMembers.filter((m) => m.status === 'pending').length;
-
-  const setPref = (key: keyof NotificationPrefs, val: boolean) => void updatePrefs({ [key]: val } as NotificationPrefs);
-  const setQuiet = (on: boolean) => void updatePrefs({
-    quietHours: on ? { start: '22:00', end: '07:00', tzOffsetMinutes: -new Date().getTimezoneOffset() } : null,
+  const phoneDisplay = activeMember.phone ? '+' + activeMember.phone.replace(/^\+/, '') : '';
+  const editDobInvalid = Boolean(editDob.trim()) && !parseDob(editDob);
+  const postalDirty = postalSheet && postalSnapshot !== JSON.stringify({
+    editEmpId, editDesig, editCategory, editDob, editOffice, editDivision, editCircle,
   });
+  const phoneDirty = phoneSheet && Boolean(newPhone.trim() || phoneOtp.trim() || otpSent);
+
+  const prefValue = (key: PrefKey) => {
+    const value = effectivePrefs[key];
+    return key === 'groupActivity' ? value === true : value !== false;
+  };
+
+  const setPref = async (key: PrefKey, val: boolean) => {
+    const previous = prefs[key];
+    setPrefDraft((d) => ({ ...d, [key]: val }));
+    setPrefSaving((s) => ({ ...s, [key]: true }));
+    const ok = await updatePrefs({ [key]: val } as NotificationPrefs);
+    setPrefSaving((s) => { const next = { ...s }; delete next[key]; return next; });
+    if (ok) setPrefDraft((d) => { const next = { ...d }; delete next[key]; return next; });
+    else setPrefDraft((d) => ({ ...d, [key]: previous } as NotificationPrefs));
+  };
+
+  const applyQuiet = async (next: NotificationPrefs['quietHours']) => {
+    const previous = prefs.quietHours ?? null;
+    setPrefDraft((d) => ({ ...d, quietHours: next }));
+    setPrefSaving((s) => ({ ...s, quietHours: true }));
+    const ok = await updatePrefs({ quietHours: next });
+    setPrefSaving((s) => { const copy = { ...s }; delete copy.quietHours; return copy; });
+    if (ok) setPrefDraft((d) => { const copy = { ...d }; delete copy.quietHours; return copy; });
+    else setPrefDraft((d) => ({ ...d, quietHours: previous }));
+  };
+
+  const toggleQuiet = (on: boolean) => {
+    if (on) {
+      const cfg = quietCfg || { start: '22:00', end: '07:00', tzOffsetMinutes: -new Date().getTimezoneOffset() };
+      setQuietStart(cfg.start);
+      setQuietEnd(cfg.end);
+      setQuietError(null);
+      void applyQuiet(cfg);
+      setQuietSheet(true);
+    } else {
+      void applyQuiet(null);
+    }
+  };
+
+  const openQuietEditor = () => {
+    const cfg = quietCfg || { start: '22:00', end: '07:00' };
+    setQuietStart(cfg.start);
+    setQuietEnd(cfg.end);
+    setQuietError(null);
+    setQuietSheet(true);
+  };
+
+  const openDobSheet = () => {
+    const parsed = parseDob(editDob);
+    setDobDay(parsed ? pad2(parsed.day) : '');
+    setDobMonth(parsed ? pad2(parsed.month) : '');
+    setDobYear(parsed ? String(parsed.year) : '');
+    setDobSheet(true);
+  };
+
+  const saveQuiet = () => {
+    const start = quietStart.trim();
+    const end = quietEnd.trim();
+    if (!TIME_RE.test(start) || !TIME_RE.test(end)) {
+      setQuietError('Use 24-hour HH:MM, for example 22:00 or 07:30.');
+      return;
+    }
+    if (start === end) {
+      setQuietError('Start and end times must be different.');
+      return;
+    }
+    setQuietError(null);
+    setQuietSheet(false);
+    void applyQuiet({ start, end, tzOffsetMinutes: -new Date().getTimezoneOffset() });
+  };
+
+  const requestClosePostal = () => {
+    if (busy) return;
+    if (postalDirty) {
+      setPostalSheet(false);
+      setTimeout(() => setDiscardPostalOpen(true), 320);
+      return;
+    }
+    setPostalSheet(false);
+  };
+
+  const keepEditingPostal = () => {
+    setDiscardPostalOpen(false);
+    setTimeout(() => setPostalSheet(true), 320);
+  };
+
+  const discardPostal = () => {
+    setDiscardPostalOpen(false);
+    setPostalSheet(false);
+  };
+
+  const requestClosePhone = () => {
+    if (phoneBusy) return;
+    if (phoneDirty) {
+      setPhoneSheet(false);
+      setTimeout(() => setDiscardPhoneOpen(true), 320);
+      return;
+    }
+    setPhoneSheet(false);
+  };
+
+  const keepEditingPhone = () => {
+    setDiscardPhoneOpen(false);
+    setTimeout(() => setPhoneSheet(true), 320);
+  };
+
+  const discardPhone = () => {
+    setDiscardPhoneOpen(false);
+    setPhoneSheet(false);
+    resetPhoneChange();
+  };
+
+  const shareProfile = async () => {
+    const details = [
+      activeMember.name,
+      activeMember.designation || 'Member',
+      `Member ID: ${activeMember.memberId}`,
+      activeMember.officeEmployed ? `Office: ${activeMember.officeEmployed}` : '',
+      `${activeMember.division || activeMember.unit} Division · ${activeMember.circle || activeMember.region} Circle`,
+      phoneDisplay ? `Phone: ${phoneDisplay}` : '',
+      activeMember.email ? `Email: ${activeMember.email}` : '',
+    ].filter(Boolean);
+    try {
+      await Share.share({ title: `${activeMember.name} · BPEF`, message: details.join('\n') });
+    } catch { /* the user cancelled sharing */ }
+  };
+
+  const confirmSignOut = async () => {
+    setSignOutBusy(true);
+    try {
+      await logout();
+    } finally {
+      setSignOutBusy(false);
+      router.replace('/');
+    }
+  };
 
   return (
     <Screen scrollRef={profileScrollRef}>
@@ -406,17 +643,18 @@ export default function Profile() {
 
       <View style={{ alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 8 }}>
         <TourTarget id="profile-avatar" style={{ borderRadius: 44 }}>
-          <Pressable
+          <AppPressable
+            haptic="selection"
             onPress={() => {
               setPreviewUri(null);
               setAvatarModalOpen(true);
             }}
+            onLongPress={() => setAvatarActionsOpen(true)}
+            delayLongPress={350}
             accessibilityRole="button"
             accessibilityLabel="View profile photo"
-            style={({ pressed }) => ({
-              opacity: pressed ? 0.85 : 1,
-              position: 'relative',
-            })}
+            accessibilityHint="Long press for photo options"
+            style={{ position: 'relative' }}
           >
             <Avatar name={activeMember.name} uri={activeMember.avatarUrl} size={88} />
           <View
@@ -437,7 +675,7 @@ export default function Profile() {
           >
             <Icon name="camera" size={14} color="#fff" />
           </View>
-          </Pressable>
+          </AppPressable>
         </TourTarget>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
           <Txt variant="displayM">{activeMember.name}</Txt>
@@ -479,6 +717,12 @@ export default function Profile() {
           left={<IconTile icon="sparkles" />}
           onPress={() => { void startSetupTour(true); }}
         />
+        <ListRow
+          title="Share profile"
+          subtitle="Send your member ID, office and contact details"
+          left={<IconTile icon="share-2" />}
+          onPress={() => void shareProfile()}
+        />
         {isLeader ? (
           <TourTarget id="profile-admin-help">
             <ListRow
@@ -493,14 +737,15 @@ export default function Profile() {
 
       <SectionLabel>Postal Identity & Membership</SectionLabel>
       <Card padding={14} style={{ marginHorizontal: 12, paddingVertical: 2, gap: 8 }}>
-        <KeyValue first k="Employee ID" v={activeMember.employeeId || '—'} />
+        <KeyValue first k="Member number" v={<CopyableText value={activeMember.memberId} label="Member number" variant="bodyStrong" style={{ textAlign: 'right' }} />} />
+        <KeyValue k="Employee ID" v={activeMember.employeeId ? <CopyableText value={activeMember.employeeId} label="Employee ID" variant="bodyStrong" style={{ textAlign: 'right' }} /> : '—'} />
         <KeyValue k="Category" v={activeMember.category || (activeMember.groups.length ? activeMember.groups[0] : '—')} />
         <KeyValue k="Designation" v={activeMember.designation || 'Member'} />
-        <KeyValue k="Date of birth" v={activeMember.dob || '—'} />
-        <KeyValue k="Office employed" v={activeMember.officeEmployed || '—'} />
+        <KeyValue k="Date of birth" v={activeMember.dob ? <CopyableText value={formatDobDisplay(activeMember.dob)} label="Date of birth" variant="bodyStrong" style={{ textAlign: 'right' }} /> : '—'} />
+        <KeyValue k="Office employed" v={activeMember.officeEmployed ? <CopyableText value={activeMember.officeEmployed} label="Office employed" variant="bodyStrong" style={{ textAlign: 'right' }} numberOfLines={2} /> : '—'} />
         <KeyValue k="Division (L1)" v={activeMember.division || activeMember.unit} />
         <KeyValue k="Circle (L2)" v={activeMember.circle || activeMember.region} />
-        <KeyValue k="Verified mobile" v={activeMember.phone ? '+' + activeMember.phone.replace(/^\+/, '') : '—'} />
+        <KeyValue k="Verified mobile" v={phoneDisplay ? <CopyableText value={phoneDisplay} label="Verified mobile" variant="bodyStrong" style={{ textAlign: 'right' }} /> : '—'} />
         <KeyValue k="Roles" v={activeMember.roles.join(', ')} />
         <KeyValue k="Member since" v={activeMember.since} />
         <View style={{ paddingTop: 8, paddingBottom: 6 }}>
@@ -528,23 +773,34 @@ export default function Profile() {
             <Switch
               label={label}
               description={locked ? 'Required by your organization' : undefined}
-              value={locked ? true : prefs[key] !== false && (key !== 'groupActivity' || prefs[key] === true)}
-              disabled={locked}
-              onChange={(val) => setPref(key, val)}
+              value={locked ? true : prefValue(key)}
+              disabled={locked || Boolean(prefSaving[key])}
+              onChange={(val) => void setPref(key, val)}
             />
           </View>
         ))}
-        <View style={{ paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.borderSubtle }}>
-          <Switch label="Quiet hours (22:00–07:00)" description="Non-urgent pushes wait until morning" value={quiet} onChange={setQuiet} />
+        <View style={{ paddingVertical: 10, borderTopWidth: 1, borderTopColor: colors.borderSubtle, gap: 4 }}>
+          <Switch
+            label={quietCfg ? `Quiet hours (${quietCfg.start}–${quietCfg.end})` : 'Quiet hours (22:00–07:00)'}
+            description={quietCfg ? 'Non-urgent pushes are held during this window' : 'Non-urgent pushes wait until morning'}
+            value={quiet}
+            disabled={Boolean(prefSaving.quietHours)}
+            onChange={toggleQuiet}
+          />
+          {quietCfg ? (
+            <AppPressable haptic="selection" accessibilityRole="button" accessibilityLabel="Edit quiet hours" onPress={openQuietEditor} style={{ minHeight: 36, justifyContent: 'center', paddingLeft: 2 }}>
+              <Txt variant="bodyS" color={colors.accent}>Edit quiet hours</Txt>
+            </AppPressable>
+          ) : null}
         </View>
       </Card>
 
       <View style={{ padding: 12, paddingTop: 16, gap: 10 }}>
-        <Button variant="danger" size="lg" block icon="log-out" onPress={async () => { await logout(); router.replace('/'); }}>Sign out</Button>
+        <Button variant="danger" size="lg" block icon="log-out" onPress={() => setSignOutOpen(true)}>Sign out</Button>
       </View>
 
       {/* Edit Postal Identity Sheet */}
-      <Sheet visible={postalSheet} onClose={() => setPostalSheet(false)} title="Update Workplace Details">
+      <Sheet visible={postalSheet} onClose={requestClosePostal} dismissible={!busy} title="Update Workplace Details">
         <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingHorizontal: 16, gap: 14, paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
           <SetupCoach
             stepId="setup-details"
@@ -555,20 +811,23 @@ export default function Profile() {
           {isOrgAdmin || isPlatformSuperAdmin ? (
             <>
               <Field label="Employee ID" required infoText="Department of Posts staff number">
-                <Input value={editEmpId} onChangeText={setEditEmpId} placeholder="e.g. 10125634" keyboardType="number-pad" />
+                <Input value={editEmpId} onChangeText={setEditEmpId} placeholder="e.g. 10125634" keyboardType="number-pad" clearable />
               </Field>
 
               <Field label="Union Designation" required infoText="Constitutional role in BPEF hierarchy (Member to President)">
-                <Pressable
-                  onPress={() => setDesigSheet(true)}
-                  style={({ pressed }) => ({
+                <AppPressable
+                  haptic="selection"
+                  accessibilityRole="button"
+                  accessibilityLabel={`Union designation: ${editDesig || 'Member'}`}
+                  onPress={() => { setDesigSearch(''); setDesigSheet(true); }}
+                  style={{
                     padding: 12,
                     borderRadius: radius.l,
                     borderWidth: 1,
                     borderColor: colors.borderDefault,
-                    backgroundColor: pressed ? colors.surfaceHover : colors.surfaceCard,
+                    backgroundColor: colors.surfaceCard,
                     gap: 6,
-                  })}
+                  }}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -583,20 +842,23 @@ export default function Profile() {
                   <Txt variant="caption" color={colors.textSecondary} numberOfLines={2}>
                     {selectedDesig?.meaning || 'Regular union member with voting rights and grievance support.'}
                   </Txt>
-                </Pressable>
+                </AppPressable>
               </Field>
 
               <Field label="Affiliated Association" required infoText="Your primary trade association in BPEF">
-                <Pressable
-                  onPress={() => setAssocSheet(true)}
-                  style={({ pressed }) => ({
+                <AppPressable
+                  haptic="selection"
+                  accessibilityRole="button"
+                  accessibilityLabel={`Affiliated association: ${AFFILIATED_ASSOCIATIONS.find((a) => a.category === editCategory)?.name || 'not selected'}`}
+                  onPress={() => { setAssocSearch(''); setAssocSheet(true); }}
+                  style={{
                     padding: 12,
                     borderRadius: radius.l,
                     borderWidth: 1,
                     borderColor: colors.borderDefault,
-                    backgroundColor: pressed ? colors.surfaceHover : colors.surfaceCard,
+                    backgroundColor: colors.surfaceCard,
                     gap: 6,
-                  })}
+                  }}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -608,7 +870,7 @@ export default function Profile() {
                   <Txt variant="bodyS" color={colors.textPrimary} style={{ marginTop: 2 }}>
                     {AFFILIATED_ASSOCIATIONS.find((a) => a.category === editCategory)?.name || 'Tap to select your affiliated association…'}
                   </Txt>
-                </Pressable>
+                </AppPressable>
               </Field>
             </>
           ) : (
@@ -647,6 +909,8 @@ export default function Profile() {
               onChange={handleEditCircle}
               options={POSTAL_CIRCLES}
               placeholder="Select Circle…"
+              searchable
+              searchPlaceholder="Search circles…"
             />
           </Field>
 
@@ -657,6 +921,8 @@ export default function Profile() {
               onChange={handleEditDivision}
               options={editDivisions}
               placeholder="Select Division…"
+              searchable={editDivisions.length > 8}
+              searchPlaceholder="Search divisions…"
             />
           </Field>
 
@@ -667,6 +933,8 @@ export default function Profile() {
               onChange={setEditOffice}
               options={editOffices}
               placeholder={`Select office in ${editDivision}…`}
+              searchable
+              searchPlaceholder="Search offices…"
             />
           </Field>
 
@@ -676,7 +944,7 @@ export default function Profile() {
               <View style={{ gap: 2, flex: 1 }}>
                 <Txt variant="caption" color={colors.textMuted}>VERIFIED MOBILE NUMBER</Txt>
                 <Txt variant="bodyStrong" color={colors.textPrimary}>
-                  {activeMember.phone ? '+' + activeMember.phone.replace(/^\+/, '') : 'No number'}
+                  {phoneDisplay || 'No number'}
                 </Txt>
               </View>
               <Button
@@ -684,9 +952,7 @@ export default function Profile() {
                 variant="secondary"
                 icon="phone"
                 onPress={() => {
-                  setNewPhone('');
-                  setPhoneOtp('');
-                  setOtpSent(false);
+                  resetPhoneChange();
                   setPhoneSheet(true);
                 }}
               >
@@ -696,38 +962,52 @@ export default function Profile() {
           </View>
 
           {/* Date of Birth with Calendar Button & Picker */}
-          <Field label="Date of Birth" required infoText="Format: DD-MM-YYYY">
+          <Field label="Date of Birth" required infoText="Use DD-MM-YYYY or the calendar." error={editDobInvalid ? 'Enter a real date in DD-MM-YYYY format.' : null}>
             <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
               <View style={{ flex: 1 }}>
-                <Input value={editDob} onChangeText={setEditDob} placeholder="e.g. 06-04-1972" />
+                <Input
+                  value={editDob}
+                  onChangeText={(text) => setEditDob(formatDobInput(text))}
+                  placeholder="DD-MM-YYYY"
+                  keyboardType="number-pad"
+                  maxLength={10}
+                  clearable
+                  invalid={editDobInvalid}
+                />
               </View>
               <IconButton
                 icon="calendar"
-                label="Open calendar"
+                label="Open date picker"
                 variant="secondary"
-                onPress={() => setDobSheet(true)}
+                onPress={openDobSheet}
               />
             </View>
           </Field>
-          <Button block size="lg" icon="check" disabled={!editOffice.trim() || busy} onPress={savePostalEdit}>
+          <Button block size="lg" icon="check" loading={busy} disabled={!editOffice.trim() || editDobInvalid} onPress={() => void savePostalEdit()}>
             {busy ? 'Saving…' : 'Save Workplace Details'}
           </Button>
         </ScrollView>
       </Sheet>
       {/* Change Mobile Number via OTP Sheet */}
-      <Sheet visible={phoneSheet} onClose={() => setPhoneSheet(false)} title="Change Mobile Number">
+      <Sheet visible={phoneSheet} onClose={requestClosePhone} dismissible={!phoneBusy} title="Change Mobile Number">
         <View style={{ paddingHorizontal: 16, gap: 14, paddingBottom: 28, flexShrink: 1 }}>
           {!otpSent ? (
             <>
               <Txt variant="bodyS" color={colors.textSecondary}>
                 Enter your new mobile number. An SMS verification code will be sent to confirm your identity.
               </Txt>
-              <Field label="New Mobile Number" required infoText="Enter 10-digit mobile number">
+              <Field label="New Mobile Number" required infoText="Enter a 10-digit Indian mobile number." error={phoneError}>
                 <Input
                   value={newPhone}
-                  onChangeText={setNewPhone}
+                  onChangeText={(value) => { setNewPhone(value); setPhoneError(null); }}
                   placeholder="e.g. 9876543210"
                   keyboardType="phone-pad"
+                  autoComplete="tel"
+                  textContentType="telephoneNumber"
+                  returnKeyType="send"
+                  onSubmitEditing={() => void handleRequestPhoneOtp()}
+                  clearable
+                  invalid={!!phoneError}
                   autoFocus
                 />
               </Field>
@@ -735,8 +1015,8 @@ export default function Profile() {
                 size="lg"
                 block
                 icon="send"
-                disabled={!newPhone.trim() || phoneBusy}
-                onPress={handleRequestPhoneOtp}
+                loading={phoneBusy}
+                onPress={() => void handleRequestPhoneOtp()}
               >
                 {phoneBusy ? 'Sending OTP…' : 'Send Verification Code (SMS)'}
               </Button>
@@ -744,31 +1024,52 @@ export default function Profile() {
           ) : (
             <>
               <Notice tone="info" title="Verification Code Sent">
-                We sent a 6-digit code to your new mobile number. Enter it below to update your account.
+                {`We sent a 6-digit code to ${tenDigitPhone(newPhone) || 'your new number'}. Enter it below to update your account. Entering all 6 digits verifies automatically.`}
               </Notice>
-              <Field label="6-Digit Verification Code" required>
+              <Field label="6-Digit Verification Code" required error={phoneOtpError} hint="Entering all 6 digits verifies automatically.">
                 <Input
                   value={phoneOtp}
-                  onChangeText={setPhoneOtp}
+                  onChangeText={(text) => {
+                    const code = text.replace(/\D/g, '').slice(0, 6);
+                    setPhoneOtp(code);
+                    setPhoneOtpError(null);
+                    if (code.length === 6) void handleVerifyPhoneChange(code);
+                  }}
                   placeholder="123456"
                   keyboardType="number-pad"
                   maxLength={6}
+                  autoComplete="sms-otp"
+                  textContentType="oneTimeCode"
+                  returnKeyType="done"
+                  onSubmitEditing={() => void handleVerifyPhoneChange()}
                   autoFocus
+                  invalid={!!phoneOtpError}
                 />
               </Field>
               <Button
                 size="lg"
                 block
                 icon="check"
-                disabled={phoneOtp.trim().length < 6 || phoneBusy}
-                onPress={handleVerifyPhoneChange}
+                loading={phoneBusy}
+                onPress={() => void handleVerifyPhoneChange()}
               >
                 {phoneBusy ? 'Verifying…' : 'Verify & Update Mobile Number'}
               </Button>
               <Button
                 variant="ghost"
+                size="sm"
                 block
-                onPress={() => setOtpSent(false)}
+                icon="refresh-cw"
+                disabled={phoneBusy || phoneResendIn > 0}
+                onPress={() => void handleRequestPhoneOtp()}
+              >
+                {phoneResendIn > 0 ? `Resend in 0:${String(phoneResendIn).padStart(2, '0')}` : 'Resend code'}
+              </Button>
+              <Button
+                variant="ghost"
+                block
+                disabled={phoneBusy}
+                onPress={() => { setOtpSent(false); setPhoneOtp(''); setPhoneOtpError(null); setPhoneResendIn(0); }}
               >
                 Enter a different number
               </Button>
@@ -776,29 +1077,52 @@ export default function Profile() {
           )}
         </View>
       </Sheet>
+
       {/* Date of Birth Picker Sheet */}
       <Sheet visible={dobSheet} onClose={() => setDobSheet(false)} title="Select Date of Birth">
         <View style={{ paddingHorizontal: 16, gap: 16, paddingBottom: 24 }}>
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <View style={{ flex: 1 }}>
               <Field label="Day">
-                <Select value={dobDay} onChange={setDobDay} options={DAYS} />
+                <Select value={dobDay} onChange={setDobDay} options={dobDays} placeholder="DD" />
               </Field>
             </View>
             <View style={{ flex: 1 }}>
               <Field label="Month">
-                <Select value={dobMonth} onChange={setDobMonth} options={MONTHS} />
+                <Select
+                  value={dobMonth}
+                  onChange={(month) => {
+                    setDobMonth(month);
+                    const max = daysInMonth(month, dobYear);
+                    if (dobDay && Number(dobDay) > max) setDobDay(pad2(max));
+                  }}
+                  options={MONTHS}
+                  placeholder="MM"
+                />
               </Field>
             </View>
             <View style={{ flex: 1.2 }}>
               <Field label="Year">
-                <Select value={dobYear} onChange={setDobYear} options={YEARS} />
+                <Select
+                  value={dobYear}
+                  onChange={(year) => {
+                    setDobYear(year);
+                    const max = daysInMonth(dobMonth, year);
+                    if (dobDay && Number(dobDay) > max) setDobDay(pad2(max));
+                  }}
+                  options={YEARS}
+                  placeholder="YYYY"
+                  searchable
+                  searchPlaceholder="Search year…"
+                />
               </Field>
             </View>
           </View>
+          <Txt variant="caption" color={colors.textMuted}>Days adjust automatically for the chosen month and year.</Txt>
           <Button
             block
             icon="check"
+            disabled={!parseDob(`${dobDay || '00'}-${dobMonth || '00'}-${dobYear || '0000'}`)}
             onPress={() => {
               setEditDob(`${dobDay}-${dobMonth}-${dobYear}`);
               setDobSheet(false);
@@ -814,25 +1138,29 @@ export default function Profile() {
           <Notice tone="info" title="Constitutional Hierarchy">
             Roles are organized in ascending order from Base Member (L0) to Apex Leadership (L7).
           </Notice>
+          <Input value={desigSearch} onChangeText={setDesigSearch} placeholder="Search designation or responsibility…" autoFocus clearable />
           <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false}>
             <View style={{ gap: 8 }}>
-              {UNION_DESIGNATIONS.map((d) => {
+              {UNION_DESIGNATIONS.filter((d) => !desigSearch.trim() || `${d.title} ${d.meaning} ${d.levelBadge}`.toLowerCase().includes(desigSearch.toLowerCase())).map((d) => {
                 const isSelected = d.title === editDesig;
                 return (
-                  <Pressable
+                  <AppPressable
                     key={d.title}
+                    haptic="selection"
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: isSelected }}
                     onPress={() => {
                       setEditDesig(d.title);
                       setDesigSheet(false);
                     }}
-                    style={({ pressed }) => ({
+                    style={{
                       padding: 12,
                       borderRadius: radius.m,
                       borderWidth: 1.5,
                       borderColor: isSelected ? colors.accent : colors.borderSubtle,
-                      backgroundColor: isSelected ? colors.accentSoft : pressed ? colors.surfaceHover : colors.surfaceCard,
+                      backgroundColor: isSelected ? colors.accentSoft : colors.surfaceCard,
                       gap: 4,
-                    })}
+                    }}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -848,9 +1176,12 @@ export default function Profile() {
                     <Txt variant="caption" color={colors.textSecondary} style={{ lineHeight: 18 }}>
                       {d.meaning}
                     </Txt>
-                  </Pressable>
+                  </AppPressable>
                 );
               })}
+              {UNION_DESIGNATIONS.filter((d) => !desigSearch.trim() || `${d.title} ${d.meaning} ${d.levelBadge}`.toLowerCase().includes(desigSearch.toLowerCase())).length === 0 ? (
+                <Txt variant="bodyS" color={colors.textMuted} align="center" style={{ paddingVertical: 24 }}>No designations match.</Txt>
+              ) : null}
             </View>
           </ScrollView>
         </View>
@@ -864,6 +1195,7 @@ export default function Profile() {
             onChangeText={setAssocSearch}
             placeholder="Search association or category…"
             autoFocus
+            clearable
           />
           <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false}>
             <View style={{ gap: 8 }}>
@@ -875,20 +1207,23 @@ export default function Profile() {
               ).map((a) => {
                 const isSelected = a.category === editCategory;
                 return (
-                  <Pressable
+                  <AppPressable
                     key={a.name}
+                    haptic="selection"
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: isSelected }}
                     onPress={() => {
                       setEditCategory(a.category);
                       setAssocSheet(false);
                     }}
-                    style={({ pressed }) => ({
+                    style={{
                       padding: 12,
                       borderRadius: radius.m,
                       borderWidth: 1.5,
                       borderColor: isSelected ? colors.accent : colors.borderSubtle,
-                      backgroundColor: isSelected ? colors.accentSoft : pressed ? colors.surfaceHover : colors.surfaceCard,
+                      backgroundColor: isSelected ? colors.accentSoft : colors.surfaceCard,
                       gap: 4,
-                    })}
+                    }}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -902,13 +1237,100 @@ export default function Profile() {
                     <Txt variant="caption" color={colors.textSecondary} style={{ lineHeight: 18 }}>
                       {a.name}
                     </Txt>
-                  </Pressable>
+                  </AppPressable>
                 );
               })}
+              {AFFILIATED_ASSOCIATIONS.filter(
+                (a) => !assocSearch.trim() || a.name.toLowerCase().includes(assocSearch.toLowerCase()) || a.category.toLowerCase().includes(assocSearch.toLowerCase()),
+              ).length === 0 ? (
+                <Txt variant="bodyS" color={colors.textMuted} align="center" style={{ paddingVertical: 24 }}>No associations match.</Txt>
+              ) : null}
             </View>
           </ScrollView>
         </View>
       </Sheet>
+
+      <ConfirmDialog
+        visible={discardPostalOpen}
+        onClose={keepEditingPostal}
+        onConfirm={discardPostal}
+        title="Discard workplace changes?"
+        description="The details you edited in this sheet will not be saved."
+        confirmLabel="Discard changes"
+        cancelLabel="Keep editing"
+        tone="danger"
+      />
+      <ConfirmDialog
+        visible={discardPhoneOpen}
+        onClose={keepEditingPhone}
+        onConfirm={discardPhone}
+        title="Discard number change?"
+        description="Your new number and any verification code entered will be cleared."
+        confirmLabel="Discard"
+        cancelLabel="Keep editing"
+        tone="danger"
+      />
+      <ConfirmDialog
+        visible={signOutOpen}
+        onClose={() => setSignOutOpen(false)}
+        onConfirm={() => void confirmSignOut()}
+        title="Sign out of BPEF?"
+        description="You will need to verify your mobile number again to sign in."
+        confirmLabel="Sign out"
+        cancelLabel="Stay signed in"
+        tone="danger"
+        loading={signOutBusy}
+      />
+
+      {/* Quiet hours editor */}
+      <Sheet visible={quietSheet} onClose={() => setQuietSheet(false)} title="Quiet hours">
+        <View style={{ paddingHorizontal: 16, gap: 14, paddingBottom: 28 }}>
+          <Txt variant="bodyS" color={colors.textSecondary}>
+            Non-urgent notifications are held during this window. Urgent case updates still come through.
+          </Txt>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={{ flex: 1 }}>
+              <Field label="Start">
+                <Input value={quietStart} onChangeText={(value) => { setQuietStart(value); setQuietError(null); }} placeholder="22:00" autoCapitalize="none" maxLength={5} />
+              </Field>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Field label="End">
+                <Input value={quietEnd} onChangeText={(value) => { setQuietEnd(value); setQuietError(null); }} placeholder="07:00" autoCapitalize="none" maxLength={5} />
+              </Field>
+            </View>
+          </View>
+          {quietError ? <Notice tone="danger" title="Check the times">{quietError}</Notice> : null}
+          <Txt variant="caption" color={colors.textMuted}>Use the 24-hour clock (HH:MM). Quiet hours can span midnight.</Txt>
+          <Button block icon="check" onPress={saveQuiet}>Save quiet hours</Button>
+        </View>
+      </Sheet>
+
+      {/* Avatar long-press actions */}
+      <ActionSheet
+        visible={avatarActionsOpen}
+        onClose={() => setAvatarActionsOpen(false)}
+        title="Profile photo"
+        actions={[
+          {
+            label: 'View photo',
+            icon: 'eye',
+            onPress: () => setTimeout(() => { setPreviewUri(null); setAvatarModalOpen(true); }, 300),
+          },
+          {
+            label: activeMember.avatarUrl ? 'Change photo' : 'Add photo',
+            icon: 'camera',
+            onPress: () => setTimeout(() => { setAvatarModalOpen(true); setPhotoActionSheet(true); }, 300),
+          },
+          ...(activeMember.avatarUrl ? [{
+            label: 'Remove photo',
+            icon: 'trash-2',
+            tone: 'danger' as const,
+            onPress: () => { void handleRemovePhoto(); },
+          }] : []),
+        ]}
+      />
+
       {/* WhatsApp-Style Profile Photo Full Screen Modal */}
       <Modal
         visible={avatarModalOpen}
@@ -921,6 +1343,7 @@ export default function Profile() {
           }
         }}
       >
+        <StatusBar style="light" />
         <View
           style={{
             flex: 1,

@@ -1,10 +1,10 @@
 import React from 'react';
 import { View } from 'react-native';
 import { router } from 'expo-router';
-import { Badge, Button, Card, Field, IconButton, Input, Notice, Screen, SectionLabel, Select, Sheet, StackHeader, Switch, Tag, Txt } from '../../src/components';
+import { Badge, Button, Card, ConfirmDialog, Field, IconButton, Input, Notice, Screen, SectionLabel, Select, Sheet, StackHeader, Switch, Tag, Txt } from '../../src/components';
 import { Restricted } from '../../src/components/Restricted';
-import { colors, fonts, palette, radius } from '../../src/theme';
-import { useStore, RoutingRule, TerminologyConfig, HierarchyLevel, getHierarchyLevels, DEFAULT_POSTAL_CADRES } from '../../src/store/AppStore';
+import { colors, fonts, palette } from '../../src/theme';
+import { useStore, RoutingRule, TerminologyConfig, getHierarchyLevels, DEFAULT_POSTAL_CADRES } from '../../src/store/AppStore';
 
 type TermKey = 'orgLabel' | 'groupLabel' | 'caseLabel';
 const TERMS: Array<[TermKey, string]> = [
@@ -13,6 +13,12 @@ const TERMS: Array<[TermKey, string]> = [
   ['caseLabel', 'Case / grievance label'],
 ];
 const TARGETS: Record<RoutingRule['targetKind'], string> = { group: "Member's functional-group committee", general: 'General (cross-functional) committee', committee: 'A specific committee' };
+type PendingRemoval = { kind: 'cadre'; value: string } | { kind: 'level'; level: number; label: string };
+
+const goBack = () => {
+  if (router.canGoBack()) router.back();
+  else router.replace('/manage' as never);
+};
 
 /** Organization configuration without code or schema changes (PRD §4.2, §5.10, §9.2, AC #20). */
 export default function Settings() {
@@ -23,23 +29,49 @@ export default function Settings() {
   const [reopenDays, setReopenDays] = React.useState(String(tenant?.settings?.reopenWindowDays ?? 30));
   const [rule, setRule] = React.useState<Omit<RoutingRule, 'id'> | null>(null);
   const [newCadre, setNewCadre] = React.useState('');
+  const [pendingRemoval, setPendingRemoval] = React.useState<PendingRemoval | null>(null);
+  const [saving, setSaving] = React.useState(false);
+  const termsRef = React.useRef(terms);
+  termsRef.current = terms;
+  const savedTermsRef = React.useRef(JSON.stringify(terminology));
+  const savedSettingsRef = React.useRef(JSON.stringify({
+    autoApprove: Boolean(tenant?.settings?.autoApproveMembers),
+    memberPosts: tenant?.settings?.memberPosts !== false,
+    reopenDays: String(tenant?.settings?.reopenWindowDays ?? 30),
+  }));
   const cadresList = terms.cadres || tenant?.cadres || DEFAULT_POSTAL_CADRES;
-  const addCadre = () => {
-    if (!newCadre.trim() || cadresList.includes(newCadre.trim())) return;
-    const updated = [...cadresList, newCadre.trim()];
-    const nextTerms = { ...terms, cadres: updated };
-    setTerms(nextTerms);
-    setNewCadre('');
-    void updateTenantConfig(nextTerms);
-  };
-  const removeCadre = (c: string) => {
-    const updated = cadresList.filter((x) => x !== c);
-    const nextTerms = { ...terms, cadres: updated };
-    setTerms(nextTerms);
-    void updateTenantConfig(nextTerms);
+  const currentLevels = getHierarchyLevels(terms);
+  const termsDirty = JSON.stringify(terms) !== savedTermsRef.current;
+  const settingsDirty = JSON.stringify({ autoApprove, memberPosts, reopenDays }) !== savedSettingsRef.current;
+
+  /** Persist terms/settings and only advance the "saved" baseline when the server confirms. */
+  const persist = async (nextTerms: TerminologyConfig, settings?: { autoApproveMembers?: boolean; memberPosts?: boolean; reopenWindowDays?: number }) => {
+    setSaving(true);
+    const ok = await updateTenantConfig(nextTerms, settings);
+    setSaving(false);
+    if (ok) {
+      savedTermsRef.current = JSON.stringify(nextTerms);
+      if (settings) {
+        savedSettingsRef.current = JSON.stringify({
+          autoApprove: Boolean(settings.autoApproveMembers),
+          memberPosts: settings.memberPosts !== false,
+          reopenDays: String(settings.reopenWindowDays ?? 30),
+        });
+      }
+    }
+    return ok;
   };
 
-  const currentLevels = getHierarchyLevels(terms);
+  const addCadre = () => {
+    if (!newCadre.trim() || cadresList.includes(newCadre.trim())) return;
+    const previous = terms;
+    const nextTerms = { ...terms, cadres: [...cadresList, newCadre.trim()] };
+    setTerms(nextTerms);
+    setNewCadre('');
+    void persist(nextTerms).then((ok) => { if (!ok) setTerms(previous); });
+  };
+
+  const removeCadre = (c: string) => setPendingRemoval({ kind: 'cadre', value: c });
 
   const updateLevelLabel = (lvlNum: number, newLabel: string) => {
     const updated = currentLevels.map((lvl) => (lvl.level === lvlNum ? { ...lvl, label: newLabel } : lvl));
@@ -56,6 +88,7 @@ export default function Settings() {
   const addHierarchyLevel = () => {
     const nextNum = currentLevels.length + 1;
     const defaultName = `Level ${nextNum}`;
+    const previous = terms;
     const updated = [...currentLevels, { level: nextNum, label: defaultName }];
     const nextTerms = {
       ...terms,
@@ -65,12 +98,25 @@ export default function Settings() {
       level3Label: updated[2]?.label || terms.level3Label,
     };
     setTerms(nextTerms);
-    void updateTenantConfig(nextTerms);
+    void persist(nextTerms).then((ok) => { if (!ok) setTerms(previous); });
   };
 
-  const removeHierarchyLevel = (lvlNum: number) => {
+  const requestRemoveLevel = (lvlNum: number) => {
     if (currentLevels.length <= 2) return;
-    const filtered = currentLevels.filter((lvl) => lvl.level !== lvlNum);
+    const lvl = currentLevels.find((l) => l.level === lvlNum);
+    if (!lvl) return;
+    setPendingRemoval({ kind: 'level', level: lvlNum, label: lvl.label });
+  };
+
+  const confirmRemoval = async () => {
+    if (!pendingRemoval) return;
+    if (pendingRemoval.kind === 'cadre') {
+      const nextTerms = { ...terms, cadres: cadresList.filter((x) => x !== pendingRemoval.value) };
+      const ok = await persist(nextTerms);
+      if (ok) { setTerms(nextTerms); setPendingRemoval(null); }
+      return;
+    }
+    const filtered = currentLevels.filter((lvl) => lvl.level !== pendingRemoval.level);
     const reindexed = filtered.map((lvl, idx) => ({ level: idx + 1, label: lvl.label }));
     const nextTerms = {
       ...terms,
@@ -79,11 +125,41 @@ export default function Settings() {
       level2Label: reindexed[1]?.label || terms.level2Label,
       level3Label: reindexed[2]?.label || terms.level3Label,
     };
-    setTerms(nextTerms);
-    void updateTenantConfig(nextTerms);
+    const ok = await persist(nextTerms);
+    if (ok) { setTerms(nextTerms); setPendingRemoval(null); }
   };
 
-  React.useEffect(() => setTerms(terminology), [terminology]);
+  const saveAll = async () => {
+    await persist(terms, {
+      autoApproveMembers: autoApprove,
+      memberPosts,
+      reopenWindowDays: Number(reopenDays) || 30,
+    });
+  };
+
+  // Background refreshes must never replace edits that have not been saved yet.
+  React.useEffect(() => {
+    if (JSON.stringify(termsRef.current) === savedTermsRef.current) {
+      savedTermsRef.current = JSON.stringify(terminology);
+      setTerms(terminology);
+    }
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [terminology]);
+
+  // Adopt settings when the organization loads/changes, but not on every background refresh.
+  React.useEffect(() => {
+    const next = {
+      autoApprove: Boolean(tenant?.settings?.autoApproveMembers),
+      memberPosts: tenant?.settings?.memberPosts !== false,
+      reopenDays: String(tenant?.settings?.reopenWindowDays ?? 30),
+    };
+    setAutoApprove(next.autoApprove);
+    setMemberPosts(next.memberPosts);
+    setReopenDays(next.reopenDays);
+    savedSettingsRef.current = JSON.stringify(next);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [tenant?.id]);
+
   if (!isOrgAdmin && !isPlatformSuperAdmin) return <Restricted what="Organization settings" />;
 
   const committeeName = (id: string | null) => committees.find((c) => c.id === id)?.name;
@@ -91,17 +167,17 @@ export default function Settings() {
 
   return (
     <Screen>
-      <StackHeader onBack={() => router.back()} title="Settings" />
+      <StackHeader onBack={goBack} title="Settings" />
 
       <SectionLabel>Terminology</SectionLabel>
       <Card style={{ marginHorizontal: 12, gap: 10 }}>
         <Txt variant="bodyS" color={colors.textMuted}>These labels appear across the app for everyone in {tenant?.name}.</Txt>
         {TERMS.map(([k, label]) => (
-          <Field key={k} label={label}><Input value={terms[k]} onChangeText={(t) => setTerms({ ...terms, [k]: t })} /></Field>
+          <Field key={k} label={label}><Input value={terms[k]} onChangeText={(t) => setTerms({ ...terms, [k]: t })} clearable /></Field>
         ))}
       </Card>
 
-      <SectionLabel right={<Button size="sm" icon="plus" onPress={addHierarchyLevel}>Add Level</Button>}>
+      <SectionLabel right={<Button size="sm" icon="plus" onPress={addHierarchyLevel} disabled={saving}>Add Level</Button>}>
         Organizational Levels & Hierarchy
       </SectionLabel>
       <Card style={{ marginHorizontal: 12, gap: 12 }}>
@@ -120,8 +196,9 @@ export default function Settings() {
                 <Input
                   value={lvl.label}
                   onChangeText={(t) => updateLevelLabel(lvl.level, t)}
-                  onBlur={() => void updateTenantConfig(terms)}
+                  onBlur={() => void persist(terms)}
                   placeholder={`Level ${lvl.level} label`}
+                  clearable
                 />
               </View>
 
@@ -130,20 +207,14 @@ export default function Settings() {
                   icon="trash-2"
                   label={`Remove Level ${lvl.level}`}
                   size="sm"
-                  onPress={() => removeHierarchyLevel(lvl.level)}
+                  onPress={() => requestRemoveLevel(lvl.level)}
                   color={palette.redSolid}
                 />
               ) : null}
             </View>
           ))}
         </View>
-        <Button
-          size="sm"
-          icon="check"
-          onPress={() => void updateTenantConfig(terms)}
-        >
-          Save hierarchy tiers
-        </Button>
+        <Txt variant="caption" color={colors.textMuted}>Removing a level asks for confirmation because higher levels are renumbered.</Txt>
       </Card>
 
       <SectionLabel>{`${terms.groupLabel || 'Affiliated Association'}s`}</SectionLabel>
@@ -160,7 +231,7 @@ export default function Settings() {
           <View style={{ flex: 1 }}>
             <Input value={newCadre} onChangeText={setNewCadre} placeholder={`Add ${terms.groupLabel?.toLowerCase() || 'affiliated association'}…`} />
           </View>
-          <Button size="sm" icon="plus" disabled={!newCadre.trim()} onPress={addCadre}>Add</Button>
+          <Button size="sm" icon="plus" disabled={!newCadre.trim() || saving} onPress={addCadre}>Add</Button>
         </View>
       </Card>
       <SectionLabel>Policies</SectionLabel>
@@ -170,8 +241,10 @@ export default function Settings() {
           description={autoApprove ? "Active: new applicants are verified immediately" : "Off: every application waits for a membership admin"}
           value={autoApprove}
           onChange={(val) => {
+            const previous = autoApprove;
             setAutoApprove(val);
-            void updateTenantConfig(terms, { autoApproveMembers: val, memberPosts, reopenWindowDays: Number(reopenDays) || 30 });
+            void persist(terms, { autoApproveMembers: val, memberPosts, reopenWindowDays: Number(reopenDays) || 30 })
+              .then((ok) => { if (!ok) setAutoApprove(previous); });
           }}
         />
         <Switch
@@ -179,13 +252,25 @@ export default function Settings() {
           description={memberPosts ? "On: members can post" : "Off: only leaders publish"}
           value={memberPosts}
           onChange={(val) => {
+            const previous = memberPosts;
             setMemberPosts(val);
-            void updateTenantConfig(terms, { autoApproveMembers: autoApprove, memberPosts: val, reopenWindowDays: Number(reopenDays) || 30 });
+            void persist(terms, { autoApproveMembers: autoApprove, memberPosts: val, reopenWindowDays: Number(reopenDays) || 30 })
+              .then((ok) => { if (!ok) setMemberPosts(previous); });
           }}
         />
         <Field label="Members can reopen cases for (days)"><Input value={reopenDays} onChangeText={(t) => setReopenDays(t.replace(/\D/g, ''))} keyboardType="number-pad" /></Field>
-        <Button icon="check" onPress={() => void updateTenantConfig(terms, { autoApproveMembers: autoApprove, memberPosts, reopenWindowDays: Number(reopenDays) || 30 })}>Save settings</Button>
       </Card>
+
+      <View style={{ paddingHorizontal: 12, paddingTop: 14, gap: 6 }}>
+        <Button icon="check" block loading={saving} disabled={saving} onPress={() => void saveAll()}>
+          Save changes
+        </Button>
+        <Txt variant="caption" color={termsDirty || settingsDirty ? palette.amberFg : colors.textMuted}>
+          {termsDirty || settingsDirty
+            ? 'Unsaved changes — labels, hierarchy and the reopen window are saved together.'
+            : 'All configuration changes are saved. Association add/remove and policy switches save immediately.'}
+        </Txt>
+      </View>
 
       <SectionLabel right={<Button size="sm" icon="plus" onPress={() => setRule(newRule())}>Add</Button>}>Case categories & routing</SectionLabel>
       <View style={{ paddingHorizontal: 12, gap: 8 }}>
@@ -233,6 +318,33 @@ export default function Settings() {
           </View>
         ) : null}
       </Sheet>
+
+      <ConfirmDialog
+        visible={!!pendingRemoval}
+        onClose={() => { if (!saving) setPendingRemoval(null); }}
+        onConfirm={() => void confirmRemoval()}
+        title={pendingRemoval
+          ? pendingRemoval.kind === 'cadre'
+            ? `Remove ${pendingRemoval.value}?`
+            : `Remove Level ${pendingRemoval.level} · ${pendingRemoval.label}?`
+          : ''}
+        description={pendingRemoval
+          ? pendingRemoval.kind === 'cadre'
+            ? 'This association will disappear from registration, filters and committee setup.'
+            : 'The level is removed from the hierarchy and higher levels are renumbered.'
+          : undefined}
+        confirmLabel="Remove"
+        tone="danger"
+        loading={saving}
+      >
+        {pendingRemoval ? (
+          <Notice tone="warning" title="Existing records are not deleted">
+            {pendingRemoval.kind === 'cadre'
+              ? 'Members keep the association already recorded on their profile. New selections will no longer offer it. The change is recorded in the audit trail.'
+              : 'Committees and cases already at this level keep their records, but routing rules and escalation steps that start above it may now point to a different tier. Review case categories and routing after removing it.'}
+          </Notice>
+        ) : null}
+      </ConfirmDialog>
     </Screen>
   );
 }

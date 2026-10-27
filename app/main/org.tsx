@@ -1,12 +1,12 @@
 import React from 'react';
-import { Pressable, View, Linking, ScrollView } from 'react-native';
+import { Pressable, View, Linking, ScrollView, Share } from 'react-native';
 import { router } from 'expo-router';
 import { TourTarget } from '@wrack/react-native-tour-guide';
-import { Avatar, Button, Card, CommitteeBadge, Icon, IconButton, Input, ListCard, RoleTag, Screen, ScreenHeader, SectionLabel, Sheet, Tag, Txt, YouPill } from '../../src/components';
+import { ActionItem, ActionSheet, AppPressable, Avatar, Button, Card, CommitteeBadge, EmptyState, Icon, IconButton, Input, ListCard, RoleTag, Screen, ScreenHeader, SectionLabel, Sheet, Tag, Txt, YouPill, copyText } from '../../src/components';
 import { colors, palette, radius } from '../../src/theme';
 import { useStore, CommitteeInfo } from '../../src/store/AppStore';
 import type { Persona } from '../../src/store/types';
-import { compactCount } from '../../src/lib/format';
+import { compactCount, normalizePhoneNumber } from '../../src/lib/format';
 
 /** People-first organization view (PRD §7.4). Opens on the member's own division with office-bearers
  *  pinned and role-tagged; any division or circle can be browsed. Geography only — committee
@@ -19,9 +19,9 @@ const PAGE = 25;
 
 type Bearer = { key: string; name: string; role: string; committee: CommitteeInfo; person?: Persona };
 
-function PersonRow({ name, sub, role, you, onPress, size = 40, uri }: { name: string; sub?: string; role?: string; you?: boolean; onPress: () => void; size?: number; uri?: string }) {
+function PersonRow({ name, sub, role, you, onPress, onLongPress, size = 40, uri }: { name: string; sub?: string; role?: string; you?: boolean; onPress: () => void; onLongPress?: () => void; size?: number; uri?: string }) {
  return (
-  <Pressable accessibilityRole="button" accessibilityLabel={[name, role, sub].filter(Boolean).join(', ')} onPress={onPress}
+  <AppPressable accessibilityRole="button" accessibilityLabel={[name, role, sub].filter(Boolean).join(', ')} accessibilityHint={onLongPress ? 'Opens member profile. Long press for contact actions.' : 'Opens member profile'} onPress={onPress} onLongPress={onLongPress} delayLongPress={350}
    style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 60, paddingVertical: 10, paddingHorizontal: 14, backgroundColor: pressed ? colors.surfaceHover : 'transparent' })}>
    <Avatar name={name} uri={uri} size={size} />
    <View style={{ flex: 1, gap: 4 }}>
@@ -36,17 +36,21 @@ function PersonRow({ name, sub, role, you, onPress, size = 40, uri }: { name: st
      </View>
     ) : null}
    </View>
-  </Pressable>
+   <Icon name="chevron-right" size={18} color={palette.ink400} />
+  </AppPressable>
  );
 }
 
 export default function Org() {
- const { tenant, activeMember, allMembers, committees, geoUnits, functionalGroups, terminology, refresh } = useStore();
+ const { tenant, activeMember, allMembers, committees, geoUnits, functionalGroups, terminology, refresh, toast } = useStore();
  const [circleId, setCircleId] = React.useState<string | null>(null);
  const [view, setView] = React.useState<string | null>(null); // null = my division; 'overview' = circle overview; else division id
  const [q, setQ] = React.useState('');
  const [limit, setLimit] = React.useState(PAGE);
+ const [searchLimit, setSearchLimit] = React.useState(60);
+ const [searchScope, setSearchScope] = React.useState<'circle' | 'all'>('circle');
  const [sheet, setSheet] = React.useState<{ name: string; person?: Persona; key: string } | null>(null);
+ const [contactSheet, setContactSheet] = React.useState<{ name: string; person?: Persona; key: string } | null>(null);
  const [pickCircle, setPickCircle] = React.useState(false);
  const [refreshing, setRefreshing] = React.useState(false);
 
@@ -144,12 +148,97 @@ export default function Org() {
  const sub = (p?: Persona) => [p?.designation && p.designation !== 'Member' ? p.designation : null, p?.officeEmployed].filter(Boolean).join(' · ') || undefined;
  const isMe = (key: string) => key === activeMember?.id;
  const open = (name: string, key: string, person?: Persona) => setSheet({ name, key, person });
+ const openContact = (name: string, key: string, person?: Persona) => setContactSheet({ name, key, person });
+
+ const displayPhone = (phone?: string) => (!phone ? '' : phone.startsWith('+') ? phone : `+${phone}`);
+ const openExternal = async (primary: string, fallback?: string) => {
+  const tryOpen = async (url: string) => {
+   try {
+    if (!(await Linking.canOpenURL(url))) return false;
+    await Linking.openURL(url);
+    return true;
+   } catch {
+    return false;
+   }
+  };
+  if (await tryOpen(primary)) return;
+  if (fallback && await tryOpen(fallback)) return;
+  toast({ title: 'Could not open link', description: 'No app is available for that action.', tone: 'danger' });
+ };
+ const callPerson = (p?: Persona) => {
+  const phone = normalizePhoneNumber(p?.phone || '').normalized;
+  if (phone) void openExternal(`tel:${phone}`);
+ };
+ const emailPerson = (p?: Persona) => { if (p?.email) void openExternal(`mailto:${p.email}`); };
+ const whatsappPerson = (p?: Persona) => {
+  const digits = normalizePhoneNumber(p?.phone || '').digits;
+  if (digits) void openExternal(`whatsapp://send?phone=${digits}`, `https://wa.me/${digits}`);
+ };
+ const copyPhone = async (p?: Persona) => {
+  const phone = displayPhone(p?.phone);
+  if (!phone) return;
+  if (await copyText(phone)) toast({ title: 'Phone number copied', description: phone });
+  else toast({ title: 'Could not copy phone number', tone: 'danger' });
+ };
+ const contactText = (p: Persona) => [
+  p.name,
+  [p.designation && p.designation !== 'Member' ? p.designation : null, p.officeEmployed].filter(Boolean).join(' · '),
+  p.phone ? displayPhone(p.phone) : null,
+  p.email,
+  [p.unit, p.region].filter(Boolean).join(', '),
+ ].filter(Boolean).join('\n');
+ const copyContact = async (p: Persona) => {
+  if (await copyText(contactText(p))) toast({ title: 'Contact details copied', description: p.name });
+  else toast({ title: 'Could not copy contact', tone: 'danger' });
+ };
+ const shareContact = async (p: Persona) => {
+  try {
+   await Share.share({ title: p.name, message: contactText(p) });
+  } catch {
+   toast({ title: 'Could not share contact', tone: 'danger' });
+  }
+ };
+ const saveContact = async (p: Persona) => {
+  const vcard = [
+   'BEGIN:VCARD',
+   'VERSION:3.0',
+   `FN:${p.name}`,
+   `ORG:${tenant?.name || 'Bharatiya Postal Employees Federation'}`,
+   p.designation ? `TITLE:${p.designation}` : '',
+   p.phone ? `TEL;TYPE=CELL:${normalizePhoneNumber(p.phone).normalized}` : '',
+   p.email ? `EMAIL:${p.email}` : '',
+   'END:VCARD',
+  ].filter(Boolean).join('\n');
+  try {
+   await Share.share({ title: 'Save contact', message: vcard });
+  } catch {
+   toast({ title: 'Could not open the share sheet', tone: 'danger' });
+  }
+ };
+ const contactPerson = contactSheet?.person;
+ const contactMessage = contactSheet
+  ? ([displayPhone(contactPerson?.phone), contactPerson?.email].filter(Boolean).join(' · ') || 'No phone or email listed.')
+  : undefined;
+ const contactActions: ActionItem[] = contactSheet ? [
+  ...(contactPerson?.phone ? [{ label: 'Call', icon: 'phone-call', onPress: () => callPerson(contactPerson) }] : []),
+  ...(contactPerson?.email ? [{ label: 'Email', icon: 'mail', onPress: () => emailPerson(contactPerson) }] : []),
+  ...(contactPerson?.phone ? [
+   { label: 'WhatsApp', icon: 'message-circle', onPress: () => whatsappPerson(contactPerson) },
+   { label: 'Copy phone', icon: 'copy', onPress: () => { void copyPhone(contactPerson); } },
+  ] : []),
+  { label: 'Open profile', icon: 'user-round', onPress: () => open(contactSheet.name, contactSheet.key, contactPerson) },
+ ] : [];
 
  const needle = low(q);
- const results = React.useMemo(() => !needle ? [] : verified
-  .filter((m) => low(m.region) === low(circle?.name))
+ const matches = React.useMemo(() => !needle ? [] : verified
   .filter((m) => `${m.name} ${m.designation || ''} ${m.officeEmployed || ''} ${m.unit} ${m.memberId}`.toLowerCase().includes(needle))
-  .sort((a, b) => a.name.localeCompare(b.name)).slice(0, 60), [needle, verified, circle?.name]);
+  .sort((a, b) => a.name.localeCompare(b.name)), [needle, verified]);
+ const scopedMatches = React.useMemo(
+  () => (searchScope === 'all' ? matches : matches.filter((m) => low(m.region) === low(circle?.name))),
+  [matches, searchScope, circle?.name],
+ );
+ React.useEffect(() => { setSearchLimit(60); }, [needle, searchScope, circle?.id]);
+ const results = scopedMatches.slice(0, searchLimit);
 
  const divBearers = div ? bearersAt(div.id, div.name) : [];
  const divMembers = React.useMemo(() => {
@@ -200,7 +289,7 @@ export default function Org() {
 
    <View style={{ paddingHorizontal: 16, gap: 12 }}>
     <TourTarget id="federation-search" style={{ borderRadius: radius.m }}>
-     <Input icon="search" value={q} onChangeText={setQ} placeholder="Search by name, role or office" returnKeyType="search" />
+     <Input icon="search" value={q} onChangeText={setQ} placeholder="Search by name, role or office" returnKeyType="search" clearable />
     </TourTarget>
     <Pressable accessibilityRole="button" accessibilityLabel={`${terminology.level2Label}: ${circle?.name || 'none'}. Change`} onPress={() => setPickCircle(true)}
      style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, paddingHorizontal: 12, borderRadius: radius.l, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: pressed ? colors.surfaceHover : colors.surfaceCard })}>
@@ -214,12 +303,46 @@ export default function Org() {
 
    {needle ? (
     <>
-     <SectionLabel>{`${results.length} in ${circle?.name || ''} ${terminology.level2Label}`}</SectionLabel>
-     {results.length === 0 ? (
-      <Card style={{ marginHorizontal: 12, padding: 16, alignItems: 'center' }}><Txt variant="bodyS" color={colors.textMuted} align="center">{`No one matches “${q.trim()}”. Try another ${terminology.level2Label.toLowerCase()}.`}</Txt></Card>
+     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, paddingTop: 12 }}>
+      <Tag icon="map-pin" selected={searchScope === 'circle'} onPress={() => setSearchScope('circle')}>{`In ${circle?.name || terminology.level2Label}`}</Tag>
+      <Tag icon="globe" selected={searchScope === 'all'} onPress={() => setSearchScope('all')}>{`All ${terminology.level2Label.toLowerCase()}s`}</Tag>
+     </View>
+     <SectionLabel
+      right={<Txt variant="caption" color={colors.textMuted}>{`Showing ${results.length} of ${scopedMatches.length}`}</Txt>}
+     >
+      Search results
+     </SectionLabel>
+     {scopedMatches.length === 0 ? (
+      <View style={{ paddingHorizontal: 12 }}>
+       <EmptyState
+        icon="search"
+        title="No one matches"
+        description={`No one in ${searchScope === 'all' ? terminology.orgLabel : circle?.name || terminology.level2Label} matches “${q.trim()}”.`}
+        actionLabel="Clear search"
+        onAction={() => setQ('')}
+        secondaryLabel={searchScope === 'circle' && matches.length ? `Search all ${terminology.level2Label.toLowerCase()}s` : undefined}
+        onSecondary={searchScope === 'circle' && matches.length ? () => setSearchScope('all') : undefined}
+       />
+      </View>
      ) : (
       <ListCard style={{ marginHorizontal: 12 }}>
-       {results.map((m) => <PersonRow key={m.id} name={m.name} role={topRole(m.id)} sub={[m.unit, sub(m)].filter(Boolean).join(' · ')} you={isMe(m.id)} uri={m.avatarUrl} onPress={() => open(m.name, m.id, m)} />)}
+       {results.map((m) => (
+        <PersonRow
+         key={m.id}
+         name={m.name}
+         role={topRole(m.id)}
+         sub={[m.unit, sub(m)].filter(Boolean).join(' · ')}
+         you={isMe(m.id)}
+         uri={m.avatarUrl}
+         onPress={() => open(m.name, m.id, m)}
+         onLongPress={() => openContact(m.name, m.id, m)}
+        />
+       ))}
+       {scopedMatches.length > results.length ? (
+        <Pressable accessibilityRole="button" onPress={() => setSearchLimit((n) => n + 60)} style={({ pressed }) => ({ minHeight: 48, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? colors.surfaceHover : 'transparent' })}>
+         <Txt variant="label" color={colors.textAccent}>{`Show more (${scopedMatches.length - results.length})`}</Txt>
+        </Pressable>
+       ) : null}
       </ListCard>
      )}
     </>
@@ -242,7 +365,7 @@ export default function Org() {
         <Card style={{ marginHorizontal: 12, padding: 16 }}><Txt variant="bodyS" color={colors.textMuted}>{`No office-bearers appointed for this ${terminology.level1Label.toLowerCase()} yet.`}</Txt></Card>
        ) : (
         <ListCard style={{ marginHorizontal: 12 }}>
-         {divBearers.map((b) => <PersonRow key={b.key} name={b.name} role={roleLabel(b)} sub={sub(b.person)} you={isMe(b.key)} uri={b.person?.avatarUrl} onPress={() => open(b.name, b.key, b.person)} />)}
+         {divBearers.map((b) => <PersonRow key={b.key} name={b.name} role={roleLabel(b)} sub={sub(b.person)} you={isMe(b.key)} uri={b.person?.avatarUrl} onPress={() => open(b.name, b.key, b.person)} onLongPress={() => openContact(b.name, b.key, b.person)} />)}
         </ListCard>
        )}
 
@@ -251,7 +374,7 @@ export default function Org() {
         <Card style={{ marginHorizontal: 12, padding: 16 }}><Txt variant="bodyS" color={colors.textMuted}>No other members visible to you here.</Txt></Card>
        ) : (
         <ListCard style={{ marginHorizontal: 12 }}>
-         {divMembers.slice(0, limit).map((m) => <PersonRow key={m.id} size={36} name={m.name} sub={sub(m)} you={isMe(m.id)} uri={m.avatarUrl} onPress={() => open(m.name, m.id, m)} />)}
+         {divMembers.slice(0, limit).map((m) => <PersonRow key={m.id} size={36} name={m.name} sub={sub(m)} you={isMe(m.id)} uri={m.avatarUrl} onPress={() => open(m.name, m.id, m)} onLongPress={() => openContact(m.name, m.id, m)} />)}
          {divMembers.length > limit ? (
           <Pressable accessibilityRole="button" onPress={() => setLimit((n) => n + PAGE * 2)} style={({ pressed }) => ({ minHeight: 48, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? colors.surfaceHover : 'transparent' })}>
            <Txt variant="label" color={colors.textAccent}>{`Show more (${divMembers.length - limit})`}</Txt>
@@ -265,7 +388,7 @@ export default function Org() {
        <SectionLabel>{`${terminology.level2Label} office-bearers`}</SectionLabel>
        {circle && bearersAt(circle.id, circle.name).length ? (
         <ListCard style={{ marginHorizontal: 12, borderColor: colors.officialBorder }}>
-         {bearersAt(circle.id, circle.name).map((b) => <PersonRow key={b.key} size={36} name={b.name} role={roleLabel(b)} sub={sub(b.person)} you={isMe(b.key)} uri={b.person?.avatarUrl} onPress={() => open(b.name, b.key, b.person)} />)}
+         {bearersAt(circle.id, circle.name).map((b) => <PersonRow key={b.key} size={36} name={b.name} role={roleLabel(b)} sub={sub(b.person)} you={isMe(b.key)} uri={b.person?.avatarUrl} onPress={() => open(b.name, b.key, b.person)} onLongPress={() => openContact(b.name, b.key, b.person)} />)}
         </ListCard>
        ) : (
         <Card style={{ marginHorizontal: 12, padding: 16 }}><Txt variant="bodyS" color={colors.textMuted}>No office-bearers appointed yet.</Txt></Card>
@@ -299,7 +422,7 @@ export default function Org() {
         <Card style={{ marginHorizontal: 12, padding: 16 }}><Txt variant="bodyS" color={colors.textMuted}>{`No members registered in ${circle?.name || ''} yet.`}</Txt></Card>
        ) : (
         <ListCard style={{ marginHorizontal: 12 }}>
-         {circleMembers.slice(0, limit).map((m) => <PersonRow key={m.id} size={36} name={m.name} role={topRole(m.id)} sub={[m.unit, sub(m)].filter(Boolean).join(' · ')} you={isMe(m.id)} uri={m.avatarUrl} onPress={() => open(m.name, m.id, m)} />)}
+         {circleMembers.slice(0, limit).map((m) => <PersonRow key={m.id} size={36} name={m.name} role={topRole(m.id)} sub={[m.unit, sub(m)].filter(Boolean).join(' · ')} you={isMe(m.id)} uri={m.avatarUrl} onPress={() => open(m.name, m.id, m)} onLongPress={() => openContact(m.name, m.id, m)} />)}
          {circleMembers.length > limit ? (
           <Pressable accessibilityRole="button" onPress={() => setLimit((n) => n + PAGE * 2)} style={({ pressed }) => ({ minHeight: 48, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? colors.surfaceHover : 'transparent' })}>
            <Txt variant="label" color={colors.textAccent}>{`Show more (${circleMembers.length - limit})`}</Txt>
@@ -389,19 +512,26 @@ export default function Org() {
       {/* Direct Contact Card (Call, WhatsApp, Email) */}
       <Card padding={14} style={{ gap: 10 }}>
        <Txt variant="overline" color={colors.textMuted}>PEER CONTACT</Txt>
+       {sp && (sp.phone || sp.email) ? (
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+         <Button size="sm" variant="secondary" icon="copy" style={{ flex: 1 }} onPress={() => { void copyContact(sp); }}>Copy</Button>
+         <Button size="sm" variant="secondary" icon="share-2" style={{ flex: 1 }} onPress={() => { void shareContact(sp); }}>Share</Button>
+         <Button size="sm" variant="secondary" icon="user-plus" style={{ flex: 1 }} onPress={() => { void saveContact(sp); }}>Save</Button>
+        </View>
+       ) : null}
        {sp?.phone ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
           <Icon name="phone" size={16} color={colors.accent} />
-          <Txt variant="bodyStrong">{sp.phone.startsWith('+') ? sp.phone : '+' + sp.phone}</Txt>
+          <Txt variant="bodyStrong">{displayPhone(sp.phone)}</Txt>
          </View>
          <View style={{ flexDirection: 'row', gap: 8 }}>
-          <IconButton icon="phone-call" label="Call" size="sm" variant="secondary" onPress={() => void Linking.openURL(`tel:${sp.phone}`)} />
-          <IconButton icon="message-circle" label="WhatsApp" size="sm" variant="secondary" onPress={() => void Linking.openURL(`https://wa.me/${sp.phone.replace(/\D/g, '')}`)} />
+          <IconButton icon="phone-call" label="Call" size="sm" variant="secondary" onPress={() => callPerson(sp)} />
+          <IconButton icon="message-circle" label="WhatsApp" size="sm" variant="secondary" onPress={() => whatsappPerson(sp)} />
          </View>
         </View>
        ) : (
-        <Txt variant="bodyS" color={colors.textMuted}>No phone number listed.</Txt>
+        <Txt variant="bodyS" color={colors.textMuted}>{sp?.email ? 'No phone number listed.' : 'No contact details listed.'}</Txt>
        )}
 
        {sp?.email ? (
@@ -410,7 +540,7 @@ export default function Org() {
           <Icon name="mail" size={16} color={colors.accent} />
           <Txt variant="bodyS" numberOfLines={1}>{sp.email}</Txt>
          </View>
-         <IconButton icon="send" label="Email" size="sm" variant="secondary" onPress={() => void Linking.openURL(`mailto:${sp.email}`)} />
+         <IconButton icon="send" label="Email" size="sm" variant="secondary" onPress={() => emailPerson(sp)} />
         </View>
        ) : null}
       </Card>
@@ -434,14 +564,17 @@ export default function Org() {
         {`Raise a ${terminology.caseLabel.toLowerCase()}`}
        </Button>
       ) : null}
-      {sp?.phone && sheet.key !== activeMember?.id ? (
-       <Button variant="secondary" icon="message-circle" block onPress={() => { setSheet(null); void Linking.openURL(`https://wa.me/${sp.phone?.replace(/\D/g, '')}`); }}>
-        Chat on WhatsApp
-       </Button>
-      ) : null}
      </ScrollView>
     ) : null}
    </Sheet>
+
+   <ActionSheet
+    visible={!!contactSheet}
+    onClose={() => setContactSheet(null)}
+    title={contactSheet?.name || 'Contact options'}
+    message={contactMessage}
+    actions={contactActions}
+   />
   </Screen>
  );
 }

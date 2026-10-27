@@ -23,14 +23,19 @@ export interface NotificationItemProps {
   /** Organization-mandated (cannot be muted) */
   mandatory?: boolean;
   onPress?: () => void;
+  onLongPress?: () => void;
 }
 
-export function NotificationItem({ kind, title, context, time, unread, mandatory, onPress }: NotificationItemProps) {
+export function NotificationItem({ kind, title, context, time, unread, mandatory, onPress, onLongPress }: NotificationItemProps) {
   const [bg, fg] = TILE[kind];
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={350}
       accessibilityRole="button"
+      accessibilityLabel={`${unread ? 'Unread. ' : ''}${typeof title === 'string' ? title : 'Notification'}${context ? `. ${context}` : ''}`}
+      accessibilityHint={onLongPress ? 'Long press for notification actions' : 'Opens the related item'}
       style={({ pressed }) => ({
         flexDirection: 'row',
         alignItems: 'flex-start',
@@ -47,7 +52,8 @@ export function NotificationItem({ kind, title, context, time, unread, mandatory
         </View>
         {unread ? (
           <View
-            accessibilityLabel="Unread"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
             style={{
               position: 'absolute',
               top: -1,

@@ -1,22 +1,27 @@
 import React from 'react';
-import { Linking, Pressable, View } from 'react-native';
+import { Linking, ScrollView, Share, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import type * as DocumentPickerType from 'expo-document-picker';
 let DocumentPicker: typeof DocumentPickerType | null = null;
 try { DocumentPicker = require('expo-document-picker'); } catch { }
 import {
+  AppPressable,
   AudienceLabel,
   Avatar,
   Badge,
   Button,
   Card,
+  ConfirmDialog,
+  CopyableText,
   Dialog,
   DueLabel,
+  ErrorState,
   EscalationTimeline,
   Field,
   Icon,
   IconButton,
   IconTile,
+  Input,
   KeyValue,
   LoadingState,
   Notice,
@@ -30,6 +35,7 @@ import {
   Txt,
 } from '../../src/components';
 import { Restricted } from '../../src/components/Restricted';
+import { copyText } from '../../src/components/CopyableText';
 import { colors, fonts, palette, radius } from '../../src/theme';
 import { useStore, Issue, InternalNote, MemberReply, Attachment, IssueAction } from '../../src/store/AppStore';
 import { dbService } from '../../src/services/db';
@@ -73,6 +79,11 @@ const TEXT_ACTIONS: Record<string, TextAction> = {
   },
 };
 
+const goBack = () => {
+  if (router.canGoBack()) router.back();
+  else router.replace('/manage' as never);
+};
+
 export default function CaseDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { isHandler, committees, levels, issueAction, escalateCase, tenant, toast, cases, activeMember, allMembers } = useStore();
@@ -87,7 +98,12 @@ export default function CaseDetail() {
   const [dialog, setDialog] = React.useState<TextAction | null>(null);
   const [text, setText] = React.useState('');
   const [note, setNote] = React.useState('');
+  const [replyText, setReplyText] = React.useState('');
+  const [assignQ, setAssignQ] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const [refreshing, setRefreshing] = React.useState(false);
+  const [loadFailed, setLoadFailed] = React.useState(false);
+  const [closeOpen, setCloseOpen] = React.useState(false);
   const logged = React.useRef<string | null>(null);
 
   const load = React.useCallback(async () => {
@@ -95,6 +111,7 @@ export default function CaseDetail() {
     try {
       const i = await dbService.getIssue(String(id));
       setC(i);
+      setLoadFailed(false);
       if (!i) return;
       const [n, r, a] = await Promise.all([dbService.getInternalNotes(i.id), dbService.getReplies(i.id), dbService.getAttachments(i.id)]);
       setNotes(n);
@@ -105,7 +122,8 @@ export default function CaseDetail() {
         void dbService.logCaseView(i.id);
       }
     } catch {
-      setC(null);
+      setLoadFailed(true);
+      setC((prev) => (prev === undefined ? null : prev));
     }
   }, [id]);
 
@@ -119,11 +137,19 @@ export default function CaseDetail() {
   if (c === null) {
     return (
       <Screen>
-        <StackHeader onBack={() => router.back()} />
+        <StackHeader onBack={goBack} />
         <View style={{ padding: 16 }}>
-          <Notice tone="private" title="Not available">
-            Case not found or outside your scope.
-          </Notice>
+          {loadFailed ? (
+            <ErrorState
+              title="Could not load this case"
+              description="Check your connection and try again. Nothing was changed."
+              onRetry={() => { setC(undefined); void load(); }}
+            />
+          ) : (
+            <Notice tone="private" title="Not available">
+              Case not found or outside your scope.
+            </Notice>
+          )}
         </View>
       </Screen>
     );
@@ -135,6 +161,25 @@ export default function CaseDetail() {
   );
   const open = !['resolved', 'closed', 'rejected'].includes(c.status);
   const own = c.complainantId === activeMember?.id;
+  const assignNeedle = assignQ.trim().toLowerCase();
+  const assignMatches = eligible.filter((m) => !assignNeedle || `${m.name} ${m.role}`.toLowerCase().includes(assignNeedle));
+  const meEligible = !!activeMember && eligible.some((m) => m.profileId === activeMember.id);
+  const canReplyToMemberThread = own;
+
+  const copyCaseId = async () => {
+    if (await copyText(c.id)) toast({ title: 'Case ID copied', description: c.id, tone: 'success' });
+    else toast({ title: 'Could not copy', tone: 'danger' });
+  };
+
+  const shareCase = async () => {
+    try {
+      await Share.share({
+        message: `${c.id}${c.confidential ? '\nConfidential case — details withheld.' : ` · ${c.title}`}\nStatus: ${c.statusLabel || c.status}\nCommittee: ${c.committee}${c.confidential ? '\nDo not forward outside the committee.' : ''}\nOpen in BPEF: bpef:///manage/case?id=${encodeURIComponent(c.id)}`,
+      });
+    } catch {
+      toast({ title: 'Could not open sharing', tone: 'danger' });
+    }
+  };
 
   const run = async (action: IssueAction, payload: Record<string, unknown> = {}) => {
     setBusy(true);
@@ -186,7 +231,24 @@ export default function CaseDetail() {
   };
 
   return (
-    <Screen header={<StackHeader title={c.id} mono onBack={() => router.back()} />}>
+    <Screen
+      header={
+        <StackHeader
+          title={c.id}
+          mono
+          onBack={goBack}
+          right={
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <IconButton icon="copy" label="Copy case ID" onPress={() => void copyCaseId()} />
+              <IconButton icon="share-2" label="Share case" onPress={() => void shareCase()} />
+            </View>
+          }
+        />
+      }
+      refreshing={refreshing}
+      onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }}
+      stickyHeaderIndices={!own ? [1] : undefined}
+    >
       <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
         <Card style={{ padding: 16, gap: 12, borderRadius: radius.xl }}>
           {/* Status Badges Row */}
@@ -236,17 +298,9 @@ export default function CaseDetail() {
         </Card>
       </View>
 
-      {own ? (
-        <View style={{ padding: 12 }}>
-          <Notice tone="warning" title="This is your own case">
-            You cannot handle or resolve a grievance you raised yourself.
-          </Notice>
-        </View>
-      ) : null}
-
-      {/* Smart Contextual Action Bar */}
+      {/* Smart Contextual Action Bar (sticky: it is the second ScrollView child) */}
       {!own ? (
-        <View style={{ paddingHorizontal: 12, paddingTop: 14 }}>
+        <View style={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10, backgroundColor: colors.bgApp, borderBottomWidth: 1, borderBottomColor: colors.borderSubtle }}>
           {c.status === 'triage' ? (
             <Button
               size="lg"
@@ -325,7 +379,7 @@ export default function CaseDetail() {
                     icon="lock"
                     style={{ flex: 1 }}
                     disabled={busy}
-                    onPress={() => run('close')}
+                    onPress={() => setCloseOpen(true)}
                   >
                     Close Case
                   </Button>
@@ -357,6 +411,14 @@ export default function CaseDetail() {
               </View>
             </View>
           )}
+        </View>
+      ) : null}
+
+      {own ? (
+        <View style={{ padding: 12 }}>
+          <Notice tone="warning" title="This is your own case">
+            You cannot handle or resolve a grievance you raised yourself.
+          </Notice>
         </View>
       ) : null}
 
@@ -422,6 +484,41 @@ export default function CaseDetail() {
           </View>
         </>
       ) : null}
+
+      {/* Member communication: the reply thread itself is owned by the complainant. */}
+      <SectionLabel right={!own && open ? <Button size="sm" variant="ghost" icon="circle-help" onPress={() => openActionDialog('request_info')}>Request info</Button> : undefined}>
+        Member communication
+      </SectionLabel>
+      <View style={{ paddingHorizontal: 12 }}>
+        <Card style={{ padding: 16, gap: 12, borderRadius: radius.xl }}>
+          {canReplyToMemberThread ? (
+            <>
+              <Txt variant="bodyS" color={colors.textSecondary}>Post an update in the member-visible reply thread. The other party sees it with the case history and public stage updates.</Txt>
+              <TextArea value={replyText} onChangeText={setReplyText} placeholder="Write a reply the member will see…" />
+              <Button
+                size="sm"
+                icon="send"
+                disabled={!replyText.trim() || busy}
+                loading={busy}
+                onPress={async () => {
+                  if (await run('reply', { text: replyText.trim() })) setReplyText('');
+                }}
+              >
+                Send reply
+              </Button>
+            </>
+          ) : (
+            <>
+              <Notice tone="info" title="Member replies are posted by the complainant">
+                The member reply thread accepts messages from the person who raised the case. Use Request information to ask the member for details; their answer returns to this case and the deadline pauses.
+              </Notice>
+              <Button size="sm" variant="secondary" icon="circle-help" block disabled={!open || busy} onPress={() => openActionDialog('request_info')}>
+                Request information from member
+              </Button>
+            </>
+          )}
+        </Card>
+      </View>
 
       {/* Evidence Attachments */}
       <SectionLabel right={!own ? <Button size="sm" variant="ghost" icon="paperclip" disabled={busy} onPress={attachInternal}>Add internal file</Button> : undefined}>
@@ -492,51 +589,83 @@ export default function CaseDetail() {
       </View>
 
       {/* Assign Handler Sheet */}
-      <Sheet visible={assignOpen} onClose={() => setAssignOpen(false)} title="Assign handler">
-        <View style={{ paddingHorizontal: 16, paddingBottom: 16, gap: 8 }}>
-          <Txt variant="bodyS" color={colors.textMuted}>
-            {c.confidential ? 'Confidential case: restricted to Chairs and Issue handlers.' : 'Active members of the responsible committee.'}
-          </Txt>
-          {eligible.length === 0 ? (
-            <Txt variant="bodyS" style={{ padding: 16 }}>
-              No eligible committee members found.
+      <Sheet visible={assignOpen} onClose={() => { setAssignOpen(false); setAssignQ(''); }} title="Assign handler">
+        <View style={{ flexShrink: 1 }}>
+          <View style={{ paddingHorizontal: 16, gap: 8 }}>
+            <Txt variant="bodyS" color={colors.textMuted}>
+              {c.confidential ? 'Confidential case: restricted to Chairs and Issue handlers.' : 'Active members of the responsible committee.'}
             </Txt>
-          ) : (
-            eligible.map((h) => (
-              <Pressable
-                key={h.id}
+            {meEligible && c.assigneeId !== activeMember?.id ? (
+              <Button
+                size="md"
+                variant="secondary"
+                icon="user-check"
+                block
+                disabled={busy}
                 onPress={async () => {
                   setAssignOpen(false);
-                  await run('assign', { profile_id: h.profileId });
+                  setAssignQ('');
+                  if (activeMember) await run('assign', { profile_id: activeMember.id });
                 }}
-                style={({ pressed }) => ({
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 12,
-                  minHeight: 52,
-                  paddingHorizontal: 14,
-                  borderRadius: radius.m,
-                  backgroundColor: pressed ? colors.surfaceHover : 'transparent',
-                })}
               >
-                <Avatar name={h.name} uri={allMembers.find((m) => m.id === h.profileId)?.avatarUrl} size={32} />
-                <View style={{ flex: 1 }}>
-                  <Txt variant="titleS">{h.name}</Txt>
-                  <Txt variant="bodyS" color={colors.textMuted}>{h.role}</Txt>
-                </View>
-                {c.assigneeId === h.profileId ? <Icon name="check" size={18} color={colors.accent} strokeWidth={2.25} /> : null}
-              </Pressable>
-            ))
-          )}
+                {`Assign to me (${activeMember?.name || 'me'})`}
+              </Button>
+            ) : null}
+            <Input icon="search" size="sm" value={assignQ} onChangeText={setAssignQ} placeholder="Search eligible handlers" clearable />
+          </View>
+          <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16, paddingTop: 8, gap: 8 }} keyboardShouldPersistTaps="handled">
+            {eligible.length === 0 ? (
+              <Txt variant="bodyS" color={colors.textMuted} style={{ padding: 16 }}>
+                No eligible committee members found.
+              </Txt>
+            ) : assignMatches.length === 0 ? (
+              <Txt variant="bodyS" color={colors.textMuted} style={{ padding: 16 }}>
+                No handler matches “{assignQ.trim()}”.
+              </Txt>
+            ) : (
+              assignMatches.map((h) => (
+                <AppPressable
+                  key={h.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${h.name}, ${h.role}${c.assigneeId === h.profileId ? ', currently assigned' : ''}`}
+                  onPress={async () => {
+                    setAssignOpen(false);
+                    setAssignQ('');
+                    await run('assign', { profile_id: h.profileId });
+                  }}
+                  style={({ pressed }) => ({
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 12,
+                    minHeight: 52,
+                    paddingHorizontal: 14,
+                    borderRadius: radius.m,
+                    backgroundColor: pressed ? colors.surfaceHover : 'transparent',
+                  })}
+                >
+                  <Avatar name={h.name} uri={allMembers.find((m) => m.id === h.profileId)?.avatarUrl} size={32} />
+                  <View style={{ flex: 1 }}>
+                    <Txt variant="titleS">{h.name}</Txt>
+                    <Txt variant="bodyS" color={colors.textMuted}>{h.role}</Txt>
+                  </View>
+                  {c.assigneeId === h.profileId ? <Icon name="check" size={18} color={colors.accent} strokeWidth={2.25} /> : null}
+                </AppPressable>
+              ))
+            )}
+          </ScrollView>
         </View>
       </Sheet>
 
       {/* Route Committee Sheet */}
       <Sheet visible={routeOpen} onClose={() => setRouteOpen(false)} title="Route from triage">
-        <View style={{ paddingHorizontal: 16, paddingBottom: 16, gap: 8 }}>
-          {committees.map((cm) => (
-            <Pressable
+        <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16, gap: 8 }} keyboardShouldPersistTaps="handled">
+          {committees.length === 0 ? (
+            <Txt variant="bodyS" color={colors.textMuted} style={{ padding: 16 }}>No committees exist yet. Create one in Committees & appointments first.</Txt>
+          ) : committees.map((cm) => (
+            <AppPressable
               key={cm.id}
+              accessibilityRole="button"
+              accessibilityLabel={`${cm.name}, level ${cm.level}, ${cm.functionalGroup || 'general'}`}
               onPress={async () => {
                 setRouteOpen(false);
                 await run('route', { committee_id: cm.id });
@@ -554,9 +683,9 @@ export default function CaseDetail() {
             >
               <Txt variant="titleS">{cm.name}</Txt>
               <Txt variant="bodyS" color={colors.textMuted}>{`L${cm.level} · ${cm.functionalGroup || 'General'} · ${cm.scope}`}</Txt>
-            </Pressable>
+            </AppPressable>
           ))}
-        </View>
+        </ScrollView>
       </Sheet>
 
       {/* More Actions Sheet */}
@@ -612,7 +741,7 @@ export default function CaseDetail() {
           {open ? (
             <Button
               size="md"
-              variant="secondary"
+              variant="danger"
               icon="ban"
               block
               onPress={() => openActionDialog('reject')}
@@ -630,16 +759,22 @@ export default function CaseDetail() {
       {/* Dialog for Text Actions (Resolve, Request Info, Escalate, Reject) */}
       <Dialog
         visible={!!dialog}
-        onClose={() => setDialog(null)}
+        onClose={() => { if (!busy) setDialog(null); }}
         title={dialog?.title || ''}
         description={dialog?.description}
         actions={
           <>
-            <Button variant="secondary" onPress={() => setDialog(null)}>
+            <Button variant="secondary" disabled={busy} onPress={() => setDialog(null)}>
               Cancel
             </Button>
-            <Button icon="send" disabled={!text.trim() || busy} onPress={submitDialog}>
-              Confirm
+            <Button
+              icon={dialog?.action === 'reject' ? 'ban' : 'send'}
+              variant={dialog?.action === 'reject' ? 'danger' : 'primary'}
+              loading={busy}
+              disabled={!text.trim() || busy}
+              onPress={submitDialog}
+            >
+              {dialog?.action === 'reject' ? 'Reject case' : 'Confirm'}
             </Button>
           </>
         }
@@ -652,7 +787,47 @@ export default function CaseDetail() {
             autoFocus
           />
         </Field>
+        {dialog?.action === 'reject' ? (
+          <View style={{ gap: 8, paddingTop: 12 }}>
+            <Notice tone="danger" title="Rejecting ends the case">
+              The member is notified, the case leaves the active queue, and this reason becomes part of the permanent record. The member can request a review within the reopen window.
+            </Notice>
+            {text.trim() ? (
+              <View style={{ gap: 3, padding: 12, borderRadius: radius.m, borderWidth: 1, borderColor: palette.redBorder, backgroundColor: palette.redBg }}>
+                <Txt variant="overline" color={palette.redFg}>THE MEMBER WILL SEE</Txt>
+                <Txt variant="body" color={palette.ink900}>{text.trim()}</Txt>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
       </Dialog>
+
+      <ConfirmDialog
+        visible={closeOpen}
+        onClose={() => { if (!busy) setCloseOpen(false); }}
+        onConfirm={() => {
+          void (async () => {
+            const ok = await run('close');
+            if (ok) setCloseOpen(false);
+          })();
+        }}
+        title="Close this case?"
+        description="Closing is final for this stage. The member is notified, the case leaves the open queue, and the closed outcome stays in the permanent audit history."
+        confirmLabel="Close case"
+        tone="primary"
+        loading={busy}
+      >
+        <View style={{ gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <CopyableText value={c.id} variant="mono" color={colors.textMuted} label="Case ID" />
+            <StatusBadge status={c.status} level={c.level} label={c.statusLabel} size="sm" />
+          </View>
+          <Txt variant="bodyS" color={colors.textSecondary}>
+            {c.resolutionSummary ? `Resolution on record: ${c.resolutionSummary}` : `Current outcome: ${c.statusLabel || c.status}.`}
+          </Txt>
+          <Txt variant="caption" color={colors.textMuted}>Only the member can reopen a closed case, within the organization’s reopen window.</Txt>
+        </View>
+      </ConfirmDialog>
     </Screen>
   );
 }

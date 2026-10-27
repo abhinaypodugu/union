@@ -1,9 +1,11 @@
+import 'react-native-gesture-handler';
 import React from 'react';
 import { Stack, router } from 'expo-router';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { colors } from '../src/theme';
 import { fontAssets } from '../src/theme/fonts';
 import { AppStoreProvider } from '../src/store/AppStore';
@@ -25,16 +27,19 @@ export default function RootLayout() {
   }), []);
   if (!showApp) return null;
   return (
-    <SafeAreaProvider>
-      <AppStoreProvider>
-        <AppTourProvider>
-          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bgApp } }}>
-            <Stack.Screen name="index" />
-            <Stack.Screen name="main" />
-            <Stack.Screen name="raise" options={{ presentation: 'modal' }} />
-          </Stack>
-        </AppTourProvider>
-      </AppStoreProvider>
-    </SafeAreaProvider >
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <StatusBar style="dark" />
+      <SafeAreaProvider>
+        <AppStoreProvider>
+          <AppTourProvider>
+            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bgApp } }}>
+              <Stack.Screen name="index" />
+              <Stack.Screen name="main" />
+              <Stack.Screen name="raise" options={{ presentation: 'modal' }} />
+            </Stack>
+          </AppTourProvider>
+        </AppStoreProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
