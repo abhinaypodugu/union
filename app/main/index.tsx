@@ -60,7 +60,8 @@ export default function Home() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.bgApp, paddingTop: insets.top }}>
       <ScreenHeader
-        overline={tenant?.name || 'Organization'}
+        overline={tenant?.short || tenant?.code || 'BPEF'}
+        overlineAccessibilityLabel={tenant?.name || 'Bharatiya Postal Employees Federation'}
         title="Home"
         right={
           <>

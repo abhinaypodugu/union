@@ -39,7 +39,7 @@ export function Screen({ children, header, stickyHeaderIndices, refreshing, onRe
   );
 }
 
-export function ScreenHeader({ title, overline, right }: { title: string; overline?: string; right?: React.ReactNode }) {
+export function ScreenHeader({ title, overline, overlineAccessibilityLabel, right }: { title: string; overline?: string; overlineAccessibilityLabel?: string; right?: React.ReactNode }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 10, backgroundColor: colors.bgApp }}>
       <View style={{ flex: 1, minWidth: 0 }}>
@@ -49,8 +49,8 @@ export function ScreenHeader({ title, overline, right }: { title: string; overli
             color={colors.textMuted}
             style={{ marginBottom: 4 }}
             numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.75}
+            ellipsizeMode="tail"
+            accessibilityLabel={overlineAccessibilityLabel || overline}
           >
             {overline}
           </Txt>

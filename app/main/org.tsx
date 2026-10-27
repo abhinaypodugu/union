@@ -191,7 +191,11 @@ export default function Org() {
 
  return (
   <Screen refreshing={refreshing} onRefresh={onPullRefresh}>
-   <ScreenHeader overline={tenant?.name || terminology.orgLabel} title={terminology.orgLabel} />
+   <ScreenHeader
+    overline={tenant?.short || tenant?.code || 'BPEF'}
+    overlineAccessibilityLabel={tenant?.name || 'Bharatiya Postal Employees Federation'}
+    title={terminology.orgLabel}
+   />
 
    <View style={{ paddingHorizontal: 16, gap: 12 }}>
     <Input icon="search" value={q} onChangeText={setQ} placeholder="Search by name, role or office" returnKeyType="search" />
