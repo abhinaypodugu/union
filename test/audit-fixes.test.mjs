@@ -11,6 +11,7 @@ import { createDb, createUser, as } from './helpers/supabase-sim.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MIGRATION = readFileSync(join(here, '..', 'supabase', 'migrations', '20261024_audit_fixes.sql'), 'utf8');
+const LATEST = readFileSync(join(here, '..', 'supabase', 'migrations', '20261027_review_fixes.sql'), 'utf8');
 
 let db;
 const u = {};
@@ -25,6 +26,8 @@ before(async () => {
   db = await createDb();
   await db.exec(MIGRATION);
   await db.exec(MIGRATION); // idempotent: migrations must be safe to re-run
+  await db.exec(LATEST);
+  await db.exec(LATEST);
 
   u.member = await createUser(db, '15555550201');
   u.admin = await createUser(db, '15555550202');
@@ -68,9 +71,15 @@ describe('Audit fixes: avatar writes', () => {
     let [row] = await rpc(u.member, `SELECT avatar_url FROM profiles WHERE id = $1`, [PROFILE.member]);
     assert.equal(row.avatar_url, null, 'empty avatar value clears the photo');
 
-    await rpc(u.member, `SELECT update_postal_profile($1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, $2)`, [PROFILE.member, 'https://example.com/new.jpg']);
+    await rpc(u.member, `SELECT update_postal_profile($1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, $2)`, [PROFILE.member, 'default:sculpted_05']);
     [row] = await rpc(u.member, `SELECT avatar_url FROM profiles WHERE id = $1`, [PROFILE.member]);
-    assert.equal(row.avatar_url, 'https://example.com/new.jpg');
+    assert.equal(row.avatar_url, 'default:sculpted_05');
+
+    await assert.rejects(
+      rpc(u.member, `SELECT update_postal_profile($1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, $2)`, [PROFILE.member, 'https://example.com/new.jpg']),
+      /Avatar must be a bundled preset or your own uploaded photo/,
+      'remote avatar URLs are rejected'
+    );
 
     await rpc(u.member, `SELECT update_my_avatar($1)`, ['']);
     [row] = await rpc(u.member, `SELECT avatar_url FROM profiles WHERE id = $1`, [PROFILE.member]);

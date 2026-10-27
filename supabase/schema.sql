@@ -829,25 +829,25 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 -- Verified-member organization directory (peer discovery and contact details).
--- Contact/postal fields are intentionally shared with verified members;
--- notification_prefs stays on the own/admin RPCs only.
+-- Contact/postal fields are intentionally shared with verified members.
+-- Internal notes (status_reason) and notification_prefs stay on own/admin RPCs.
 DROP FUNCTION IF EXISTS get_all_members(TEXT);
 CREATE OR REPLACE FUNCTION get_all_members(p_tenant TEXT)
 RETURNS TABLE (
-  id UUID, user_id UUID, tenant_id TEXT, member_number TEXT, name TEXT, email TEXT, phone TEXT,
+  id UUID, tenant_id TEXT, member_number TEXT, name TEXT, email TEXT, phone TEXT,
   unit TEXT, region TEXT, country TEXT, groups TEXT[], roles TEXT[], status TEXT,
   created_at TIMESTAMPTZ, employee_id TEXT, designation TEXT, category TEXT, dob DATE,
-  office_employed TEXT, division TEXT, circle TEXT, avatar_url TEXT, status_reason TEXT
+  office_employed TEXT, division TEXT, circle TEXT, avatar_url TEXT
 ) AS $$
 BEGIN
   IF NOT (is_member(p_tenant) OR is_platform_admin()) THEN
     RAISE EXCEPTION 'Not a member of this organization';
   END IF;
   RETURN QUERY
-    SELECT p.id, p.user_id, p.tenant_id, p.member_number, p.name, p.email, p.phone,
+    SELECT p.id, p.tenant_id, p.member_number, p.name, p.email, p.phone,
            p.unit, p.region, p.country,
            p.groups, p.roles, p.status, p.created_at, p.employee_id, p.designation, p.category,
-           p.dob, p.office_employed, p.division, p.circle, p.avatar_url, p.status_reason
+           p.dob, p.office_employed, p.division, p.circle, p.avatar_url
     FROM profiles p
     WHERE p.tenant_id = p_tenant AND p.status = 'verified'
     ORDER BY p.name ASC;
@@ -995,7 +995,57 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- Update postal profile details (PRD §6.2)
+-- Avatars are either a bundled preset or a file the member uploaded to the
+-- avatars bucket. Remote tracking URLs and other members' files are rejected
+-- before they can be fetched by every peer's feed and directory.
+CREATE OR REPLACE FUNCTION valid_avatar_url(p_url TEXT, p_user UUID) RETURNS BOOLEAN AS $$
+DECLARE
+  v_url TEXT := trim(coalesce(p_url, ''));
+  v_base TEXT;
+  v_crop TEXT;
+  v_host TEXT;
+  v_req_host TEXT;
+  v_path TEXT;
+  v_parts TEXT[];
+BEGIN
+  IF v_url = '' THEN RETURN TRUE; END IF;
+  IF length(v_url) > 2048 THEN RETURN FALSE; END IF;
+
+  v_base := split_part(v_url, '#crop=', 1);
+  IF v_base <> v_url THEN
+    v_crop := substring(v_url FROM length(v_base) + 7);
+    IF v_crop !~ '^[0-9]+(\.[0-9]{1,3})?,-?[0-9]+,-?[0-9]+$' THEN RETURN FALSE; END IF;
+  END IF;
+
+  IF v_base ~ '^default:sculpted_(0[1-9]|1[0-6])$' THEN RETURN TRUE; END IF;
+
+  IF v_base !~ '^https://[^/?#]+/storage/v1/object/public/avatars/[^/]+/[^/]+/avatar_[A-Za-z0-9._-]+$' THEN
+    RETURN FALSE;
+  END IF;
+  IF p_user IS NULL THEN RETURN FALSE; END IF;
+
+  v_host := lower(split_part(split_part(v_base, '://', 2), '/', 1));
+  BEGIN
+    v_req_host := lower(split_part(nullif(current_setting('request.headers', true), '')::jsonb ->> 'host', ':', 1));
+  EXCEPTION WHEN others THEN
+    v_req_host := NULL;
+  END;
+  IF v_req_host IS NOT NULL THEN
+    IF v_host <> v_req_host THEN RETURN FALSE; END IF;
+  ELSIF v_host !~ '\.supabase\.(co|in)$' THEN
+    RETURN FALSE;
+  END IF;
+
+  v_path := substring(v_base FROM '/storage/v1/object/public/avatars/(.*)$');
+  v_parts := string_to_array(v_path, '/');
+  IF array_length(v_parts, 1) <> 3 THEN RETURN FALSE; END IF;
+  IF v_parts[2] <> p_user::text THEN RETURN FALSE; END IF;
+  RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+-- Update postal profile details (PRD §6.2). Sensitive and audience-affecting
+-- changes are audited; self-service workplace changes also alert admins.
 CREATE OR REPLACE FUNCTION update_postal_profile(
   p_profile_id UUID,
   p_employee_id TEXT DEFAULT NULL,
@@ -1010,6 +1060,18 @@ CREATE OR REPLACE FUNCTION update_postal_profile(
 DECLARE
   v_prof profiles%ROWTYPE;
   v_is_admin BOOLEAN := FALSE;
+  v_employee_id TEXT;
+  v_designation TEXT;
+  v_category TEXT;
+  v_dob DATE;
+  v_office TEXT;
+  v_division TEXT;
+  v_circle TEXT;
+  v_avatar TEXT;
+  v_groups TEXT[];
+  v_actor_role TEXT;
+  v_changes TEXT[] := ARRAY[]::TEXT[];
+  v_workplace BOOLEAN := FALSE;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'Not authenticated';
@@ -1026,49 +1088,136 @@ BEGIN
     RAISE EXCEPTION 'Not authorized to update this profile';
   END IF;
 
-  IF coalesce(p_division, v_prof.division) IS NOT NULL AND coalesce(p_circle, v_prof.circle) IS NOT NULL THEN
-    PERFORM ensure_geo_path(v_prof.tenant_id, coalesce(p_division, v_prof.division), coalesce(p_circle, v_prof.circle), 'India');
+  v_employee_id := CASE WHEN v_is_admin THEN coalesce(nullif(trim(p_employee_id), ''), v_prof.employee_id) ELSE v_prof.employee_id END;
+  v_designation := CASE WHEN v_is_admin THEN coalesce(nullif(trim(p_designation), ''), v_prof.designation) ELSE v_prof.designation END;
+  v_category := CASE WHEN v_is_admin THEN coalesce(nullif(trim(p_category), ''), v_prof.category) ELSE v_prof.category END;
+  v_dob := coalesce(p_dob, v_prof.dob);
+  v_office := coalesce(nullif(trim(p_office_employed), ''), v_prof.office_employed);
+  v_division := coalesce(nullif(trim(p_division), ''), v_prof.division);
+  v_circle := coalesce(nullif(trim(p_circle), ''), v_prof.circle);
+  v_avatar := CASE WHEN p_avatar_url IS NULL THEN v_prof.avatar_url
+                   WHEN trim(p_avatar_url) = '' THEN NULL
+                   ELSE trim(p_avatar_url) END;
+
+  IF v_avatar IS NOT NULL AND v_avatar IS DISTINCT FROM v_prof.avatar_url
+     AND NOT valid_avatar_url(v_avatar, v_prof.user_id) THEN
+    RAISE EXCEPTION 'Avatar must be a bundled preset or your own uploaded photo';
+  END IF;
+
+  IF v_division IS NOT NULL AND v_circle IS NOT NULL THEN
+    PERFORM ensure_geo_path(v_prof.tenant_id, v_division, v_circle, 'India');
   END IF;
 
   -- Association (category) decides which channels and audiences a member can
   -- read through in_audience(), so only administrators may change it.
-  IF v_is_admin AND p_category IS NOT NULL AND trim(p_category) <> '' THEN
+  IF v_is_admin AND v_category IS NOT NULL AND v_category IS DISTINCT FROM v_prof.category THEN
     INSERT INTO functional_groups (id, tenant_id, name, category, geographic_scope)
-    VALUES (v_prof.tenant_id || '-grp-' || slugify(p_category), v_prof.tenant_id, trim(p_category), 'Affiliated Association', 'Organization-wide')
+    VALUES (v_prof.tenant_id || '-grp-' || slugify(v_category), v_prof.tenant_id, v_category, 'Affiliated Association', 'Organization-wide')
     ON CONFLICT (id) DO NOTHING;
+    v_groups := ARRAY[v_category];
+  ELSE
+    v_groups := v_prof.groups;
+  END IF;
+
+  IF v_employee_id IS DISTINCT FROM v_prof.employee_id THEN
+    v_changes := v_changes || ('Employee ID: ' || coalesce(v_prof.employee_id, '—') || ' → ' || coalesce(v_employee_id, '—'));
+  END IF;
+  IF v_designation IS DISTINCT FROM v_prof.designation THEN
+    v_changes := v_changes || ('Designation: ' || coalesce(v_prof.designation, '—') || ' → ' || coalesce(v_designation, '—'));
+  END IF;
+  IF v_category IS DISTINCT FROM v_prof.category THEN
+    v_changes := v_changes || ('Association: ' || coalesce(v_prof.category, '—') || ' → ' || coalesce(v_category, '—'));
+  END IF;
+  IF v_groups IS DISTINCT FROM v_prof.groups THEN
+    v_changes := v_changes || ('Groups: ' || coalesce(array_to_string(v_prof.groups, ', '), '—') || ' → ' || coalesce(array_to_string(v_groups, ', '), '—'));
+  END IF;
+  IF v_dob IS DISTINCT FROM v_prof.dob THEN
+    v_changes := v_changes || ('DOB: ' || coalesce(v_prof.dob::text, '—') || ' → ' || coalesce(v_dob::text, '—'));
+  END IF;
+  IF v_office IS DISTINCT FROM v_prof.office_employed THEN
+    v_changes := v_changes || ('Office: ' || coalesce(v_prof.office_employed, '—') || ' → ' || coalesce(v_office, '—'));
+  END IF;
+  IF v_division IS DISTINCT FROM v_prof.division THEN
+    v_changes := v_changes || ('Division: ' || coalesce(v_prof.division, '—') || ' → ' || coalesce(v_division, '—'));
+    v_workplace := TRUE;
+  END IF;
+  IF v_circle IS DISTINCT FROM v_prof.circle THEN
+    v_changes := v_changes || ('Circle: ' || coalesce(v_prof.circle, '—') || ' → ' || coalesce(v_circle, '—'));
+    v_workplace := TRUE;
+  END IF;
+  IF v_avatar IS DISTINCT FROM v_prof.avatar_url THEN
+    v_changes := v_changes || CASE WHEN v_avatar IS NULL THEN 'Profile photo cleared' ELSE 'Profile photo updated' END;
+  END IF;
+
+  IF cardinality(v_changes) = 0 THEN
+    RETURN TRUE;
   END IF;
 
   UPDATE profiles
   SET
-    employee_id = CASE WHEN v_is_admin THEN coalesce(nullif(trim(p_employee_id), ''), employee_id) ELSE employee_id END,
-    designation = CASE WHEN v_is_admin THEN coalesce(nullif(trim(p_designation), ''), designation) ELSE designation END,
-    category = CASE WHEN v_is_admin THEN coalesce(nullif(trim(p_category), ''), category) ELSE category END,
-    dob = coalesce(p_dob, dob),
-    office_employed = coalesce(nullif(trim(p_office_employed), ''), office_employed),
-    division = coalesce(nullif(trim(p_division), ''), division),
-    circle = coalesce(nullif(trim(p_circle), ''), circle),
-    unit = coalesce(nullif(trim(p_division), ''), unit),
-    region = coalesce(nullif(trim(p_circle), ''), region),
-    -- NULL keeps the current photo; an explicit empty string clears it.
-    avatar_url = CASE WHEN p_avatar_url IS NULL THEN avatar_url
-                      WHEN trim(p_avatar_url) = '' THEN NULL
-                      ELSE trim(p_avatar_url) END,
-    groups = CASE
-      WHEN v_is_admin AND p_category IS NOT NULL AND trim(p_category) <> '' THEN ARRAY[trim(p_category)]
-      ELSE groups
-    END
+    employee_id = v_employee_id,
+    designation = v_designation,
+    category = v_category,
+    dob = v_dob,
+    office_employed = v_office,
+    division = v_division,
+    circle = v_circle,
+    unit = coalesce(v_division, unit),
+    region = coalesce(v_circle, region),
+    avatar_url = v_avatar,
+    groups = v_groups
   WHERE id = p_profile_id;
+
+  v_actor_role := CASE WHEN is_platform_admin() THEN 'platform_admin' WHEN v_is_admin THEN 'org_admin' ELSE 'member' END;
+  IF v_prof.user_id = auth.uid() AND NOT v_is_admin AND v_workplace THEN
+    PERFORM write_audit(v_prof.tenant_id, v_actor_role, 'Workplace Transfer', 'profile', p_profile_id::text,
+                        array_to_string(v_changes, '; '));
+    PERFORM notify_org_admins(v_prof.tenant_id, 'security', 'Workplace change',
+                              v_prof.name || ' updated their division/circle. Review the new workplace.',
+                              '/manage/members', 'workplace-' || p_profile_id::text || '-' || extract(epoch FROM clock_timestamp())::bigint);
+  ELSE
+    PERFORM write_audit(v_prof.tenant_id, v_actor_role,
+                        CASE WHEN v_is_admin AND v_prof.user_id <> auth.uid() THEN 'Update Member Profile' ELSE 'Update Profile' END,
+                        'profile', p_profile_id::text, array_to_string(v_changes, '; '));
+  END IF;
 
   RETURN TRUE;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- Self-service avatar update. An empty string clears the photo.
+-- Self-service avatar update. An empty string clears the photo. Uploaded
+-- avatars must belong to the caller's own storage folder.
 CREATE OR REPLACE FUNCTION update_my_avatar(p_avatar_url TEXT) RETURNS BOOLEAN AS $$
+DECLARE
+  v_new TEXT;
+  v_prof RECORD;
+  v_matched INT := 0;
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Not authenticated'; END IF;
-  UPDATE profiles SET avatar_url = NULLIF(trim(p_avatar_url), '') WHERE user_id = auth.uid();
-  RETURN FOUND;
+  IF p_avatar_url IS NULL THEN RETURN FALSE; END IF;
+  v_new := NULLIF(trim(p_avatar_url), '');
+
+  IF v_new IS NULL THEN
+    UPDATE profiles SET avatar_url = NULL WHERE user_id = auth.uid();
+    RETURN FOUND;
+  END IF;
+
+  FOR v_prof IN SELECT id, user_id, avatar_url FROM profiles WHERE user_id = auth.uid() LOOP
+    IF v_new = v_prof.avatar_url THEN
+      v_matched := v_matched + 1;
+      CONTINUE;
+    END IF;
+    IF NOT valid_avatar_url(v_new, v_prof.user_id) THEN
+      CONTINUE;
+    END IF;
+    UPDATE profiles SET avatar_url = v_new WHERE id = v_prof.id;
+    v_matched := v_matched + 1;
+  END LOOP;
+
+  IF v_matched = 0 THEN
+    RAISE EXCEPTION 'Avatar must be a bundled preset or your own uploaded photo';
+  END IF;
+  RETURN TRUE;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
@@ -1102,7 +1251,9 @@ BEGIN
     RAISE EXCEPTION 'You cannot change your own membership status';
   END IF;
 
-  UPDATE profiles SET status = p_status, status_reason = p_reason WHERE id = p_profile;
+  UPDATE profiles SET status = p_status,
+                      status_reason = CASE WHEN p_status = 'verified' THEN NULL ELSE p_reason END
+  WHERE id = p_profile;
   -- Suspended / ended members lose committee authority immediately (history kept)
   IF p_status IN ('suspended', 'ended') THEN
     UPDATE committee_members SET status = 'suspended', status_reason = 'Membership ' || p_status || ': ' || p_reason
@@ -1137,13 +1288,28 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- Admin directory with contact details (PRD §4.6: personal data for authorized users only)
-CREATE OR REPLACE FUNCTION admin_list_members(p_tenant TEXT) RETURNS SETOF profiles AS $$
+-- Admin directory with contact details (PRD §4.6: personal data for authorized users only).
+-- Explicit columns keep private preferences out of the payload.
+DROP FUNCTION IF EXISTS admin_list_members(TEXT);
+CREATE OR REPLACE FUNCTION admin_list_members(p_tenant TEXT)
+RETURNS TABLE (
+  id UUID, user_id UUID, tenant_id TEXT, member_number TEXT, name TEXT, email TEXT, phone TEXT,
+  unit TEXT, region TEXT, country TEXT, groups TEXT[], roles TEXT[], status TEXT,
+  created_at TIMESTAMPTZ, employee_id TEXT, designation TEXT, category TEXT, dob DATE,
+  office_employed TEXT, division TEXT, circle TEXT, avatar_url TEXT, status_reason TEXT
+) AS $$
 BEGIN
   IF NOT (is_platform_admin() OR has_tenant_role(p_tenant, 'org_admin', 'membership_admin')) THEN
     RAISE EXCEPTION 'Not authorized';
   END IF;
-  RETURN QUERY SELECT * FROM profiles WHERE tenant_id = p_tenant ORDER BY created_at DESC;
+  RETURN QUERY
+    SELECT p.id, p.user_id, p.tenant_id, p.member_number, p.name, p.email, p.phone,
+           p.unit, p.region, p.country, p.groups, p.roles, p.status, p.created_at,
+           p.employee_id, p.designation, p.category, p.dob, p.office_employed,
+           p.division, p.circle, p.avatar_url, p.status_reason
+    FROM profiles p
+    WHERE p.tenant_id = p_tenant
+    ORDER BY p.created_at DESC;
 END;
 $$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
 
@@ -2078,12 +2244,20 @@ CREATE POLICY "tenants: own memberships" ON tenants FOR SELECT
 
 -- platform_admins: no client access at all (no policies).
 
--- Profiles: own memberships, the tenant directory for verified members, platform admin.
+-- Profiles: own memberships, the verified-member directory, and authorized
+-- admins. Pending/suspended rows are never part of the directory.
 CREATE POLICY "profiles: own or tenant directory" ON profiles FOR SELECT
-  USING (user_id = auth.uid() OR is_member(tenant_id) OR is_platform_admin());
+  USING (
+    user_id = auth.uid()
+    OR is_platform_admin()
+    OR has_tenant_role(tenant_id, 'org_admin', 'membership_admin')
+    OR (is_member(tenant_id) AND status = 'verified')
+  );
 -- Verified members are the organization directory, so contact columns are
--- granted to authenticated (RLS limits rows to the member's verified tenant).
--- notification_prefs stays private on the own/admin RPCs.
+-- granted to authenticated (RLS limits rows to the verified tenant directory).
+-- notification_prefs stays private on the own/admin RPCs; status_reason is
+-- cleared when a membership becomes verified, so directory rows never carry
+-- internal notes.
 REVOKE ALL ON profiles FROM anon, authenticated;
 GRANT SELECT (
   id, user_id, tenant_id, member_number, name, email, phone, unit, region, country, groups, roles, status, created_at,
@@ -2274,6 +2448,8 @@ INSERT INTO storage.buckets (id, name, public, file_size_limit)
 VALUES ('avatars', 'avatars', TRUE, 5242880)
 ON CONFLICT (id) DO UPDATE SET public = TRUE, file_size_limit = 5242880;
 
+DROP POLICY IF EXISTS "Authenticated users can upload avatars" ON storage.objects;
+DROP POLICY IF EXISTS "Public can view avatars" ON storage.objects;
 DROP POLICY IF EXISTS "avatars: public read" ON storage.objects;
 CREATE POLICY "avatars: public read" ON storage.objects FOR SELECT
   USING (bucket_id = 'avatars');
@@ -2317,7 +2493,7 @@ BEGIN
     EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon', r.sig);
     IF r.proname IN ('write_audit', 'notify_profile', 'notify_committee', 'notify_org_admins', 'ensure_geo_path',
                      'refresh_member_counts', 'process_issue_deadlines', 'audit_logs_immutable', 'platform_admins_keep_one',
-                     'assign_random_avatar') THEN
+                     'assign_random_avatar', 'valid_avatar_url') THEN
       EXECUTE format('REVOKE ALL ON FUNCTION %s FROM authenticated', r.sig);
     ELSE
       EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO authenticated', r.sig);

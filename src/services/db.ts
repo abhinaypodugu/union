@@ -14,10 +14,9 @@ export { normalizePhoneNumber };
 
 import { DEFAULT_TERMINOLOGY } from '../store/types';
 
-// Directory-safe profile columns. Contact fields (email/phone) and notification
-// preferences are intentionally not granted to authenticated; own/admin RPCs
-// return them where appropriate.
-const DIRECTORY_COLS = 'id, user_id, tenant_id, member_number, name, email, phone, unit, region, country, groups, roles, status, employee_id, designation, category, dob, office_employed, division, circle, avatar_url, status_reason, created_at';
+// Directory-safe profile columns. Contact fields are shared with verified
+// members; notification preferences stay on the own/admin RPCs.
+const DIRECTORY_COLS = 'id, user_id, tenant_id, member_number, name, email, phone, unit, region, country, groups, roles, status, employee_id, designation, category, dob, office_employed, division, circle, avatar_url, created_at';
 async function must<T>(p: PromiseLike<{ data: T | null; error: unknown }>): Promise<T> {
   const { data, error } = await p;
   if (error) throw new Error(errorMessage(error));

@@ -68,9 +68,12 @@ export async function createUser(db, phone) {
 }
 
 /** Run fn(q) as the given user (null = anonymous) through RLS, like a PostgREST request. */
-export async function as(db, userId, fn) {
+export async function as(db, userId, fn, headers = null) {
   return db.transaction(async (tx) => {
     await tx.query(`SELECT set_config('request.jwt.claim.sub', $1, true)`, [userId || '']);
+    if (headers) {
+      await tx.query(`SELECT set_config('request.headers', $1, true)`, [JSON.stringify(headers)]);
+    }
     await tx.exec(userId ? 'SET LOCAL ROLE authenticated' : 'SET LOCAL ROLE anon');
     const q = async (sql, params) => (await tx.query(sql, params)).rows;
     return fn(q);
