@@ -1,6 +1,7 @@
 import React from 'react';
 import { Linking, View } from 'react-native';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
+import { TourTarget } from '@wrack/react-native-tour-guide';
 import type * as DocumentPickerType from 'expo-document-picker';
 let DocumentPicker: typeof DocumentPickerType | null = null;
 try { DocumentPicker = require('expo-document-picker'); } catch { }
@@ -26,18 +27,22 @@ import { colors, fonts, palette, radius } from '../src/theme';
 import { useStore, Issue, MemberReply, Attachment } from '../src/store/AppStore';
 import { dbService } from '../src/services/db';
 import { errorMessage } from '../src/lib/format';
+import { useAppTour } from '../src/tour/AppTourProvider';
+import { issueScrollRef } from '../src/tour/scrollRegistry';
 
 /** Member case view. Loaded through RLS on every open (also for push deep links), so access
  *  is re-checked against current permissions; internal notes are never fetched here. */
 export default function IssueDetail() {
- const { id } = useLocalSearchParams<{ id: string }>();
+ const { id, guide } = useLocalSearchParams<{ id: string; guide?: string }>();
  const { issueAction, toast, tenant, issues, activeMember, authReady, signedIn } = useStore();
+ const { startFirstIssueTour, tourActive } = useAppTour();
  const [issue, setIssue] = React.useState<Issue | null | undefined>(undefined);
  const [replies, setReplies] = React.useState<MemberReply[]>([]);
  const [files, setFiles] = React.useState<Attachment[]>([]);
  const [text, setText] = React.useState('');
  const [mode, setMode] = React.useState<'reply' | 'reopen' | null>(null);
  const [busy, setBusy] = React.useState(false);
+ const guideStarted = React.useRef(false);
 
  const verified = activeMember?.status === 'verified';
  const load = React.useCallback(async () => {
@@ -59,6 +64,12 @@ export default function IssueDetail() {
  React.useEffect(() => {
   void load();
  }, [load, storeVersion]);
+ React.useEffect(() => {
+  if (!issue || guide !== 'issue' || guideStarted.current || tourActive) return;
+  guideStarted.current = true;
+  const timer = setTimeout(() => { void startFirstIssueTour(issue); }, 550);
+  return () => clearTimeout(timer);
+ }, [issue, guide, tourActive, startFirstIssueTour]);
 
  if (!authReady) return <LoadingState subtitle="Signing you in…" />;
  if (!signedIn || !activeMember) return <Redirect href="/" />;
@@ -131,8 +142,9 @@ export default function IssueDetail() {
  };
 
  return (
-  <Screen header={<StackHeader title={issue.id} mono onBack={() => router.back()} />}>
+  <Screen header={<StackHeader title={issue.id} mono onBack={() => router.back()} />} scrollRef={issueScrollRef}>
    {/* Hero Issue Summary Card */}
+   <TourTarget id="issue-status" style={{ borderRadius: radius.xl }}>
    <View style={{ paddingHorizontal: 12, paddingTop: 4 }}>
     <Card style={{ padding: 16, gap: 12, borderRadius: radius.xl }}>
      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -164,6 +176,7 @@ export default function IssueDetail() {
      </View>
     </Card>
    </View>
+   </TourTarget>
 
    {/* Status & Next Steps Card */}
    <View style={{ paddingHorizontal: 12, paddingTop: 14 }}>
@@ -206,6 +219,7 @@ export default function IssueDetail() {
        {!finished ? <DueLabel due={issue.due} state={issue.dueState} /> : null}
       </View>
 
+      <TourTarget id="issue-reply">
       {needs || mode === 'reply' ? (
        <View style={{ gap: 10, marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.borderSubtle }}>
         <TextArea value={text} onChangeText={setText} placeholder="Provide the requested information for the committee…" />
@@ -250,6 +264,7 @@ export default function IssueDetail() {
         </Button>
        </View>
       ) : null}
+      </TourTarget>
      </Card>
     )}
    </View>
@@ -286,12 +301,14 @@ export default function IssueDetail() {
    ) : null}
 
    {/* Progress Timeline */}
-   <SectionLabel>Progress timeline</SectionLabel>
-   <View style={{ paddingHorizontal: 12 }}>
-    <Card style={{ padding: 16, borderRadius: radius.xl }}>
-     <EscalationTimeline stages={issue.stages} />
-    </Card>
-   </View>
+   <TourTarget id="issue-timeline">
+    <SectionLabel>Progress timeline</SectionLabel>
+    <View style={{ paddingHorizontal: 12 }}>
+     <Card style={{ padding: 16, borderRadius: radius.xl }}>
+      <EscalationTimeline stages={issue.stages} />
+     </Card>
+    </View>
+   </TourTarget>
 
    <View style={{ padding: 14, paddingTop: 16 }}>
     <Notice tone="private" title="Private to you and assigned handlers">

@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS profiles (
     "caseUpdates": true
   }'::jsonb,
   status_reason TEXT,
+  setup_version INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -105,6 +106,7 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS office_employed TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS division TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS circle TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS setup_version INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_id_fkey;
 ALTER TABLE profiles ALTER COLUMN id SET DEFAULT gen_random_uuid();
 UPDATE profiles p SET user_id = p.id
@@ -794,9 +796,30 @@ CREATE TRIGGER platform_admins_keep_one BEFORE UPDATE OR DELETE ON platform_admi
 -- ==============================================================================
 
 -- All memberships of the signed-in person (full personal fields, own rows only).
+DROP FUNCTION IF EXISTS get_my_memberships();
 CREATE OR REPLACE FUNCTION get_my_memberships() RETURNS SETOF profiles AS $$
   SELECT * FROM profiles WHERE user_id = auth.uid() ORDER BY created_at;
 $$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
+
+-- New verified members see the interactive setup story once. Completing or
+-- skipping it records the current setup version on their membership so the
+-- story does not reappear on another device.
+CREATE OR REPLACE FUNCTION complete_setup_story(p_tenant TEXT)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_changed INTEGER;
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'Sign in first'; END IF;
+  UPDATE profiles
+     SET setup_version = 1
+   WHERE user_id = auth.uid()
+     AND tenant_id = p_tenant
+     AND status = 'verified'
+     AND setup_version < 1;
+  GET DIAGNOSTICS v_changed = ROW_COUNT;
+  RETURN v_changed > 0;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- Join-by-code lookup without exposing the tenant list (PRD §6.1 step 1).
 CREATE OR REPLACE FUNCTION find_org_by_code(p_code TEXT)

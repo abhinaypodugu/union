@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, View, Linking, ScrollView } from 'react-native';
 import { router } from 'expo-router';
+import { TourTarget } from '@wrack/react-native-tour-guide';
 import { Avatar, Button, Card, CommitteeBadge, Icon, IconButton, Input, ListCard, RoleTag, Screen, ScreenHeader, SectionLabel, Sheet, Tag, Txt, YouPill } from '../../src/components';
 import { colors, palette, radius } from '../../src/theme';
 import { useStore, CommitteeInfo } from '../../src/store/AppStore';
@@ -198,7 +199,9 @@ export default function Org() {
    />
 
    <View style={{ paddingHorizontal: 16, gap: 12 }}>
-    <Input icon="search" value={q} onChangeText={setQ} placeholder="Search by name, role or office" returnKeyType="search" />
+    <TourTarget id="federation-search" style={{ borderRadius: radius.m }}>
+     <Input icon="search" value={q} onChangeText={setQ} placeholder="Search by name, role or office" returnKeyType="search" />
+    </TourTarget>
     <Pressable accessibilityRole="button" accessibilityLabel={`${terminology.level2Label}: ${circle?.name || 'none'}. Change`} onPress={() => setPickCircle(true)}
      style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, paddingHorizontal: 12, borderRadius: radius.l, borderWidth: 1, borderColor: colors.borderSubtle, backgroundColor: pressed ? colors.surfaceHover : colors.surfaceCard })}>
      <Txt variant="overline" color={colors.textMuted}>{terminology.level2Label}</Txt>

@@ -16,7 +16,7 @@ type Picked = { uri: string; name: string; mimeType?: string; size?: number };
 
 export default function Raise() {
   const insets = useSafeAreaInsets();
-  const { addIssue, toast, activeMember, authReady, signedIn, categories, routingRules, terminology, tenant } = useStore();
+  const { addIssue, toast, activeMember, authReady, signedIn, categories, routingRules, terminology, tenant, issues } = useStore();
   const [v, setV] = React.useState({ title: '', category: '', desc: '', others: false, confidential: false, priority: 'Normal' });
   const [files, setFiles] = React.useState<Picked[]>([]);
   const [tried, setTried] = React.useState(false);
@@ -52,8 +52,13 @@ export default function Raise() {
         affectsOthers: v.others,
       });
       if (!id) return;
+      const firstCase = issues.length === 0;
       for (const f of files) {
         try { await dbService.uploadAttachment(tenant!.id, id, f); } catch (e) { toast({ title: `Could not attach ${f.name}`, description: errorMessage(e) }); }
+      }
+      if (firstCase) {
+        router.replace({ pathname: '/issue', params: { id, guide: 'issue' } } as never);
+        return;
       }
       router.back();
       toast({ title: `${terminology.caseLabel} submitted`, description: id, action: 'View', onAction: () => router.push('/issue?id=' + encodeURIComponent(id)) });

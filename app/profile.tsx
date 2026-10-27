@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Pressable, Share, ScrollView, Modal, Image, PanResponder } from 'react-native';
 import { Redirect, router } from 'expo-router';
+import { TourTarget } from '@wrack/react-native-tour-guide';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 let ImagePicker: any = null;
 try {
@@ -14,6 +15,10 @@ import {
 } from '../src/components';
 import { colors, fonts, palette, radius } from '../src/theme';
 import { useStore, NotificationPrefs, Tenant, DEFAULT_POSTAL_CADRES, UNION_DESIGNATIONS, AFFILIATED_ASSOCIATIONS } from '../src/store/AppStore';
+import { useAppTour } from '../src/tour/AppTourProvider';
+import { registerSetupAction } from '../src/tour/actions';
+import { profileScrollRef } from '../src/tour/scrollRegistry';
+import { SetupCoach } from '../src/tour/SetupCoach';
 import { POSTAL_CIRCLES, getDivisionsForCircle, getOfficesForDivision } from '../src/lib/postalData';
 import { AVATAR_EDITOR_SIZE } from '../src/lib/format';
 const PREFS: Array<[keyof NotificationPrefs, string, boolean]> = [
@@ -31,10 +36,11 @@ const YEARS = Array.from({ length: 55 }, (_, i) => String(2005 - i));
 
 export default function Profile() {
   const {
-    tenant, activeMember, authReady, signedIn, isPlatformSuperAdmin, isOrgAdmin, isMembershipAdmin,
+    tenant, activeMember, authReady, signedIn, isPlatformSuperAdmin, isOrgAdmin, isMembershipAdmin, isLeader,
     adminMembers, loadAdminMembers, updatePrefs, logout, myAppointments,
     committees, toast, updatePostalProfile, requestPhoneChangeOtp, verifyPhoneChangeOtp, uploadAvatar, removeAvatar,
   } = useStore();
+  const { startMemberTour, startAdminTour, startSetupTour, completeSetupStep, setupStepId } = useAppTour();
   const insets = useSafeAreaInsets();
   const [avatarModalOpen, setAvatarModalOpen] = React.useState(false);
   const [photoActionSheet, setPhotoActionSheet] = React.useState(false);
@@ -170,6 +176,8 @@ export default function Profile() {
     setEditOffice(offs[0] || '');
   };
 
+  const openPostalEditRef = React.useRef<() => void>(() => undefined);
+
   const openPostalEdit = () => {
     setEditEmpId(activeMember.employeeId || '');
     setEditDesig(activeMember.designation || (isOrgAdmin ? 'Founding President' : 'Member'));
@@ -188,6 +196,42 @@ export default function Profile() {
     setEditOfficeSearch('');
     setPostalSheet(true);
   };
+  openPostalEditRef.current = openPostalEdit;
+
+  React.useEffect(() => {
+    const removeAvatar = registerSetupAction('setup-avatar', () => {
+      setPreviewUri(null);
+      setAvatarModalOpen(true);
+    });
+    const removeDetails = registerSetupAction('setup-details', () => openPostalEditRef.current());
+    return () => {
+      removeAvatar();
+      removeDetails();
+    };
+  }, []);
+
+  const avatarAutoOpened = React.useRef(false);
+  const detailsAutoOpened = React.useRef(false);
+  React.useEffect(() => {
+    if (setupStepId === 'setup-avatar') {
+      detailsAutoOpened.current = false;
+      if (avatarAutoOpened.current) return;
+      avatarAutoOpened.current = true;
+      const timer = setTimeout(() => {
+        setPreviewUri(null);
+        setAvatarModalOpen(true);
+      }, 550);
+      return () => clearTimeout(timer);
+    }
+    avatarAutoOpened.current = false;
+    if (setupStepId === 'setup-details') {
+      if (detailsAutoOpened.current) return;
+      detailsAutoOpened.current = true;
+      const timer = setTimeout(() => openPostalEditRef.current(), 650);
+      return () => clearTimeout(timer);
+    }
+    detailsAutoOpened.current = false;
+  }, [setupStepId, activeMember?.id]);
 
   const savePostalEdit = async () => {
     setBusy(true);
@@ -203,7 +247,10 @@ export default function Profile() {
       region: editCircle.trim() || undefined,
     });
     setBusy(false);
-    if (ok) setPostalSheet(false);
+    if (ok) {
+      setPostalSheet(false);
+      completeSetupStep('details');
+    }
   };
   const handleRequestPhoneOtp = async () => {
     if (!newPhone.trim() || phoneBusy) return;
@@ -319,6 +366,7 @@ export default function Profile() {
         setPreviewUri(null);
         setAvatarModalOpen(false);
         toast({ title: 'Profile photo updated' });
+        completeSetupStep('avatar');
       }
     } finally {
       setUploadingPhoto(false);
@@ -353,23 +401,24 @@ export default function Profile() {
   });
 
   return (
-    <Screen>
+    <Screen scrollRef={profileScrollRef}>
       <StackHeader onBack={() => router.back()} title="Profile" />
 
       <View style={{ alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 8 }}>
-        <Pressable
-          onPress={() => {
-            setPreviewUri(null);
-            setAvatarModalOpen(true);
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="View profile photo"
-          style={({ pressed }) => ({
-            opacity: pressed ? 0.85 : 1,
-            position: 'relative',
-          })}
-        >
-          <Avatar name={activeMember.name} uri={activeMember.avatarUrl} size={88} />
+        <TourTarget id="profile-avatar" style={{ borderRadius: 44 }}>
+          <Pressable
+            onPress={() => {
+              setPreviewUri(null);
+              setAvatarModalOpen(true);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="View profile photo"
+            style={({ pressed }) => ({
+              opacity: pressed ? 0.85 : 1,
+              position: 'relative',
+            })}
+          >
+            <Avatar name={activeMember.name} uri={activeMember.avatarUrl} size={88} />
           <View
             style={{
               position: 'absolute',
@@ -388,7 +437,8 @@ export default function Profile() {
           >
             <Icon name="camera" size={14} color="#fff" />
           </View>
-        </Pressable>
+          </Pressable>
+        </TourTarget>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
           <Txt variant="displayM">{activeMember.name}</Txt>
           <VerifiedCheck size={20} />
@@ -413,6 +463,34 @@ export default function Profile() {
         />
       </ListCard>
 
+      <SectionLabel>Help & app tour</SectionLabel>
+      <ListCard style={{ marginHorizontal: 12 }}>
+        <TourTarget id="profile-help">
+          <ListRow
+            title="Replay app tour"
+            subtitle="Home, Groups, Grievances and the Federation directory"
+            left={<IconTile icon="circle-help" />}
+            onPress={() => { void startMemberTour(true); }}
+          />
+        </TourTarget>
+        <ListRow
+          title="Setup story"
+          subtitle="Photo, workplace details and your first division introduction"
+          left={<IconTile icon="sparkles" />}
+          onPress={() => { void startSetupTour(true); }}
+        />
+        {isLeader ? (
+          <TourTarget id="profile-admin-help">
+            <ListRow
+              title="Management tour"
+              subtitle="Case queue, committees, announcements and settings"
+              left={<IconTile icon="shield" />}
+              onPress={() => { void startAdminTour(true); }}
+            />
+          </TourTarget>
+        ) : null}
+      </ListCard>
+
       <SectionLabel>Postal Identity & Membership</SectionLabel>
       <Card padding={14} style={{ marginHorizontal: 12, paddingVertical: 2, gap: 8 }}>
         <KeyValue first k="Employee ID" v={activeMember.employeeId || '—'} />
@@ -426,19 +504,21 @@ export default function Profile() {
         <KeyValue k="Roles" v={activeMember.roles.join(', ')} />
         <KeyValue k="Member since" v={activeMember.since} />
         <View style={{ paddingTop: 8, paddingBottom: 6 }}>
-          <Button
-            size="md"
-            variant="primary"
-            icon="edit-2"
-            block
-            onPress={openPostalEdit}
-            style={{
-              backgroundColor: colors.accent,
-              borderColor: colors.accent,
-            }}
-          >
-            Edit Workplace & Contact Details
-          </Button>
+          <TourTarget id="profile-edit-details" style={{ borderRadius: 12 }}>
+            <Button
+              size="md"
+              variant="primary"
+              icon="edit-2"
+              block
+              onPress={openPostalEdit}
+              style={{
+                backgroundColor: colors.accent,
+                borderColor: colors.accent,
+              }}
+            >
+              Edit Workplace & Contact Details
+            </Button>
+          </TourTarget>
         </View>
       </Card>
       <SectionLabel>Notifications</SectionLabel>
@@ -466,6 +546,11 @@ export default function Profile() {
       {/* Edit Postal Identity Sheet */}
       <Sheet visible={postalSheet} onClose={() => setPostalSheet(false)} title="Update Workplace Details">
         <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ paddingHorizontal: 16, gap: 14, paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
+          <SetupCoach
+            stepId="setup-details"
+            title="Verify your workplace"
+            description="Check your circle, division, office and date of birth. Save if anything changed; otherwise close this sheet and tap Next."
+          />
           {/* If Admin: Allow editing Employee ID, Designation, and Affiliated Category */}
           {isOrgAdmin || isPlatformSuperAdmin ? (
             <>
@@ -863,6 +948,12 @@ export default function Profile() {
             <Txt style={{ color: '#fff', fontSize: 17, fontFamily: fonts.sans600 }}>Profile photo</Txt>
             <View style={{ width: 40 }} />
           </View>
+
+          <SetupCoach
+            stepId="setup-avatar"
+            title="Choose your photo"
+            description="Pick an illustrated avatar, use the camera or choose from your gallery, then save the framed photo."
+          />
 
           {/* Center Circle with Bottom-Right Edit Button */}
           <View style={{ alignItems: 'center', justifyContent: 'center' }}>

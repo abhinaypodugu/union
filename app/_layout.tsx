@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { colors } from '../src/theme';
 import { fontAssets } from '../src/theme/fonts';
 import { AppStoreProvider } from '../src/store/AppStore';
+import { AppTourProvider } from '../src/tour/AppTourProvider';
 import { onNotificationOpened } from '../src/services/push';
 import { notificationHref } from '../src/lib/format';
 
@@ -26,11 +27,13 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <AppStoreProvider>
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bgApp } }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="main" />
-          <Stack.Screen name="raise" options={{ presentation: 'modal' }} />
-        </Stack>
+        <AppTourProvider>
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bgApp } }}>
+            <Stack.Screen name="index" />
+            <Stack.Screen name="main" />
+            <Stack.Screen name="raise" options={{ presentation: 'modal' }} />
+          </Stack>
+        </AppTourProvider>
       </AppStoreProvider>
     </SafeAreaProvider >
   );

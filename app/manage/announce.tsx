@@ -11,7 +11,7 @@ const EXPIRY = ['Never', '1 day', '7 days', '30 days'];
 
 export default function Announce() {
   // All hooks run before any early return (the old screen violated the rules of hooks).
-  const { addPost, tenant, activeMember, audienceOptions, isOrgAdmin, isPlatformSuperAdmin } = useStore();
+  const { addPost, tenant, activeMember, audienceOptions, isOrgAdmin, isPlatformSuperAdmin, posts } = useStore();
   const options = audienceOptions.official;
   const [segs, setSegs] = React.useState<AudienceOption[]>([]);
   const [notify, setNotify] = React.useState(false);
@@ -42,15 +42,26 @@ export default function Announce() {
   const publish = async () => {
     if (!title.trim() || !body.trim() || !segs.length) return;
     const days = expiry === 'Never' ? 0 : parseInt(expiry, 10);
+    const firstAnnouncement = !posts.some(
+      (p) => p.authorId === activeMember?.id && (p.kind === 'official' || p.kind === 'committee')
+    );
     setBusy(true);
     const kind = 'official';
-    const ok = await addPost({
+    const postId = await addPost({
       kind, title: title.trim(), body: body.trim(), pinned: pin, audiences: segs, notify,
       expiresAt: days ? new Date(Date.now() + days * 86400000).toISOString() : null,
     });
     setBusy(false);
-    if (!ok) return;
+    if (!postId) return;
     setSuccess(true);
+    if (firstAnnouncement) {
+      setTimeout(() => {
+        if (!mounted.current) return;
+        setSuccess(false);
+        router.replace({ pathname: '/post', params: { id: postId, guide: 'announcement' } } as never);
+      }, 700);
+      return;
+    }
     setTimeout(() => {
       if (!mounted.current) return;
       setSuccess(false);

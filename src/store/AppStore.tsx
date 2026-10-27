@@ -13,6 +13,7 @@ import type {
   TerminologyConfig, HierarchyLevel,
 } from './types';
 import { getHierarchyLevels, DEFAULT_TERMINOLOGY, BPEF_TENANT } from './types';
+import { pendingSetupKey } from '../tour/logic';
 export * from './types';
 
 
@@ -71,6 +72,7 @@ interface Store {
   setMemberRoles: (id: string, roles: string[]) => Promise<boolean>;
   updatePrefs: (prefs: NotificationPrefs) => Promise<boolean>;
   updatePostalProfile: (data: Partial<Persona>) => Promise<boolean>;
+  completeSetupStory: () => Promise<boolean>;
   // Structure & governance
   geoUnits: GeoUnit[];
   functionalGroups: FunctionalGroup[];
@@ -88,7 +90,7 @@ interface Store {
   posts: Post[];
   liked: Record<string, boolean>;
   toggleLike: (id: string) => void;
-  addPost: (p: { kind: 'official' | 'committee' | 'member'; title?: string; body: string; pinned: boolean; audiences: AudienceOption[]; notify: boolean; expiresAt?: string | null }) => Promise<boolean>;
+  addPost: (p: { kind: 'official' | 'committee' | 'member'; title?: string; body: string; pinned: boolean; audiences: AudienceOption[]; notify: boolean; expiresAt?: string | null }) => Promise<string | null>;
   reportPost: (id: string, reason: string) => Promise<boolean>;
   moderatePost: (id: string, action: 'pin' | 'unpin' | 'remove' | 'restore', reason?: string) => Promise<boolean>;
   mutedSources: string[];
@@ -526,6 +528,9 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       const mine = ms.find((m) => m.id === profileId) || null;
       if (mine) {
         setCurrentTenantId('bpef');
+        // If the server rollout marker is not available yet, this device still
+        // knows the membership was just created and can start the setup story.
+        void AsyncStorage.setItem(pendingSetupKey(mine.id), '1').catch(() => undefined);
       }
       toast({
         title: mine?.status === 'verified' ? 'Welcome!' : 'Application submitted',
@@ -622,6 +627,18 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const completeSetupStory = async () => {
+    if (!currentTenantId || !activeMember) return false;
+    try {
+      await dbService.completeSetupStory(currentTenantId);
+      setMemberships((prev) => prev.map((m) => (m.tenantId === currentTenantId ? { ...m, setupVersion: 1 } : m)));
+      return true;
+    } catch {
+      // The story is complete locally; sync the server marker on the next launch.
+      return false;
+    }
+  };
+
   const updatePrefs = async (prefs: NotificationPrefs) => {
     if (!currentTenantId) return false;
     const ok = await run('Could not save preferences', () => dbService.updateMyPrefs(currentTenantId, prefs));
@@ -673,13 +690,17 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addPost: Store['addPost'] = async (p) => {
-    if (!currentTenantId) return false;
-    const ok = await run('Could not publish', () => dbService.publishPost(currentTenantId, p), {
+    if (!currentTenantId) return null;
+    let ids: string[] | null = null;
+    const ok = await run('Could not publish', async () => {
+      ids = await dbService.publishPost(currentTenantId, p);
+    }, {
       title: p.kind === 'official' ? 'Announcement published' : 'Posted',
       description: `${p.audiences.map((a) => a.label).join(', ')}${p.notify ? ' · audience notified' : ''}`,
     });
-    if (ok) setPosts(await dbService.getPosts(currentTenantId));
-    return ok;
+    if (!ok) return null;
+    setPosts(await dbService.getPosts(currentTenantId));
+    return ids?.[0] ?? null;
   };
 
   const reportPost = (id: string, reason: string) =>
@@ -931,6 +952,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     issues: myIssues,
     cases,
     updatePostalProfile,
+    completeSetupStory,
     addIssue,
     issueAction,
     escalateCase,

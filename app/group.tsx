@@ -1,29 +1,68 @@
 import React from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, RefreshControl, ScrollView, TextInput, View } from 'react-native';
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
+import { TourTarget } from '@wrack/react-native-tour-guide';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Avatar, IconButton, IconTile, LoadingState, Notice, PostCard, SegmentedControl, StackHeader, Txt } from '../src/components';
+import { Avatar, Button, IconButton, IconTile, LoadingState, Notice, PostCard, SegmentedControl, Sheet, StackHeader, TextArea, Txt } from '../src/components';
 import { colors, fonts, palette, radius } from '../src/theme';
 import { useStore, AudienceScope, ChatMessage } from '../src/store/AppStore';
 import { dbService } from '../src/services/db';
 import { errorMessage } from '../src/lib/format';
 import { supabase } from '../src/services/supabase';
+import { useAppTour } from '../src/tour/AppTourProvider';
+import { registerSetupAction } from '../src/tour/actions';
+import { buildIntroMessage } from '../src/tour/logic';
+import { SetupCoach } from '../src/tour/SetupCoach';
 
 /** A geographic / functional-group / committee space: its feed + group chat (PRD §4.7, §7.2, §7.3, §8.2).
  *  Membership is enforced by RLS (in_audience) on every read and write. */
 export default function GroupSpace() {
- const params = useLocalSearchParams<{ scope: string; value: string; name: string }>();
+ const params = useLocalSearchParams<{ scope: string; value: string; name: string; intro?: string }>();
  const scope = (params.scope || 'org') as AudienceScope;
  const value = params.value ? String(params.value) : null;
  const { tenant, activeMember, allMembers, posts, liked, toggleLike, toast, authReady, signedIn, isOrgAdmin, isPlatformSuperAdmin, canWriteInChannel, refresh } = useStore();
+ const { completeSetupStep, setupStepId } = useAppTour();
  const [tab, setTab] = React.useState('Chat');
  const [messages, setMessages] = React.useState<ChatMessage[]>([]);
  const [loadingMessages, setLoadingMessages] = React.useState(true);
  const [refreshing, setRefreshing] = React.useState(false);
  const [draft, setDraft] = React.useState('');
+ const [introSheetOpen, setIntroSheetOpen] = React.useState(false);
+ const [introText, setIntroText] = React.useState('');
+ const [introSending, setIntroSending] = React.useState(false);
  const canWriteChat = canWriteInChannel(scope, value);
+ const introRequested = params.intro === '1' || params.intro === 'true';
+ const introPrefilled = React.useRef(false);
  const insets = useSafeAreaInsets();
  const scrollRef = React.useRef<ScrollView>(null);
+
+ React.useEffect(() => {
+  if (!introRequested || introPrefilled.current || !activeMember) return;
+  introPrefilled.current = true;
+  const template = buildIntroMessage(activeMember);
+  setDraft((current) => current.trim() ? current : template);
+  setIntroText((current) => current.trim() ? current : template);
+ }, [introRequested, activeMember]);
+
+ const openIntroRef = React.useRef<() => void>(() => undefined);
+ openIntroRef.current = () => {
+  if (!introRequested || !activeMember) return;
+  setIntroText((current) => current.trim() ? current : buildIntroMessage(activeMember));
+  setIntroSheetOpen(true);
+ };
+ React.useEffect(() => registerSetupAction('setup-intro', () => openIntroRef.current()), []);
+
+ const introAutoOpened = React.useRef(false);
+ React.useEffect(() => {
+  if (setupStepId !== 'setup-intro' || !introRequested) {
+   introAutoOpened.current = false;
+   return;
+  }
+  if (introAutoOpened.current) return;
+  introAutoOpened.current = true;
+  const timer = setTimeout(() => openIntroRef.current(), 700);
+  return () => clearTimeout(timer);
+ }, [setupStepId, introRequested]);
  const load = React.useCallback(async () => {
   if (!tenant) return;
   try {
@@ -97,10 +136,28 @@ export default function GroupSpace() {
   try {
    await dbService.sendMessage(tenant.id, scope, value, activeMember, text);
    await load();
+   if (introRequested) completeSetupStep('intro');
   } catch (e) {
    setMessages((prev) => prev.filter((m) => m.id !== tempId));
    setDraft(text);
    toast({ title: 'Message not sent', description: errorMessage(e) });
+  }
+ };
+
+ const sendIntro = async () => {
+  if (!tenant || !activeMember || !introText.trim() || introSending) return;
+  if (!canWriteChat) return;
+  setIntroSending(true);
+  try {
+   await dbService.sendMessage(tenant.id, scope, value, activeMember, introText.trim());
+   setDraft('');
+   setIntroSheetOpen(false);
+   await load();
+   completeSetupStep('intro');
+  } catch (e) {
+   toast({ title: 'Message not sent', description: errorMessage(e) });
+  } finally {
+   setIntroSending(false);
   }
  };
 
@@ -175,27 +232,29 @@ export default function GroupSpace() {
       </ScrollView>
 
       {canWriteChat ? (
-       <View style={{
-        paddingHorizontal: 12,
-        paddingTop: 8,
-        paddingBottom: Math.max(insets.bottom, 12),
-        backgroundColor: colors.bgApp,
-        borderTopWidth: 1,
-        borderTopColor: colors.borderSubtle,
-       }}>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 6, paddingLeft: 14, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.borderDefault, backgroundColor: colors.surfaceCard }}>
-         <TextInput
-          value={draft}
-          onChangeText={setDraft}
-          placeholder="Write a message…"
-          placeholderTextColor={colors.textPlaceholder}
-          multiline
-          selectionColor={colors.accent}
-          style={{ flex: 1, minHeight: 36, maxHeight: 120, paddingTop: 8, paddingBottom: 8, fontFamily: fonts.sans400, fontSize: 15, color: colors.textPrimary }}
-         />
-         <IconButton icon="send" label="Send message" variant={draft.trim() ? 'primary' : 'ghost'} onPress={draft.trim() ? send : undefined} />
+       <TourTarget id="group-composer" style={{ borderRadius: radius.xl }}>
+        <View style={{
+         paddingHorizontal: 12,
+         paddingTop: 8,
+         paddingBottom: Math.max(insets.bottom, 12),
+         backgroundColor: colors.bgApp,
+         borderTopWidth: 1,
+         borderTopColor: colors.borderSubtle,
+        }}>
+         <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 6, paddingLeft: 14, borderRadius: radius.xl, borderWidth: 1, borderColor: colors.borderDefault, backgroundColor: colors.surfaceCard }}>
+          <TextInput
+           value={draft}
+           onChangeText={setDraft}
+           placeholder="Write a message…"
+           placeholderTextColor={colors.textPlaceholder}
+           multiline
+           selectionColor={colors.accent}
+           style={{ flex: 1, minHeight: 36, maxHeight: 120, paddingTop: 8, paddingBottom: 8, fontFamily: fonts.sans400, fontSize: 15, color: colors.textPrimary }}
+          />
+          <IconButton icon="send" label="Send message" variant={draft.trim() ? 'primary' : 'ghost'} onPress={draft.trim() ? send : undefined} />
+         </View>
         </View>
-       </View>
+       </TourTarget>
       ) : (
        <View style={{
         paddingHorizontal: 16,
@@ -216,6 +275,34 @@ export default function GroupSpace() {
      </View>
     )}
    </KeyboardAvoidingView>
+
+   <Sheet visible={introSheetOpen} onClose={() => setIntroSheetOpen(false)} title="Your introduction">
+    <View style={{ paddingHorizontal: 16, gap: 14, paddingBottom: 28 }}>
+     <SetupCoach
+      stepId="setup-intro"
+      title="Say hello"
+      description="This is posted once to the division channel. Make it sound like you, then send it."
+     />
+     <Txt variant="bodyS" color={colors.textSecondary}>
+      Posting to {String(params.name || 'your division channel')}.
+     </Txt>
+     <TextArea
+      value={introText}
+      onChangeText={setIntroText}
+      placeholder="Introduce yourself to your colleagues…"
+     />
+     <Button
+      block
+      size="lg"
+      icon="send"
+      disabled={!introText.trim() || introSending}
+      onPress={sendIntro}
+     >
+      {introSending ? 'Sending…' : 'Send introduction'}
+     </Button>
+     <Button variant="ghost" block onPress={() => setIntroSheetOpen(false)}>Not now</Button>
+    </View>
+   </Sheet>
   </View>
  );
 }

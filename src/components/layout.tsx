@@ -7,11 +7,12 @@ import { IconButton } from './IconButton';
 import { Txt } from './Txt';
 
 /** Scrollable screen on paper-50 with safe-area top padding. */
-export function Screen({ children, header, stickyHeaderIndices, refreshing, onRefresh, avoidKeyboard = true, ...rest }: ScrollViewProps & { header?: React.ReactNode; refreshing?: boolean; onRefresh?: () => void; avoidKeyboard?: boolean }) {
+export function Screen({ children, header, stickyHeaderIndices, refreshing, onRefresh, avoidKeyboard = true, scrollRef, ...rest }: ScrollViewProps & { header?: React.ReactNode; refreshing?: boolean; onRefresh?: () => void; avoidKeyboard?: boolean; scrollRef?: React.RefObject<ScrollView> }) {
   const insets = useSafeAreaInsets();
   const scroll = (
     <ScrollView
       {...rest}
+      ref={scrollRef}
       stickyHeaderIndices={stickyHeaderIndices}
       keyboardShouldPersistTaps="handled"
       // Keyboard must never cover the focused field (PRD §14.4): standard iOS/Android stack.

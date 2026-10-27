@@ -2,6 +2,7 @@ import React from 'react';
 import { FlatList, Pressable, RefreshControl, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { TourTarget } from '@wrack/react-native-tour-guide';
 import { Avatar, Button, Card, Dialog, FeedSkeleton, Field, Icon, IconButton, IconTile, PostCard, ScreenHeader, SegmentedControl, Select, Sheet, SuccessOverlay, TextArea, Txt } from '../../src/components';
 import { colors, fonts, palette, radius } from '../../src/theme';
 import { useStore, Post, AudienceOption } from '../../src/store/AppStore';
@@ -49,10 +50,15 @@ export default function Home() {
   const canCompose = tenant?.settings?.memberPosts !== false && audienceOptions.member.length > 0;
   const publishDraft = async () => {
     if (!draft.trim() || !target) return;
-    const ok = await addPost({ kind: 'member', body: draft.trim(), pinned: false, audiences: [target], notify: false });
-    if (!ok) return;
+    const firstPost = !storePosts.some((p) => p.authorId === activeMember?.id && p.kind === 'member');
+    const postId = await addPost({ kind: 'member', body: draft.trim(), pinned: false, audiences: [target], notify: false });
+    if (!postId) return;
     setDraft('');
     setComposeOpen(false);
+    if (firstPost) {
+      router.push({ pathname: '/post', params: { id: postId, guide: 'post' } } as never);
+      return;
+    }
     setSuccess(true);
     setTimeout(() => setSuccess(false), 1400);
   };
@@ -67,15 +73,19 @@ export default function Home() {
           <>
             <IconButton icon="search" label="Search" size="lg" onPress={() => router.push('/search')} />
             {isLeader ? <IconButton icon="shield" label="Management" size="lg" onPress={() => router.push('/manage')} /> : null}
-            <Pressable accessibilityLabel="Your profile" onPress={() => router.push('/profile')} style={{ marginLeft: 4 }}>
-              <Avatar name={activeMember?.name || 'User'} uri={activeMember?.avatarUrl} size={34} />
-            </Pressable>
+            <TourTarget id="home-profile" style={{ marginLeft: 4, borderRadius: 17 }}>
+              <Pressable accessibilityLabel="Your profile" onPress={() => router.push('/profile')}>
+                <Avatar name={activeMember?.name || 'User'} uri={activeMember?.avatarUrl} size={34} />
+              </Pressable>
+            </TourTarget>
           </>
         }
       />
 
       <View style={{ paddingHorizontal: 16, paddingBottom: 10, backgroundColor: colors.bgApp }}>
-        <SegmentedControl items={FILTERS} value={filter} onChange={setFilter} />
+        <TourTarget id="home-feed-tabs" style={{ borderRadius: radius.m }}>
+          <SegmentedControl items={FILTERS} value={filter} onChange={setFilter} />
+        </TourTarget>
       </View>
 
       <FlatList

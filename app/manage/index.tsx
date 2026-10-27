@@ -1,9 +1,11 @@
 import React from 'react';
 import { Image, Share, View } from 'react-native';
 import { router } from 'expo-router';
+import { TourTarget } from '@wrack/react-native-tour-guide';
 import { Button, Card, IconTile, IssueCard, ListCard, ListRow, MetricTile, Screen, SectionLabel, StackHeader, Txt } from '../../src/components';
 import { colors } from '../../src/theme';
 import { useStore } from '../../src/store/AppStore';
+import { manageScrollRef } from '../../src/tour/scrollRegistry';
 
 /** Role-scoped dashboard (PRD §10). Every number is computed from records the database
  *  returned for this user, so it can only cover cases and members inside their scope. */
@@ -26,8 +28,10 @@ export default function ManageOverview() {
  ).sort((a, b) => b[1] - a[1]);
 
  return (
-  <Screen refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await refresh(); setRefreshing(false); }}>
-   <StackHeader onBack={() => router.back()} title="Management" />
+  <Screen scrollRef={manageScrollRef} refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await refresh(); setRefreshing(false); }}>
+   <TourTarget id="manage-header">
+    <StackHeader onBack={() => router.back()} title="Management" />
+   </TourTarget>
    <View style={{ paddingHorizontal: 16, paddingTop: 4, gap: 4 }}>
     <Txt variant="overline" color={colors.textMuted}>{scope}</Txt>
     <Txt variant="displayM">Welcome, {activeMember?.name}</Txt>
@@ -60,12 +64,32 @@ export default function ManageOverview() {
    </View>
 
    <ListCard style={{ marginHorizontal: 12 }}>
-    {isHandler ? <ListRow title={`${terminology.caseLabel} queue`} subtitle={`${metrics.open} open in your scope`} left={<IconTile icon="inbox" />} onPress={() => router.push('/manage/queue')} /> : null}
-    <ListRow title="Committees & appointments" subtitle={`${committees.length} committees`} left={<IconTile icon="users" tone="committee" />} onPress={() => router.push('/manage/committee')} />
-    <ListRow title="New announcement" subtitle="Publish to audiences you’re authorized for" left={<IconTile icon="megaphone" />} onPress={() => router.push('/manage/announce')} />
-    {isMembershipAdmin ? <ListRow title="Members & approvals" subtitle={pendingCount ? `${pendingCount} pending` : 'Directory and status'} left={<IconTile icon="user-check" />} onPress={() => router.push('/manage/members')} /> : null}
-    {isOrgAdmin || isPlatformSuperAdmin ? <ListRow title="Settings & routing" subtitle="Terminology, categories, approval policy" left={<IconTile icon="settings" />} onPress={() => router.push('/manage/settings')} /> : null}
-    {isOrgAdmin || isPlatformSuperAdmin ? <ListRow title="Audit trail" subtitle="Who did what, and why" left={<IconTile icon="history" />} onPress={() => router.push('/manage/audit')} /> : null}
+    {isHandler ? (
+     <TourTarget id="manage-queue">
+      <ListRow title={`${terminology.caseLabel} queue`} subtitle={`${metrics.open} open in your scope`} left={<IconTile icon="inbox" />} onPress={() => router.push('/manage/queue')} />
+     </TourTarget>
+    ) : null}
+    <TourTarget id="manage-committee">
+     <ListRow title="Committees & appointments" subtitle={`${committees.length} committees`} left={<IconTile icon="users" tone="committee" />} onPress={() => router.push('/manage/committee')} />
+    </TourTarget>
+    <TourTarget id="manage-announce">
+     <ListRow title="New announcement" subtitle="Publish to audiences you’re authorized for" left={<IconTile icon="megaphone" />} onPress={() => router.push('/manage/announce')} />
+    </TourTarget>
+    {isMembershipAdmin ? (
+     <TourTarget id="manage-members">
+      <ListRow title="Members & approvals" subtitle={pendingCount ? `${pendingCount} pending` : 'Directory and status'} left={<IconTile icon="user-check" />} onPress={() => router.push('/manage/members')} />
+     </TourTarget>
+    ) : null}
+    {isOrgAdmin || isPlatformSuperAdmin ? (
+     <TourTarget id="manage-settings">
+      <ListRow title="Settings & routing" subtitle="Terminology, categories, approval policy" left={<IconTile icon="settings" />} onPress={() => router.push('/manage/settings')} />
+     </TourTarget>
+    ) : null}
+    {isOrgAdmin || isPlatformSuperAdmin ? (
+     <TourTarget id="manage-audit">
+      <ListRow title="Audit trail" subtitle="Who did what, and why" left={<IconTile icon="history" />} onPress={() => router.push('/manage/audit')} />
+     </TourTarget>
+    ) : null}
    </ListCard>
 
    {workload.length ? (

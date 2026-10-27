@@ -39,6 +39,7 @@ function mapProfile(r: Record<string, any>): Persona {
     roles: Array.isArray(r.roles) ? r.roles : ['member'],
     status: r.status,
     statusReason: r.status_reason ?? undefined,
+    setupVersion: typeof r.setup_version === 'number' ? r.setup_version : undefined,
     since: r.created_at ? new Date(r.created_at).toLocaleDateString() : '',
     prefs: r.notification_prefs ?? undefined,
     employeeId: r.employee_id ?? undefined,
@@ -197,6 +198,9 @@ export const dbService = {
     const rows = await must(supabase.rpc('get_my_memberships'));
     return ((rows as any[]) || []).map(mapProfile);
   },
+
+  completeSetupStory: (tenantId: string) =>
+    must(supabase.rpc('complete_setup_story', { p_tenant: tenantId })),
 
   async getMyTenants(): Promise<Tenant[]> {
     const rows = await must(supabase.from('tenants').select('id, name, short_name, code, description, terminology, settings').eq('active', true));

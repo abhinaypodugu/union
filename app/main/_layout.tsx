@@ -1,14 +1,17 @@
 import React from 'react';
 import { Redirect, Tabs } from 'expo-router';
 import type { ColorValue } from 'react-native';
+import { TourTarget } from '@wrack/react-native-tour-guide';
 import { Icon } from '../../src/components';
 import { colors, fonts, palette } from '../../src/theme';
 import { useStore } from '../../src/store/AppStore';
 
-const tab = (title: string, icon: string) => ({
+const tab = (title: string, icon: string, tourId: string) => ({
   title,
   tabBarIcon: ({ color, focused }: { color: ColorValue; focused: boolean }) => (
-    <Icon name={icon} size={24} color={color as string} strokeWidth={focused ? 2.1 : 1.6} />
+    <TourTarget id={tourId} style={{ borderRadius: 12 }}>
+      <Icon name={icon} size={24} color={color as string} strokeWidth={focused ? 2.1 : 1.6} />
+    </TourTarget>
   ),
 });
 
@@ -29,11 +32,11 @@ export default function TabsLayout() {
         tabBarBadgeStyle: { backgroundColor: palette.redSolid, color: palette.paper0, fontFamily: fonts.sans700, fontSize: 11 },
       }}
     >
-      <Tabs.Screen name="index" options={tab('Home', 'house')} />
-      <Tabs.Screen name="groups" options={tab('Groups', 'users-round')} />
-      <Tabs.Screen name="issues" options={tab(terminology.caseLabel.toLowerCase().endsWith('s') ? terminology.caseLabel : terminology.caseLabel + 's', 'circle-alert')} />
-      <Tabs.Screen name="alerts" options={{ ...tab('Alerts', 'bell'), tabBarBadge: unreadCount || undefined }} />
-      <Tabs.Screen name="org" options={tab(terminology.orgLabel, 'network')} />
+      <Tabs.Screen name="index" options={tab('Home', 'house', 'tab-home')} />
+      <Tabs.Screen name="groups" options={tab('Groups', 'users-round', 'tab-groups')} />
+      <Tabs.Screen name="issues" options={tab(terminology.caseLabel.toLowerCase().endsWith('s') ? terminology.caseLabel : terminology.caseLabel + 's', 'circle-alert', 'tab-issues')} />
+      <Tabs.Screen name="alerts" options={{ ...tab('Alerts', 'bell', 'tab-alerts'), tabBarBadge: unreadCount || undefined }} />
+      <Tabs.Screen name="org" options={tab(terminology.orgLabel, 'network', 'tab-org')} />
     </Tabs>
   );
 }

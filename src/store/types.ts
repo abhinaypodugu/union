@@ -212,6 +212,7 @@ export interface Persona {
   roles: string[];
   status: MembershipStatus;
   statusReason?: string;
+  setupVersion?: number;
   since: string;
   prefs?: NotificationPrefs;
   employeeId?: string;
